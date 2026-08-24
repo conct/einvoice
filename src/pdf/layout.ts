@@ -1,0 +1,686 @@
+import { rgb, type PDFFont, type PDFImage, type PDFPage, type RGB } from 'pdf-lib';
+import type { Invoice, Party } from '../model/invoice';
+import type { InvoiceTotals } from '../model/totals';
+import { formatAmount, formatQuantity } from '../util/money';
+import { formatDate } from '../util/date';
+
+/** A4 in PostScript-Punkten */
+export const A4 = { width: 595.28, height: 841.89 } as const;
+
+/** 1 mm in Punkten */
+const MM = 2.834645669;
+
+export interface Theme {
+  accent: RGB;
+  text: RGB;
+  muted: RGB;
+  hairline: RGB;
+  zebra: RGB;
+}
+
+export const DEFAULT_THEME: Theme = {
+  accent: rgb(0.06, 0.32, 0.55),
+  text: rgb(0.11, 0.12, 0.14),
+  muted: rgb(0.42, 0.45, 0.5),
+  hairline: rgb(0.82, 0.84, 0.87),
+  zebra: rgb(0.965, 0.972, 0.98),
+};
+
+export interface LayoutFonts {
+  regular: PDFFont;
+  bold: PDFFont;
+}
+
+export interface LayoutContext {
+  fonts: LayoutFonts;
+  theme: Theme;
+  logo?: PDFImage;
+  /** Freitext fuer die Fusszeile, z.B. Geschaeftsfuehrer und Registergericht */
+  footerNote?: string;
+}
+
+const PAGE = {
+  left: 20 * MM,
+  right: A4.width - 20 * MM,
+  top: A4.height - 15 * MM,
+  bottom: 22 * MM,
+} as const;
+
+/** Spaltenraster der Positionstabelle, Anteile der verfuegbaren Breite */
+const COLUMNS = [
+  { key: 'pos', label: 'Pos.', width: 26, align: 'left' as const },
+  { key: 'name', label: 'Bezeichnung', width: 0, align: 'left' as const },
+  { key: 'qty', label: 'Menge', width: 58, align: 'right' as const },
+  { key: 'price', label: 'Einzelpreis', width: 72, align: 'right' as const },
+  { key: 'vat', label: 'USt.', width: 38, align: 'right' as const },
+  { key: 'total', label: 'Betrag', width: 76, align: 'right' as const },
+];
+
+interface Cursor {
+  page: PDFPage;
+  y: number;
+  pageIndex: number;
+}
+
+/**
+ * Zeichnet das menschenlesbare Bild der Rechnung.
+ *
+ * Das Bild ist nach ZUGFeRD gleichrangig zum eingebetteten XML: bei
+ * Abweichungen gilt das XML als fuehrend, aber der Empfaenger darf sich auf
+ * das Sichtbare verlassen. Beide stammen deshalb aus derselben Datenquelle
+ * und denselben berechneten Summen.
+ */
+export function drawInvoice(
+  addPage: () => PDFPage,
+  invoice: Invoice,
+  totals: InvoiceTotals,
+  context: LayoutContext,
+): PDFPage[] {
+  const pages: PDFPage[] = [];
+  const cursor: Cursor = { page: addPage(), y: PAGE.top, pageIndex: 0 };
+  pages.push(cursor.page);
+
+  const nextPage = () => {
+    cursor.page = addPage();
+    cursor.pageIndex += 1;
+    cursor.y = PAGE.top;
+    pages.push(cursor.page);
+    drawContinuationHeader(cursor, invoice, context);
+  };
+
+  const ensure = (needed: number) => {
+    if (cursor.y - needed < PAGE.bottom + 40) nextPage();
+  };
+
+  drawLetterhead(cursor, invoice, context);
+  drawAddressAndMeta(cursor, invoice, context);
+  drawTitle(cursor, invoice, context);
+  drawLineTable(cursor, invoice, totals, context, ensure, nextPage);
+  drawTotals(cursor, invoice, totals, context, ensure);
+  drawVatBreakdown(cursor, invoice, totals, context, ensure);
+  drawPaymentBlock(cursor, invoice, totals, context, ensure);
+  drawNotes(cursor, invoice, context, ensure);
+
+  pages.forEach((page, index) => drawFooter(page, index, pages.length, invoice, context));
+  return pages;
+}
+
+// --- Bausteine --------------------------------------------------------------
+
+function drawLetterhead(cursor: Cursor, invoice: Invoice, ctx: LayoutContext): void {
+  const { page } = cursor;
+  const seller = invoice.seller;
+
+  if (ctx.logo) {
+    const maxWidth = 150;
+    const maxHeight = 48;
+    const scale = Math.min(maxWidth / ctx.logo.width, maxHeight / ctx.logo.height, 1);
+    const width = ctx.logo.width * scale;
+    const height = ctx.logo.height * scale;
+    page.drawImage(ctx.logo, { x: PAGE.right - width, y: PAGE.top - height, width, height });
+  } else {
+    drawRight(page, seller.tradingName ?? seller.name, PAGE.right, PAGE.top - 12, {
+      font: ctx.fonts.bold,
+      size: 13,
+      color: ctx.theme.accent,
+    });
+  }
+
+  const lines = [
+    seller.address.line1,
+    seller.address.line2,
+    [seller.address.postcode, seller.address.city].filter(Boolean).join(' '),
+    seller.contact?.phone ? `Tel. ${seller.contact.phone}` : undefined,
+    seller.contact?.email,
+  ].filter((value): value is string => Boolean(value));
+
+  let y = PAGE.top - (ctx.logo ? 60 : 28);
+  for (const line of lines) {
+    drawRight(page, line, PAGE.right, y, { font: ctx.fonts.regular, size: 8, color: ctx.theme.muted });
+    y -= 10;
+  }
+  cursor.y = Math.min(cursor.y, y) - 6;
+}
+
+function drawAddressAndMeta(cursor: Cursor, invoice: Invoice, ctx: LayoutContext): void {
+  const { page } = cursor;
+  // Anschriftenfeld nach DIN 5008: 45 mm von oben, damit es im Fensterumschlag steht
+  const addressTop = A4.height - 45 * MM;
+
+  drawText(
+    page,
+    `${invoice.seller.name} - ${invoice.seller.address.line1} - ${invoice.seller.address.postcode ?? ''} ${invoice.seller.address.city}`,
+    PAGE.left,
+    addressTop + 14,
+    { font: ctx.fonts.regular, size: 6.5, color: ctx.theme.muted },
+  );
+  page.drawLine({
+    start: { x: PAGE.left, y: addressTop + 11 },
+    end: { x: PAGE.left + 85 * MM, y: addressTop + 11 },
+    thickness: 0.4,
+    color: ctx.theme.hairline,
+  });
+
+  let y = addressTop;
+  for (const line of addressLines(invoice.buyer)) {
+    drawText(page, line, PAGE.left, y, { font: ctx.fonts.regular, size: 10, color: ctx.theme.text });
+    y -= 12.5;
+  }
+
+  // Kennzahlenblock rechts neben dem Anschriftenfeld
+  const metaRows: Array<[string, string | undefined]> = [
+    ['Rechnungsnummer', invoice.number],
+    ['Rechnungsdatum', formatDate(invoice.issueDate)],
+    ['Leistungsdatum', invoice.deliveryDate ? formatDate(invoice.deliveryDate) : undefined],
+    [
+      'Leistungszeitraum',
+      invoice.periodStart && invoice.periodEnd
+        ? `${formatDate(invoice.periodStart)} - ${formatDate(invoice.periodEnd)}`
+        : undefined,
+    ],
+    ['Faellig am', invoice.dueDate ? formatDate(invoice.dueDate) : undefined],
+    ['Kundennummer', invoice.buyer.identifier],
+    ['Leitweg-ID', invoice.buyerReference],
+    ['Bestellnummer', invoice.orderReference],
+    ['Projekt', invoice.projectReference],
+  ];
+
+  const metaX = PAGE.left + 105 * MM;
+  let metaY = addressTop + 6;
+  for (const [label, value] of metaRows) {
+    if (!value) continue;
+    drawText(page, label, metaX, metaY, { font: ctx.fonts.regular, size: 8, color: ctx.theme.muted });
+    drawRight(page, value, PAGE.right, metaY, {
+      font: ctx.fonts.bold,
+      size: 8.5,
+      color: ctx.theme.text,
+    });
+    metaY -= 12;
+  }
+
+  cursor.y = Math.min(y, metaY) - 22;
+}
+
+function drawTitle(cursor: Cursor, invoice: Invoice, ctx: LayoutContext): void {
+  const label = documentLabel(invoice.typeCode);
+  drawText(cursor.page, `${label} ${invoice.number}`, PAGE.left, cursor.y, {
+    font: ctx.fonts.bold,
+    size: 16,
+    color: ctx.theme.accent,
+  });
+  cursor.y -= 12;
+  if (invoice.precedingInvoice) {
+    drawText(
+      cursor.page,
+      `Bezug: Rechnung ${invoice.precedingInvoice.number}` +
+        (invoice.precedingInvoice.issueDate
+          ? ` vom ${formatDate(invoice.precedingInvoice.issueDate)}`
+          : ''),
+      PAGE.left,
+      cursor.y,
+      { font: ctx.fonts.regular, size: 8.5, color: ctx.theme.muted },
+    );
+    cursor.y -= 12;
+  }
+  cursor.y -= 10;
+}
+
+function columnLayout(): Array<{ key: string; label: string; x: number; width: number; align: 'left' | 'right' }> {
+  const fixed = COLUMNS.reduce((acc, column) => acc + column.width, 0);
+  const flexible = PAGE.right - PAGE.left - fixed;
+  let x = PAGE.left;
+  return COLUMNS.map((column) => {
+    const width = column.width === 0 ? flexible : column.width;
+    const entry = { key: column.key, label: column.label, x, width, align: column.align };
+    x += width;
+    return entry;
+  });
+}
+
+function drawTableHead(cursor: Cursor, ctx: LayoutContext): void {
+  const columns = columnLayout();
+  const { page } = cursor;
+  page.drawRectangle({
+    x: PAGE.left,
+    y: cursor.y - 4,
+    width: PAGE.right - PAGE.left,
+    height: 18,
+    color: ctx.theme.accent,
+  });
+  for (const column of columns) {
+    const options = { font: ctx.fonts.bold, size: 8, color: rgb(1, 1, 1) };
+    if (column.align === 'right') {
+      drawRight(page, column.label, column.x + column.width - 4, cursor.y + 1, options);
+    } else {
+      drawText(page, column.label, column.x + 4, cursor.y + 1, options);
+    }
+  }
+  cursor.y -= 20;
+}
+
+function drawLineTable(
+  cursor: Cursor,
+  invoice: Invoice,
+  totals: InvoiceTotals,
+  ctx: LayoutContext,
+  ensure: (needed: number) => void,
+  _nextPage: () => void,
+): void {
+  const columns = columnLayout();
+  const nameColumn = columns.find((c) => c.key === 'name');
+  drawTableHead(cursor, ctx);
+
+  invoice.lines.forEach((line, index) => {
+    const nameWidth = (nameColumn?.width ?? 200) - 8;
+    const nameLines = wrapText(line.name, ctx.fonts.bold, 9, nameWidth);
+    const descriptionLines = line.description
+      ? wrapText(line.description, ctx.fonts.regular, 8, nameWidth)
+      : [];
+    const periodText =
+      line.periodStart && line.periodEnd
+        ? `Zeitraum ${formatDate(line.periodStart)} - ${formatDate(line.periodEnd)}`
+        : undefined;
+    const extraLines = [
+      ...descriptionLines,
+      ...(periodText ? [periodText] : []),
+      ...line.attributes.map((a) => `${a.name}: ${a.value}`),
+    ];
+    const rowHeight = 8 + nameLines.length * 11 + extraLines.length * 9.5;
+
+    ensure(rowHeight + 4);
+    if (cursor.y === PAGE.top) drawTableHead(cursor, ctx);
+
+    if (index % 2 === 1) {
+      cursor.page.drawRectangle({
+        x: PAGE.left,
+        y: cursor.y - rowHeight + 10,
+        width: PAGE.right - PAGE.left,
+        height: rowHeight,
+        color: ctx.theme.zebra,
+      });
+    }
+
+    const baseY = cursor.y;
+    const cell = (key: string, text: string, bold = false, size = 9) => {
+      const column = columns.find((c) => c.key === key);
+      if (!column) return;
+      const options = {
+        font: bold ? ctx.fonts.bold : ctx.fonts.regular,
+        size,
+        color: ctx.theme.text,
+      };
+      if (column.align === 'right') {
+        drawRight(cursor.page, text, column.x + column.width - 4, baseY, options);
+      } else {
+        drawText(cursor.page, text, column.x + 4, baseY, options);
+      }
+    };
+
+    cell('pos', line.id);
+    cell('qty', `${formatQuantity(line.quantity)} ${unitLabel(line.unitCode)}`);
+    cell('price', formatAmount(line.unitPrice, undefined, line.unitPrice % 1 === 0 ? 2 : 2));
+    cell('vat', line.vat.category === 'S' ? `${formatQuantity(line.vat.rate)} %` : line.vat.category);
+    cell('total', formatAmount(totals.lineAmounts[index] ?? 0), true);
+
+    let textY = baseY;
+    for (const text of nameLines) {
+      drawText(cursor.page, text, (nameColumn?.x ?? PAGE.left) + 4, textY, {
+        font: ctx.fonts.bold,
+        size: 9,
+        color: ctx.theme.text,
+      });
+      textY -= 11;
+    }
+    for (const text of extraLines) {
+      drawText(cursor.page, text, (nameColumn?.x ?? PAGE.left) + 4, textY, {
+        font: ctx.fonts.regular,
+        size: 8,
+        color: ctx.theme.muted,
+      });
+      textY -= 9.5;
+    }
+
+    cursor.y -= rowHeight;
+    cursor.page.drawLine({
+      start: { x: PAGE.left, y: cursor.y + 7 },
+      end: { x: PAGE.right, y: cursor.y + 7 },
+      thickness: 0.4,
+      color: ctx.theme.hairline,
+    });
+  });
+
+  cursor.y -= 10;
+}
+
+function drawTotals(
+  cursor: Cursor,
+  invoice: Invoice,
+  totals: InvoiceTotals,
+  ctx: LayoutContext,
+  ensure: (needed: number) => void,
+): void {
+  const rows: Array<[string, string, boolean]> = [];
+  rows.push(['Zwischensumme netto', formatAmount(totals.lineTotal, invoice.currency), false]);
+  for (const ac of invoice.allowancesCharges) {
+    rows.push([
+      `${ac.isCharge ? 'Zuschlag' : 'Abschlag'}${ac.reason ? ` (${ac.reason})` : ''}`,
+      formatAmount(ac.isCharge ? ac.amount : -ac.amount, invoice.currency),
+      false,
+    ]);
+  }
+  if (totals.allowanceTotal !== 0 || totals.chargeTotal !== 0) {
+    rows.push(['Gesamtsumme netto', formatAmount(totals.taxBasisTotal, invoice.currency), false]);
+  }
+  for (const tax of totals.vatBreakdown) {
+    const label =
+      tax.category === 'S'
+        ? `zzgl. ${formatQuantity(tax.rate)} % USt. auf ${formatAmount(tax.taxableAmount)}`
+        : `${vatCategoryLabel(tax.category)} auf ${formatAmount(tax.taxableAmount)}`;
+    rows.push([label, formatAmount(tax.taxAmount, invoice.currency), false]);
+  }
+  if (totals.roundingAmount !== 0) {
+    rows.push(['Rundung', formatAmount(totals.roundingAmount, invoice.currency), false]);
+  }
+  rows.push([`${documentLabel(invoice.typeCode)}sbetrag`, formatAmount(totals.grandTotal, invoice.currency), true]);
+  if (totals.paidAmount !== 0) {
+    rows.push(['abzgl. bereits gezahlt', formatAmount(-totals.paidAmount, invoice.currency), false]);
+    rows.push(['Zahlbetrag', formatAmount(totals.duePayable, invoice.currency), true]);
+  }
+
+  ensure(rows.length * 14 + 24);
+  const boxLeft = PAGE.left + 95 * MM;
+
+  for (const [label, value, emphasised] of rows) {
+    if (emphasised) {
+      cursor.page.drawLine({
+        start: { x: boxLeft, y: cursor.y + 11 },
+        end: { x: PAGE.right, y: cursor.y + 11 },
+        thickness: 0.8,
+        color: ctx.theme.accent,
+      });
+    }
+    drawText(cursor.page, label, boxLeft, cursor.y, {
+      font: emphasised ? ctx.fonts.bold : ctx.fonts.regular,
+      size: emphasised ? 10 : 8.5,
+      color: emphasised ? ctx.theme.text : ctx.theme.muted,
+    });
+    drawRight(cursor.page, value, PAGE.right, cursor.y, {
+      font: emphasised ? ctx.fonts.bold : ctx.fonts.regular,
+      size: emphasised ? 10 : 8.5,
+      color: ctx.theme.text,
+    });
+    cursor.y -= emphasised ? 16 : 13;
+  }
+  cursor.y -= 8;
+}
+
+function drawVatBreakdown(
+  cursor: Cursor,
+  invoice: Invoice,
+  totals: InvoiceTotals,
+  ctx: LayoutContext,
+  ensure: (needed: number) => void,
+): void {
+  const reasons = totals.vatBreakdown.filter((tax) => tax.exemptionReason);
+  if (reasons.length === 0) return;
+  ensure(reasons.length * 12 + 16);
+  for (const tax of reasons) {
+    drawText(cursor.page, `${vatCategoryLabel(tax.category)}: ${tax.exemptionReason}`, PAGE.left, cursor.y, {
+      font: ctx.fonts.regular,
+      size: 8,
+      color: ctx.theme.muted,
+    });
+    cursor.y -= 11;
+  }
+  cursor.y -= 8;
+  void invoice;
+}
+
+function drawPaymentBlock(
+  cursor: Cursor,
+  invoice: Invoice,
+  totals: InvoiceTotals,
+  ctx: LayoutContext,
+  ensure: (needed: number) => void,
+): void {
+  const payment = invoice.payment;
+  const lines: string[] = [];
+  if (payment?.terms) lines.push(payment.terms);
+  else if (invoice.dueDate) {
+    lines.push(
+      `Zahlbar ohne Abzug bis zum ${formatDate(invoice.dueDate)} auf das unten genannte Konto.`,
+    );
+  }
+  if (payment?.iban) {
+    lines.push(
+      [
+        payment.accountName ? `Kontoinhaber: ${payment.accountName}` : undefined,
+        `IBAN: ${formatIban(payment.iban)}`,
+        payment.bic ? `BIC: ${payment.bic}` : undefined,
+      ]
+        .filter(Boolean)
+        .join('   '),
+    );
+  }
+  if (payment?.remittanceInformation) {
+    lines.push(`Verwendungszweck: ${payment.remittanceInformation}`);
+  } else if (payment?.iban) {
+    lines.push(`Verwendungszweck: ${invoice.number}`);
+  }
+  if (payment?.meansCode === '59') {
+    lines.push(
+      `Der Betrag von ${formatAmount(totals.duePayable, invoice.currency)} wird per SEPA-Lastschrift eingezogen.` +
+        (payment.mandateReference ? ` Mandatsreferenz: ${payment.mandateReference}` : ''),
+    );
+  }
+  if (lines.length === 0) return;
+
+  ensure(lines.length * 12 + 30);
+  drawText(cursor.page, 'Zahlung', PAGE.left, cursor.y, {
+    font: ctx.fonts.bold,
+    size: 9,
+    color: ctx.theme.text,
+  });
+  cursor.y -= 13;
+  for (const line of lines) {
+    for (const wrapped of wrapText(line, ctx.fonts.regular, 8.5, PAGE.right - PAGE.left)) {
+      drawText(cursor.page, wrapped, PAGE.left, cursor.y, {
+        font: ctx.fonts.regular,
+        size: 8.5,
+        color: ctx.theme.text,
+      });
+      cursor.y -= 11;
+    }
+  }
+  cursor.y -= 8;
+}
+
+function drawNotes(
+  cursor: Cursor,
+  invoice: Invoice,
+  ctx: LayoutContext,
+  ensure: (needed: number) => void,
+): void {
+  if (invoice.notes.length === 0) return;
+  ensure(invoice.notes.length * 14 + 10);
+  for (const note of invoice.notes) {
+    for (const wrapped of wrapText(note.text, ctx.fonts.regular, 8.5, PAGE.right - PAGE.left)) {
+      drawText(cursor.page, wrapped, PAGE.left, cursor.y, {
+        font: ctx.fonts.regular,
+        size: 8.5,
+        color: ctx.theme.muted,
+      });
+      cursor.y -= 11;
+    }
+    cursor.y -= 4;
+  }
+}
+
+function drawContinuationHeader(cursor: Cursor, invoice: Invoice, ctx: LayoutContext): void {
+  drawText(
+    cursor.page,
+    `${documentLabel(invoice.typeCode)} ${invoice.number} - Fortsetzung`,
+    PAGE.left,
+    PAGE.top - 6,
+    { font: ctx.fonts.bold, size: 9, color: ctx.theme.muted },
+  );
+  cursor.y = PAGE.top - 30;
+}
+
+function drawFooter(
+  page: PDFPage,
+  index: number,
+  total: number,
+  invoice: Invoice,
+  ctx: LayoutContext,
+): void {
+  const seller = invoice.seller;
+  const y = PAGE.bottom;
+  page.drawLine({
+    start: { x: PAGE.left, y: y + 26 },
+    end: { x: PAGE.right, y: y + 26 },
+    thickness: 0.4,
+    color: ctx.theme.hairline,
+  });
+
+  const identity = [
+    seller.name,
+    seller.legalRegistrationId ? `Register: ${seller.legalRegistrationId}` : undefined,
+    seller.vatId ? `USt-IdNr.: ${seller.vatId}` : undefined,
+    seller.taxNumber ? `Steuernummer: ${seller.taxNumber}` : undefined,
+  ]
+    .filter(Boolean)
+    .join('  |  ');
+
+  const options = { font: ctx.fonts.regular, size: 7, color: ctx.theme.muted };
+  drawText(page, identity, PAGE.left, y + 16, options);
+  if (ctx.footerNote) drawText(page, ctx.footerNote, PAGE.left, y + 7, options);
+  drawRight(page, `Seite ${index + 1} von ${total}`, PAGE.right, y + 16, options);
+  drawRight(page, 'Diese Rechnung enthaelt strukturierte Daten nach ZUGFeRD 2.3.', PAGE.right, y + 7, {
+    ...options,
+    size: 6.5,
+  });
+}
+
+// --- Hilfsfunktionen --------------------------------------------------------
+
+interface TextOptions {
+  font: PDFFont;
+  size: number;
+  color: RGB;
+}
+
+function drawText(page: PDFPage, text: string, x: number, y: number, options: TextOptions): void {
+  page.drawText(text, { x, y, font: options.font, size: options.size, color: options.color });
+}
+
+function drawRight(page: PDFPage, text: string, right: number, y: number, options: TextOptions): void {
+  const width = options.font.widthOfTextAtSize(text, options.size);
+  page.drawText(text, { x: right - width, y, font: options.font, size: options.size, color: options.color });
+}
+
+/** Weicher Umbruch an Wortgrenzen, harte Trennung nur bei ueberlangen Woertern. */
+export function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): string[] {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let current = '';
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (font.widthOfTextAtSize(candidate, size) <= maxWidth) {
+      current = candidate;
+      continue;
+    }
+    if (current) lines.push(current);
+    if (font.widthOfTextAtSize(word, size) <= maxWidth) {
+      current = word;
+      continue;
+    }
+    let chunk = '';
+    for (const char of word) {
+      if (font.widthOfTextAtSize(chunk + char, size) > maxWidth) {
+        lines.push(chunk);
+        chunk = char;
+      } else chunk += char;
+    }
+    current = chunk;
+  }
+  if (current) lines.push(current);
+  return lines.length > 0 ? lines : [''];
+}
+
+function addressLines(party: Party): string[] {
+  return [
+    party.name,
+    party.tradingName && party.tradingName !== party.name ? party.tradingName : undefined,
+    party.contact?.name,
+    party.address.line1,
+    party.address.line2,
+    [party.address.postcode, party.address.city].filter(Boolean).join(' '),
+    party.address.countryCode !== 'DE' ? party.address.countryCode : undefined,
+  ].filter((value): value is string => Boolean(value));
+}
+
+function formatIban(iban: string): string {
+  return iban.replace(/\s/g, '').replace(/(.{4})/g, '$1 ').trim();
+}
+
+function documentLabel(typeCode: string): string {
+  switch (typeCode) {
+    case '381':
+      return 'Gutschrift';
+    case '384':
+      return 'Rechnungskorrektur';
+    case '386':
+      return 'Abschlagsrechnung';
+    case '389':
+      return 'Gutschrift (Selbstfakturierung)';
+    default:
+      return 'Rechnung';
+  }
+}
+
+function vatCategoryLabel(category: string): string {
+  switch (category) {
+    case 'AE':
+      return 'Steuerschuldnerschaft des Leistungsempfaengers';
+    case 'K':
+      return 'Innergemeinschaftliche Lieferung';
+    case 'G':
+      return 'Ausfuhrlieferung';
+    case 'E':
+      return 'Steuerbefreit';
+    case 'O':
+      return 'Nicht steuerbar';
+    case 'Z':
+      return 'Nullsatz';
+    default:
+      return 'Umsatzsteuer';
+  }
+}
+
+function unitLabel(unitCode: string): string {
+  switch (unitCode) {
+    case 'C62':
+      return 'Stk.';
+    case 'HUR':
+      return 'Std.';
+    case 'DAY':
+      return 'Tage';
+    case 'MON':
+      return 'Mon.';
+    case 'KGM':
+      return 'kg';
+    case 'MTR':
+      return 'm';
+    case 'MTK':
+      return 'qm';
+    case 'LTR':
+      return 'l';
+    case 'KMT':
+      return 'km';
+    case 'LS':
+      return 'pausch.';
+    default:
+      return unitCode;
+  }
+}
