@@ -80,8 +80,28 @@ export interface LizenzInhalt {
   kauf: string;
   /** Ausstellungstag, YYYY-MM-DD */
   ab: string;
-  /** Letzter Gueltigkeitstag, YYYY-MM-DD. Fehlt bei unbefristeten Kaeufen. */
+  /**
+   * Letzter Nutzungstag, YYYY-MM-DD. Fehlt bei unbefristeten Kaeufen.
+   *
+   * Nach diesem Tag faellt die App auf die kostenlose Stufe zurueck. Nur fuer
+   * Wiederkehrendes (Buero) gesetzt.
+   */
   bis?: string;
+
+  /**
+   * Letzter Tag mit Anspruch auf Aktualisierungen, YYYY-MM-DD.
+   *
+   * Bewusst getrennt von `bis`: Ein gekaufter Pro-Zugang bleibt unbefristet
+   * nutzbar, die Pflege ist befristet. Wer eine Rechnung schreiben muss, darf
+   * nicht an einem Stichtag stehenbleiben - E-Rechnung ist eine gesetzliche
+   * Pflicht, keine Bequemlichkeit. Der Anreiz zum Nachkaufen liegt in neuen
+   * Fassungen, nicht in einer Sperre.
+   *
+   * Heute wird daraus nichts abgeleitet ausser einer Anzeige. Das Feld steht
+   * jetzt im Format, damit spaeter nicht jeder ausgegebene Schluessel neu
+   * ausgestellt werden muss.
+   */
+  pflege?: string;
 }
 
 export type Lizenzbefund =
@@ -199,10 +219,28 @@ export async function pruefeSchluessel(
  * Werkzeug dieselbe Vorstellung davon haben, was gekauft wurde.
  */
 export const PRODUKTE = {
-  pro: { stufe: 'pro' as const, monate: undefined, beschreibung: 'Pro, einmalig, unbefristet' },
-  'buero-monat': { stufe: 'buero' as const, monate: 1, beschreibung: 'Buero, ein Monat' },
-  'buero-jahr': { stufe: 'buero' as const, monate: 12, beschreibung: 'Buero, zwoelf Monate' },
-} satisfies Record<string, { stufe: LizenzStufe; monate: number | undefined; beschreibung: string }>;
+  pro: {
+    stufe: 'pro' as const,
+    monate: undefined,
+    pflegeMonate: 12,
+    beschreibung: 'Pro, einmalig - unbefristet nutzbar, zwoelf Monate Aktualisierungen',
+  },
+  'buero-monat': {
+    stufe: 'buero' as const,
+    monate: 1,
+    pflegeMonate: 1,
+    beschreibung: 'Buero, ein Monat',
+  },
+  'buero-jahr': {
+    stufe: 'buero' as const,
+    monate: 12,
+    pflegeMonate: 12,
+    beschreibung: 'Buero, zwoelf Monate',
+  },
+} satisfies Record<
+  string,
+  { stufe: LizenzStufe; monate: number | undefined; pflegeMonate: number; beschreibung: string }
+>;
 
 export type Produkt = keyof typeof PRODUKTE;
 

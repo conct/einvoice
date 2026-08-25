@@ -16,6 +16,59 @@ import fontkit from '@pdf-lib/fontkit';
  * Rechnung mit einer Luecke an der Stelle des Empfaengers.
  */
 
+/**
+ * Fehler wegen nicht darstellbarer Zeichen.
+ *
+ * Ein eigener Typ, damit der Renderdienst ihn als Eingabefehler behandeln kann
+ * (422) statt als Serverfehler (500). Der Unterschied ist nicht kosmetisch:
+ * Ein 500er sagt dem Aufrufer, es liege an uns, und die App zeigt eine
+ * Meldung, mit der niemand etwas anfangen kann.
+ */
+export class ZeichenvorratFehler extends Error {
+  constructor(nachricht: string) {
+    super(nachricht);
+    this.name = 'ZeichenvorratFehler';
+  }
+}
+
+/**
+ * Zeichen, die absichtlich nichts zeichnen.
+ *
+ * Sie kommen beim Einfuegen aus einer Webseite oder einem PDF mit, ohne dass
+ * jemand sie sieht - allen voran U+200B, das unsichtbare Leerzeichen. Fuer die
+ * Pruefung sind sie kein Mangel: Dass die Schrift sie nicht kennt, ist richtig,
+ * denn sie sollen ja nichts darstellen.
+ *
+ * Anlass: Am 25.08.2026 lehnte der Renderdienst eine Rechnung mit der Meldung
+ * ab, die Schrift kenne "U+200B" nicht. Der Nutzer konnte das Zeichen weder
+ * sehen noch finden. Ein Abbruch wegen eines unsichtbaren Zeichens ist keine
+ * Vorsicht, sondern eine Sackgasse.
+ *
+ * Sie werden vor dem Zeichnen entfernt statt nur geduldet - was pdf-lib nicht
+ * darstellen kann, hat im Seiteninhalt nichts verloren.
+ */
+const UNSICHTBAR = new Set<number>([
+  0x00ad, // weiches Trennzeichen
+  0x200b, // unsichtbares Leerzeichen
+  0x200c, // Nichtverbinder
+  0x200d, // Verbinder
+  0x200e, // Schreibrichtung links-nach-rechts
+  0x200f, // Schreibrichtung rechts-nach-links
+  0x2060, // Wortverbinder
+  0xfeff, // Bytereihenfolge-Markierung
+]);
+
+/** Entfernt genau diese Zeichen aus einem Text. */
+export function ohneUnsichtbare(text: string): string {
+  let sauber = '';
+  for (const zeichen of text) {
+    const nummer = zeichen.codePointAt(0);
+    if (nummer !== undefined && UNSICHTBAR.has(nummer)) continue;
+    sauber += zeichen;
+  }
+  return sauber;
+}
+
 /** Sammelt die Zeichen, die in keiner der uebergebenen Schriften vorkommen. */
 export class Zeichenpruefung {
   private readonly vorrat: Set<number>;
@@ -36,6 +89,7 @@ export class Zeichenpruefung {
       if (nummer === undefined || this.vorrat.has(nummer)) continue;
       // Zeilenumbrueche und Tabulatoren zeichnet ohnehin niemand.
       if (nummer === 0x0a || nummer === 0x0d || nummer === 0x09) continue;
+      if (UNSICHTBAR.has(nummer)) continue;
       this.fehlend.set(nummer, zeichen);
     }
   }
@@ -53,7 +107,7 @@ export class Zeichenpruefung {
       .map(([nummer, zeichen]) => `${zeichen} (U+${nummer.toString(16).toUpperCase().padStart(4, '0')})`)
       .join(', ');
 
-    throw new Error(
+    throw new ZeichenvorratFehler(
       `Die eingebettete Schrift kennt folgende Zeichen nicht: ${liste}. ` +
         'Sie wuerden im PDF nicht falsch, sondern gar nicht erscheinen, deshalb ' +
         'wird die Rechnung nicht erzeugt. Abhilfe: die Zeichen im Rechnungstext ' +
@@ -75,8 +129,9 @@ export class Zeichenpruefung {
 export function mitZeichenpruefung(seite: PDFPage, pruefung: Zeichenpruefung): PDFPage {
   const zeichnen = seite.drawText.bind(seite);
   seite.drawText = (text, optionen) => {
-    pruefung.pruefe(text);
-    zeichnen(text, optionen);
+    const sauber = ohneUnsichtbare(text);
+    pruefung.pruefe(sauber);
+    zeichnen(sauber, optionen);
   };
   return seite;
 }

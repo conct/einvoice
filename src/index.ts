@@ -26,6 +26,7 @@ export {
   type RenderResult,
 } from './pdf/pdfa3';
 export { buildXmp, xmpDate, type FacturXConformanceLevel, type XmpOptions } from './pdf/xmp';
+export { ZeichenvorratFehler, ohneUnsichtbare } from './pdf/zeichenvorrat';
 export { A4, DEFAULT_THEME, wrapText, type Theme } from './pdf/layout';
 
 // Lizenzschluessel fuer den Kauf im Browser. Kein E-Rechnungsthema, aber die

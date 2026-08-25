@@ -150,4 +150,29 @@ describe('Laufzeiten', () => {
     expect(PRODUKTE['buero-jahr'].monate).toBe(12);
     expect(PRODUKTE['buero-monat'].stufe).toBe('buero');
   });
+
+  it('haelt Pro unbefristet nutzbar und befristet nur die Pflege', () => {
+    // Der Unterschied, der die Zielgruppe schuetzt: Eine Rechnung schreiben zu
+    // muessen ist eine gesetzliche Pflicht. Wer dafuer bezahlt hat, darf nicht
+    // an einem Stichtag stehenbleiben - nachgekauft wird fuer neue Fassungen.
+    expect(PRODUKTE.pro.monate).toBeUndefined();
+    expect(PRODUKTE.pro.pflegeMonate).toBe(12);
+  });
+});
+
+describe('Pflegezeitraum im Schluessel', () => {
+  it('traegt ein Pflegedatum, ohne die Nutzung zu befristen', async () => {
+    const schluessel = await stelleSchluesselAus(
+      inhalt({ pflege: '2027-08-25' }),
+      privat,
+    );
+
+    const befund = await pruefeSchluessel(schluessel, oeffentlich, '2028-01-01');
+    expect(befund.gueltig).toBe(true);
+    if (!befund.gueltig) return;
+
+    // Zwei Jahre spaeter, Pflege laengst abgelaufen - und trotzdem nutzbar.
+    expect(befund.pflege).toBe('2027-08-25');
+    expect(befund.bis).toBeUndefined();
+  });
 });

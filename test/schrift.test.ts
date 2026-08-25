@@ -250,6 +250,38 @@ describe('Zeichen ausserhalb der eingebetteten Schrift', () => {
     }
   }, 30_000);
 
+  it('stolpert nicht ueber unsichtbare Zeichen aus der Zwischenablage', async () => {
+    // Anlass: Der Renderdienst lehnte am 25.08.2026 eine Rechnung mit
+    // "Die Schrift kennt U+200B nicht" ab. U+200B ist ein unsichtbares
+    // Leerzeichen, das beim Einfuegen aus einer Webseite mitkommt - der
+    // Nutzer konnte es weder sehen noch finden. Dass die Schrift es nicht
+    // kennt, ist richtig: Es soll ja nichts darstellen.
+    const rechnung = sampleInvoice();
+    rechnung.buyer.name = 'Stadtwerke​Buchholz AoeR';
+    rechnung.notes = [{ text: 'Weich­es Trennzeichen und ﻿Markierung' }];
+
+    const { pdf } = await renderZugferdPdf(rechnung, {
+      assets: await assets(),
+      now: FESTER_ZEITPUNKT,
+    });
+    expect(pdf.length).toBeGreaterThan(0);
+
+    // Und sie duerfen nicht als Glyphe im Dokument landen.
+    const befund = await pruefeZuordnung(pdf);
+    expect(befund.falsch).toEqual([]);
+  }, 30_000);
+
+  it('bricht weiterhin bei Zeichen ab, die etwas darstellen sollen', async () => {
+    // Der Gegenbeweis zum vorigen Test: Waeren jetzt alle unbekannten Zeichen
+    // geduldet, faende die Pruefung gar nichts mehr.
+    const rechnung = sampleInvoice();
+    rechnung.buyer.name = 'Ω Handel';
+
+    await expect(
+      renderZugferdPdf(rechnung, { assets: await assets(), now: FESTER_ZEITPUNKT }),
+    ).rejects.toThrow(/kennt folgende Zeichen nicht/);
+  }, 30_000);
+
   it('laesst die Zeichen durch, die auf einer Rechnung aus der EU vorkommen', async () => {
     const rechnung = sampleInvoice();
     rechnung.buyer.name = 'Świętokrzyska Spółka z o.o.';
