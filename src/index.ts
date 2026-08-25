@@ -20,8 +20,15 @@ export function loadSrgbIcc(): Uint8Array {
   return cached;
 }
 
-/** Pfade der Schriftdateien im Paket @expo-google-fonts/inter */
+/**
+ * Pfade der eingebetteten Schriftdateien.
+ *
+ * Das sind vorbereitete Teilmengen von Inter, keine vollstaendigen Schnitte -
+ * 30 statt 334 kB je Schnitt. Erzeugt werden sie von Hand mit
+ * `npm run schrift --workspace @erechnung/assets`; welche Zeichen darin
+ * enthalten sind, steht in tools/schrift-erzeugen.mjs.
+ */
 export const FONT_MODULES = {
-  regular: '@expo-google-fonts/inter/400Regular/Inter_400Regular.ttf',
-  bold: '@expo-google-fonts/inter/700Bold/Inter_700Bold.ttf',
+  regular: '@erechnung/assets/files/Inter-Rechnung-Regular.ttf',
+  bold: '@erechnung/assets/files/Inter-Rechnung-Bold.ttf',
 } as const;

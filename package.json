@@ -8,10 +8,16 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./node": "./src/node.ts"
+    "./node": "./src/node.ts",
+    "./files/*": "./files/*"
   },
   "dependencies": {
-    "@expo-google-fonts/inter": "^0.4.2",
     "@erechnung/core": "*"
+  },
+  "scripts": {
+    "schrift": "node tools/schrift-erzeugen.mjs"
+  },
+  "devDependencies": {
+    "@expo-google-fonts/inter": "^0.4.2"
   }
 }

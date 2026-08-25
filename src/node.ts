@@ -1,8 +1,7 @@
 import { readFile } from 'node:fs/promises';
-import { createRequire } from 'node:module';
 import { loadSrgbIcc } from './index';
 
-const require = createRequire(import.meta.url);
+const datei = (name: string) => new URL(`../files/${name}`, import.meta.url);
 
 /**
  * Laedt Schriften und Farbprofil im Node-Prozess. Nur fuer Server und
@@ -14,8 +13,8 @@ export async function loadNodeAssets(): Promise<{
   iccProfile: Uint8Array;
 }> {
   const [fontRegular, fontBold] = await Promise.all([
-    readFile(require.resolve('@expo-google-fonts/inter/400Regular/Inter_400Regular.ttf')),
-    readFile(require.resolve('@expo-google-fonts/inter/700Bold/Inter_700Bold.ttf')),
+    readFile(datei('Inter-Rechnung-Regular.ttf')),
+    readFile(datei('Inter-Rechnung-Bold.ttf')),
   ]);
   return {
     fontRegular: new Uint8Array(fontRegular),
