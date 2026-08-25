@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { readFile } from 'node:fs/promises';
-import { createRequire } from 'node:module';
 
 import { readEInvoice } from '../src/parse/receive';
 import { EInvoiceError } from '../src/parse/error';
@@ -11,12 +10,14 @@ import { sampleInvoice } from '../src/fixtures/sample';
 import { fromBase64, utf8Encode } from '../src/util/base64';
 import { SRGB_ICC_BASE64 } from '../../einvoice-assets/src/icc';
 
-const require = createRequire(import.meta.url);
+/** Dieselben vorbereiteten Teilmengen, die auch App und Dienst einbetten. */
+const schrift = (name: string) =>
+  new URL(`../../einvoice-assets/files/${name}`, import.meta.url);
 
 async function assets() {
   const [fontRegular, fontBold] = await Promise.all([
-    readFile(require.resolve('@expo-google-fonts/inter/400Regular/Inter_400Regular.ttf')),
-    readFile(require.resolve('@expo-google-fonts/inter/700Bold/Inter_700Bold.ttf')),
+    readFile(schrift('Inter-Rechnung-Regular.ttf')),
+    readFile(schrift('Inter-Rechnung-Bold.ttf')),
   ]);
   return {
     fontRegular: new Uint8Array(fontRegular),

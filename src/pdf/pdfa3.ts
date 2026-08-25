@@ -16,6 +16,7 @@ import { formatDate } from '../util/date';
 import { formatAmount } from '../util/money';
 import { A4, DEFAULT_THEME, drawInvoice, type Theme } from './layout';
 import { buildXmp, xmpDate, type FacturXConformanceLevel } from './xmp';
+import { Zeichenpruefung, mitZeichenpruefung } from './zeichenvorrat';
 
 /**
  * Binaerdaten, die der Renderer nicht selbst beschaffen kann. Die
@@ -51,13 +52,17 @@ export interface RenderOptions {
   theme?: Theme;
   footerNote?: string;
   /**
-   * Nur die tatsaechlich benutzten Zeichen einbetten.
+   * Nur die tatsaechlich benutzten Zeichen einbetten. Bleibt aus.
    *
-   * Spart rund zwei Drittel der Dateigroesse, verlaesst sich aber darauf, dass
-   * die Teilmengenbildung von pdf-lib mit der jeweiligen Schrift zurechtkommt.
-   * Tut sie das nicht, fehlen im fertigen Dokument Buchstaben - und keine
-   * Strukturpruefung bemerkt es. Vor dem Umstellen auf true das Schriftbild
-   * pruefen: npm run schriftprobe --workspace @erechnung/validate
+   * Die Teilmengenbildung von pdf-lib nummeriert die Glyphen neu, laesst die
+   * Textbefehle aber auf den alten Nummern stehen - das Dokument besteht jede
+   * Strukturpruefung und zeigt beim Oeffnen Buchstabensalat. Klein wird die
+   * Datei stattdessen ueber eine vorbereitete Schrift, siehe
+   * packages/einvoice-assets/tools/schrift-erzeugen.mjs.
+   *
+   * Bleibt als Schalter erhalten, weil der Vergleich beider Wege der einzige
+   * Weg ist, den Fehler vorzufuehren: npm run schriftprobe --workspace
+   * @erechnung/validate
    */
   subsetFonts?: boolean;
   /** Fertiges CII-XML verwenden, statt es neu zu erzeugen */
@@ -103,13 +108,20 @@ export async function renderZugferdPdf(
   const bold = await doc.embedFont(options.assets.fontBold, { subset });
   const logo = options.assets.logoPng ? await doc.embedPng(options.assets.logoPng) : undefined;
 
-  const addPage = (): PDFPage => doc.addPage([A4.width, A4.height]);
+  // Die eingebettete Schrift deckt nur das lateinische Schriftsystem ab. Ein
+  // Zeichen ausserhalb davon wuerde nicht falsch, sondern gar nicht erscheinen
+  // - deshalb faengt die Pruefung jeden Text ab, der ins Dokument geht.
+  const pruefung = new Zeichenpruefung([options.assets.fontRegular, options.assets.fontBold]);
+  const addPage = (): PDFPage =>
+    mitZeichenpruefung(doc.addPage([A4.width, A4.height]), pruefung);
+
   drawInvoice(addPage, invoice, totals, {
     fonts: { regular, bold },
     theme: options.theme ?? DEFAULT_THEME,
     logo,
     footerNote: options.footerNote,
   });
+  pruefung.wirfBeiLuecken();
 
   const title = `Rechnung ${invoice.number}`;
   const subject =

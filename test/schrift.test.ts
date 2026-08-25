@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { readFile } from 'node:fs/promises';
-import { createRequire } from 'node:module';
 
 import { PDFArray, PDFDocument, PDFName, PDFRawStream, decodePDFRawStream } from 'pdf-lib';
 
@@ -9,13 +8,15 @@ import { sampleInvoice } from '../src/fixtures/sample';
 import { fromBase64 } from '../src/util/base64';
 import { SRGB_ICC_BASE64 } from '../../einvoice-assets/src/icc';
 
-const require = createRequire(import.meta.url);
+/** Dieselben vorbereiteten Teilmengen, die auch App und Dienst einbetten. */
+const schrift = (name: string) =>
+  new URL(`../../einvoice-assets/files/${name}`, import.meta.url);
 const FESTER_ZEITPUNKT = new Date('2026-08-24T10:15:00+02:00');
 
 async function assets() {
   const [fontRegular, fontBold] = await Promise.all([
-    readFile(require.resolve('@expo-google-fonts/inter/400Regular/Inter_400Regular.ttf')),
-    readFile(require.resolve('@expo-google-fonts/inter/700Bold/Inter_700Bold.ttf')),
+    readFile(schrift('Inter-Rechnung-Regular.ttf')),
+    readFile(schrift('Inter-Rechnung-Bold.ttf')),
   ]);
   return {
     fontRegular: new Uint8Array(fontRegular),
@@ -94,9 +95,9 @@ describe('Schriftzuordnung im erzeugten PDF', () => {
 
   it('faellt auf, wenn die Teilmengenbildung wieder eingeschaltet wird', async () => {
     // Dokumentiert den Fehler, statt ihn nur zu vermeiden: schlaegt dieser
-    // Test eines Tages fehl, hat pdf-lib das Problem behoben - dann laesst
-    // sich subsetFonts wieder einschalten und die Datei schrumpft um zwei
-    // Drittel.
+    // Test eines Tages fehl, hat pdf-lib das Problem behoben. Dringend ist das
+    // nicht mehr - seit die eingebettete Schrift eine vorbereitete Teilmenge
+    // ist, wiegt eine Rechnung 70 statt 436 kB.
     const { pdf } = await renderZugferdPdf(sampleInvoice(), {
       assets: await assets(),
       now: FESTER_ZEITPUNKT,
@@ -105,5 +106,54 @@ describe('Schriftzuordnung im erzeugten PDF', () => {
 
     const befund = await pruefeZuordnung(pdf);
     expect(befund.hoechste).toBeGreaterThanOrEqual(befund.kleinsteSchrift);
+  }, 30_000);
+});
+
+/**
+ * Die Kehrseite der kleinen Schrift.
+ *
+ * Eingebettet ist nur noch das lateinische Schriftsystem. Ein Zeichen
+ * ausserhalb davon wird nicht ersetzt und nicht falsch gezeichnet, sondern gar
+ * nicht - im fertigen PDF stuende an der Stelle des Kundennamens nichts.
+ * Genau dieselbe Art von stillem Fehler wie oben, nur an anderer Stelle,
+ * deshalb bricht die Erzeugung ab statt eine lueckenhafte Rechnung zu liefern.
+ */
+describe('Zeichen ausserhalb der eingebetteten Schrift', () => {
+  it('bricht ab, statt die Stelle leer zu lassen', async () => {
+    const rechnung = sampleInvoice();
+    rechnung.buyer.name = 'Ковалёв Handel GmbH';
+
+    await expect(
+      renderZugferdPdf(rechnung, { assets: await assets(), now: FESTER_ZEITPUNKT }),
+    ).rejects.toThrow(/kennt folgende Zeichen nicht/);
+  }, 30_000);
+
+  it('nennt alle fehlenden Zeichen auf einmal, nicht nur das erste', async () => {
+    const rechnung = sampleInvoice();
+    rechnung.buyer.name = 'Ω Handel';
+    rechnung.notes = [{ text: 'Lieferung ab 天津' }];
+
+    const fehler = await renderZugferdPdf(rechnung, {
+      assets: await assets(),
+      now: FESTER_ZEITPUNKT,
+    }).catch((error: unknown) => error);
+
+    expect(fehler).toBeInstanceOf(Error);
+    for (const zeichen of ['Ω', '天', '津']) {
+      expect((fehler as Error).message).toContain(zeichen);
+    }
+  }, 30_000);
+
+  it('laesst die Zeichen durch, die auf einer Rechnung aus der EU vorkommen', async () => {
+    const rechnung = sampleInvoice();
+    rechnung.buyer.name = 'Świętokrzyska Spółka z o.o.';
+    rechnung.seller.name = 'Ärztehaus GROSSE STRAẞE – Büro';
+    rechnung.notes = [{ text: 'Rumaenisch: Șerban Țepeș · 3,5 ‰ · 12 m² · £ ¥ ₺' }];
+
+    const { pdf } = await renderZugferdPdf(rechnung, {
+      assets: await assets(),
+      now: FESTER_ZEITPUNKT,
+    });
+    expect(pdf.length).toBeGreaterThan(0);
   }, 30_000);
 });
