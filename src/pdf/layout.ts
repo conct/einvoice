@@ -111,6 +111,9 @@ function drawLetterhead(cursor: Cursor, invoice: Invoice, ctx: LayoutContext): v
   const { page } = cursor;
   const seller = invoice.seller;
 
+  // Wie tief der Kopf reicht - danach richten sich die Absenderzeilen.
+  let kopfhoehe = 28;
+
   if (ctx.logo) {
     const maxWidth = 150;
     const maxHeight = 48;
@@ -118,6 +121,13 @@ function drawLetterhead(cursor: Cursor, invoice: Invoice, ctx: LayoutContext): v
     const width = ctx.logo.width * scale;
     const height = ctx.logo.height * scale;
     page.drawImage(ctx.logo, { x: PAGE.right - width, y: PAGE.top - height, width, height });
+
+    // Die tatsaechliche Hoehe und nicht ein fester Wert: Ein breites, flaches
+    // Logo wird auf 150 Punkte Breite eingepasst und ist dann womoeglich nur
+    // 28 Punkte hoch. Ein fester Abstand verschenkte den Platz darunter - und
+    // bei einem hohen Logo schob er die Absenderzeilen in den
+    // Kennzahlenblock. Genau das ist am 26.08.2026 passiert.
+    kopfhoehe = height + 8;
   } else {
     drawRight(page, seller.tradingName ?? seller.name, PAGE.right, PAGE.top - 12, {
       font: ctx.fonts.bold,
@@ -134,7 +144,7 @@ function drawLetterhead(cursor: Cursor, invoice: Invoice, ctx: LayoutContext): v
     seller.contact?.email,
   ].filter((value): value is string => Boolean(value));
 
-  let y = PAGE.top - (ctx.logo ? 60 : 28);
+  let y = PAGE.top - kopfhoehe;
   for (const line of lines) {
     drawRight(page, line, PAGE.right, y, { font: ctx.fonts.regular, size: 8, color: ctx.theme.muted });
     y -= 10;
@@ -186,7 +196,12 @@ function drawAddressAndMeta(cursor: Cursor, invoice: Invoice, ctx: LayoutContext
   ];
 
   const metaX = PAGE.left + 105 * MM;
-  let metaY = addressTop + 6;
+
+  // Der Kennzahlenblock steht rechts neben dem Anschriftenfeld - aber niemals
+  // hoeher als der Briefkopf endet. Beide sind rechtsbuendig an derselben
+  // Kante; ueberlappen sie, druckt der eine ueber den anderen, und auf der
+  // Rechnung steht "Tel. +4RE-2026-0042".
+  let metaY = Math.min(addressTop + 6, cursor.y);
   for (const [label, value] of metaRows) {
     if (!value) continue;
     drawText(page, label, metaX, metaY, { font: ctx.fonts.regular, size: 8, color: ctx.theme.muted });
