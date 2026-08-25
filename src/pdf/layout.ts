@@ -399,16 +399,19 @@ function drawTotals(
         color: ctx.theme.accent,
       });
     }
-    drawText(cursor.page, label, boxLeft, cursor.y, {
-      font: emphasised ? ctx.fonts.bold : ctx.fonts.regular,
-      size: emphasised ? 10 : 8.5,
+    const font = emphasised ? ctx.fonts.bold : ctx.fonts.regular;
+    const size = emphasised ? 10 : 8.5;
+
+    // Die Beschriftung kann Freitext enthalten - der Grund eines Abschlags
+    // steht so in der Rechnung, wie der Aussteller ihn geschrieben hat. Ohne
+    // Grenze laeuft sie ueber den Betrag und ueber den rechten Rand hinaus.
+    const platz = PAGE.right - font.widthOfTextAtSize(value, size) - 8 - boxLeft;
+    drawText(cursor.page, kuerzeAufBreite(label, font, size, platz), boxLeft, cursor.y, {
+      font,
+      size,
       color: emphasised ? ctx.theme.text : ctx.theme.muted,
     });
-    drawRight(cursor.page, value, PAGE.right, cursor.y, {
-      font: emphasised ? ctx.fonts.bold : ctx.fonts.regular,
-      size: emphasised ? 10 : 8.5,
-      color: ctx.theme.text,
-    });
+    drawRight(cursor.page, value, PAGE.right, cursor.y, { font, size, color: ctx.theme.text });
     cursor.y -= emphasised ? 16 : 13;
   }
   cursor.y -= 8;
@@ -577,6 +580,23 @@ function drawText(page: PDFPage, text: string, x: number, y: number, options: Te
 function drawRight(page: PDFPage, text: string, right: number, y: number, options: TextOptions): void {
   const width = options.font.widthOfTextAtSize(text, options.size);
   page.drawText(text, { x: right - width, y, font: options.font, size: options.size, color: options.color });
+}
+
+/**
+ * Kuerzt auf die verfuegbare Breite und haengt ein Auslassungszeichen an.
+ *
+ * Gebraucht wird das dort, wo eine Beschriftung und ein Betrag in derselben
+ * Zeile stehen und der Betrag nicht weichen darf. Lieber ein sichtbar
+ * gekuerzter Text als zwei uebereinandergedruckte.
+ */
+export function kuerzeAufBreite(text: string, font: PDFFont, size: number, maxWidth: number): string {
+  if (maxWidth <= 0 || font.widthOfTextAtSize(text, size) <= maxWidth) return text;
+
+  let gekuerzt = text;
+  while (gekuerzt.length > 1 && font.widthOfTextAtSize(`${gekuerzt}…`, size) > maxWidth) {
+    gekuerzt = gekuerzt.slice(0, -1);
+  }
+  return `${gekuerzt.trimEnd()}…`;
 }
 
 /** Weicher Umbruch an Wortgrenzen, harte Trennung nur bei ueberlangen Woertern. */

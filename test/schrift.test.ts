@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { readFile } from 'node:fs/promises';
 
-import { PDFArray, PDFDocument, PDFName, PDFRawStream, decodePDFRawStream } from 'pdf-lib';
+import { PDFArray, PDFDict, PDFDocument, PDFName, PDFRawStream, decodePDFRawStream } from 'pdf-lib';
+import fontkit from '@pdf-lib/fontkit';
 
 import { renderZugferdPdf } from '../src/pdf/pdfa3';
 import { sampleInvoice } from '../src/fixtures/sample';
@@ -9,8 +10,7 @@ import { fromBase64 } from '../src/util/base64';
 import { SRGB_ICC_BASE64 } from '../../einvoice-assets/src/icc';
 
 /** Dieselben vorbereiteten Teilmengen, die auch App und Dienst einbetten. */
-const schrift = (name: string) =>
-  new URL(`../../einvoice-assets/files/${name}`, import.meta.url);
+const schrift = (name: string) => new URL(`../../einvoice-assets/files/${name}`, import.meta.url);
 const FESTER_ZEITPUNKT = new Date('2026-08-24T10:15:00+02:00');
 
 async function assets() {
@@ -25,46 +25,147 @@ async function assets() {
   };
 }
 
-/** Anzahl Glyphen einer eingebetteten TrueType-Schrift, aus der maxp-Tabelle. */
-function glyphenzahl(schrift: Uint8Array): number {
-  const sicht = new DataView(schrift.buffer, schrift.byteOffset, schrift.byteLength);
-  const anzahl = sicht.getUint16(4);
-  for (let i = 0; i < anzahl; i++) {
-    const eintrag = 12 + i * 16;
-    if (String.fromCharCode(...schrift.subarray(eintrag, eintrag + 4)) === 'maxp') {
-      return sicht.getUint16(sicht.getUint32(eintrag + 8) + 4);
+/** Glyphennummer -> Zeichen, aus der ToUnicode-CMap des Dokuments. */
+function toUnicode(text: string): Map<number, string> {
+  const karte = new Map<number, string>();
+  for (const block of text.matchAll(/beginbfchar([\s\S]*?)endbfchar/g)) {
+    for (const eintrag of (block[1] ?? '').matchAll(/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g)) {
+      karte.set(
+        parseInt(eintrag[1] ?? '0', 16),
+        String.fromCodePoint(parseInt((eintrag[2] ?? '').slice(0, 4), 16)),
+      );
     }
   }
-  return 0;
+  return karte;
 }
 
-async function pruefeZuordnung(pdf: Uint8Array) {
-  const doc = await PDFDocument.load(pdf, { throwOnInvalidObject: false });
+interface Zuordnung {
+  schriften: number;
+  nummern: number;
+  ohneCmap: number;
+  falsch: string[];
+}
 
-  // Bei Identity-H stehen die Glyphennummern als Hexpaare im Textbefehl.
-  let hoechste = 0;
-  const inhalt = doc.getPage(0).node.Contents();
+/**
+ * Rechnet nach, ob jede gezeichnete Glyphennummer den Buchstaben zeigt, den
+ * das Dokument an dieser Stelle behauptet.
+ *
+ * Der Weg fuehrt bewusst ueber die Schrift selbst und nicht ueber ToUnicode
+ * allein: Die ToUnicode-Tabelle war beim Fehler vom 25.08.2026 korrekt - sie
+ * hat ihn gerade deshalb verdeckt. Erst der Ruecklauf ueber die cmap der
+ * eingebetteten Schrift zeigt, ob die Nummer im Textbefehl und die Nummer in
+ * der Schrift dasselbe meinen.
+ */
+async function pruefeZuordnung(pdf: Uint8Array): Promise<Zuordnung> {
+  const doc = await PDFDocument.load(pdf, { throwOnInvalidObject: false });
+  const seite = doc.getPage(0);
+
+  const schriften = new Map<
+    string,
+    { quelle: number; font: ReturnType<typeof fontkit.create> | undefined; unicode: Map<number, string> }
+  >();
+
+  const mittel = seite.node.Resources()?.lookupMaybe(PDFName.of('Font'), PDFDict);
+  for (const [name, verweis] of mittel?.entries() ?? []) {
+    const oben = doc.context.lookup(verweis);
+    if (!(oben instanceof PDFDict)) continue;
+
+    const tabelle = oben.lookup(PDFName.of('ToUnicode'));
+    let stufe = oben;
+    const nachkommen = stufe.lookupMaybe(PDFName.of('DescendantFonts'), PDFArray);
+    if (nachkommen) stufe = nachkommen.lookupMaybe(0, PDFDict) ?? stufe;
+
+    const beschreibung = stufe.lookupMaybe(PDFName.of('FontDescriptor'), PDFDict);
+    const verweisDatei = beschreibung?.get(PDFName.of('FontFile2'));
+    const datei = beschreibung?.lookup(PDFName.of('FontFile2'));
+    if (!(datei instanceof PDFRawStream)) continue;
+
+    let font: ReturnType<typeof fontkit.create> | undefined;
+    try {
+      font = fontkit.create(decodePDFRawStream(datei).decode());
+    } catch {
+      font = undefined;
+    }
+
+    schriften.set(name.asString(), {
+      quelle: verweisDatei && 'objectNumber' in verweisDatei ? verweisDatei.objectNumber : 0,
+      font,
+      unicode:
+        tabelle instanceof PDFRawStream
+          ? toUnicode(Buffer.from(decodePDFRawStream(tabelle).decode()).toString('latin1'))
+          : new Map(),
+    });
+  }
+
+  const inhalt = seite.node.Contents();
   const stroeme =
-    inhalt instanceof PDFArray ? inhalt.asArray().map((r) => doc.context.lookup(r)) : [inhalt];
+    inhalt instanceof PDFArray ? inhalt.asArray().map((v) => doc.context.lookup(v)) : [inhalt];
+  let roh = '';
   for (const strom of stroeme) {
-    if (!(strom instanceof PDFRawStream)) continue;
-    const text = Buffer.from(decodePDFRawStream(strom).decode()).toString('latin1');
-    for (const treffer of text.matchAll(/<([0-9A-Fa-f]+)>/g)) {
-      const hex = treffer[1] ?? '';
-      for (let i = 0; i + 4 <= hex.length; i += 4) {
-        hoechste = Math.max(hoechste, parseInt(hex.slice(i, i + 4), 16));
+    if (strom instanceof PDFRawStream) {
+      roh += Buffer.from(decodePDFRawStream(strom).decode()).toString('latin1');
+    }
+  }
+
+  // pdf-lib legt je Textblock eine eigene Ressource an, die auf dieselbe
+  // Schriftdatei zeigt - zusammengefasst wird deshalb nach Datei.
+  const jeDatei = new Map<number, { schluessel: string; nummern: Set<number> }>();
+  let aktuell: string | undefined;
+  for (const treffer of roh.matchAll(/\/([^\s/[\]<>]+)\s+[\d.]+\s+Tf|<([0-9A-Fa-f]+)>/g)) {
+    if (treffer[1]) {
+      aktuell = `/${treffer[1]}`;
+      continue;
+    }
+    const schrift = aktuell ? schriften.get(aktuell) : undefined;
+    if (!schrift || !aktuell) continue;
+
+    const eintrag = jeDatei.get(schrift.quelle) ?? { schluessel: aktuell, nummern: new Set<number>() };
+    const hex = treffer[2] ?? '';
+    for (let i = 0; i + 4 <= hex.length; i += 4) eintrag.nummern.add(parseInt(hex.slice(i, i + 4), 16));
+    jeDatei.set(schrift.quelle, eintrag);
+  }
+
+  const befund: Zuordnung = { schriften: jeDatei.size, nummern: 0, ohneCmap: 0, falsch: [] };
+
+  for (const { schluessel, nummern } of jeDatei.values()) {
+    const schrift = schriften.get(schluessel);
+    if (!schrift?.font) {
+      befund.ohneCmap++;
+      continue;
+    }
+
+    try {
+      // fontkit wirft nicht beim Einlesen, sondern beim ersten Nachschlagen.
+      schrift.font.glyphForCodePoint(0x41);
+    } catch {
+      befund.ohneCmap++;
+      continue;
+    }
+
+    for (const nummer of nummern) {
+      const zeichen = schrift.unicode.get(nummer);
+      if (zeichen === undefined || zeichen === ' ' || zeichen === ' ') continue;
+      befund.nummern++;
+
+      let umriss = false;
+      try {
+        umriss = nummer < schrift.font.numGlyphs && schrift.font.getGlyph(nummer).path.commands.length > 0;
+      } catch {
+        umriss = false;
+      }
+      if (!umriss) {
+        befund.falsch.push(`${zeichen}: Glyph ${nummer} hat keinen Umriss`);
+        continue;
+      }
+
+      const laut = schrift.font.glyphForCodePoint(zeichen.codePointAt(0) ?? 0)?.id;
+      if (laut !== undefined && laut !== 0 && laut !== nummer) {
+        befund.falsch.push(`${zeichen}: gezeichnet als ${nummer}, Schrift sagt ${laut}`);
       }
     }
   }
 
-  const groessen: number[] = [];
-  for (const [, objekt] of doc.context.enumerateIndirectObjects()) {
-    if (!('lookup' in objekt) || typeof objekt.lookup !== 'function') continue;
-    const datei = (objekt as { lookup: (n: PDFName) => unknown }).lookup(PDFName.of('FontFile2'));
-    if (datei instanceof PDFRawStream) groessen.push(glyphenzahl(decodePDFRawStream(datei).decode()));
-  }
-
-  return { hoechste, kleinsteSchrift: Math.min(...groessen), schriften: groessen.length };
+  return befund;
 }
 
 /**
@@ -73,15 +174,13 @@ async function pruefeZuordnung(pdf: Uint8Array) {
  * Anlass: ein Dokument bestand veraPDF, Mustang und den KoSIT-Validator und
  * war trotzdem unleserlich. Beim Verkleinern der Schrift nummeriert pdf-lib
  * die Glyphen neu, laesst die Textbefehle aber auf den alten Nummern stehen.
- * Alles jenseits der neuen Glyphenzahl zeichnet nichts, alles darunter den
- * falschen Buchstaben.
  *
  * Keine Strukturpruefung kann das sehen: Schrift eingebettet, ToUnicode
- * vorhanden, PDF/A-3 erfuellt. Nur der Abgleich zwischen Textbefehl und
- * Schriftumfang faellt darauf herein - und genau den macht dieser Test.
+ * vorhanden, PDF/A-3 erfuellt. Nur der Ruecklauf ueber die Schrift selbst
+ * faellt darauf herein - und genau den macht dieser Test.
  */
 describe('Schriftzuordnung im erzeugten PDF', () => {
-  it('verweist auf keine Glyphe ausserhalb der eingebetteten Schrift', async () => {
+  it('zeichnet an jeder Glyphennummer das Zeichen, das dort stehen soll', async () => {
     const { pdf } = await renderZugferdPdf(sampleInvoice(), {
       assets: await assets(),
       now: FESTER_ZEITPUNKT,
@@ -89,15 +188,22 @@ describe('Schriftzuordnung im erzeugten PDF', () => {
 
     const befund = await pruefeZuordnung(pdf);
     expect(befund.schriften).toBeGreaterThan(0);
-    expect(befund.hoechste).toBeGreaterThan(0);
-    expect(befund.hoechste).toBeLessThan(befund.kleinsteSchrift);
+    expect(befund.ohneCmap).toBe(0);
+    // Ohne nachgerechnete Nummern waere der Test gruen, ohne etwas geprueft zu
+    // haben - der Fehler, den die Vorfassung dieses Tests gemacht hat.
+    expect(befund.nummern).toBeGreaterThan(50);
+    expect(befund.falsch).toEqual([]);
   }, 30_000);
 
   it('faellt auf, wenn die Teilmengenbildung wieder eingeschaltet wird', async () => {
     // Dokumentiert den Fehler, statt ihn nur zu vermeiden: schlaegt dieser
-    // Test eines Tages fehl, hat pdf-lib das Problem behoben. Dringend ist das
-    // nicht mehr - seit die eingebettete Schrift eine vorbereitete Teilmenge
-    // ist, wiegt eine Rechnung 70 statt 436 kB.
+    // Test eines Tages fehl, hat pdf-lib das Problem behoben.
+    //
+    // Geprueft wird, dass die Zuordnung dann nicht mehr nachrechenbar ist:
+    // fontkit wirft die cmap bei der Teilmengenbildung weg, und was man nicht
+    // nachrechnen kann, hat man nicht geprueft. Die Vorfassung dieses Tests
+    // verglich stattdessen die hoechste Glyphennummer mit der kleinsten
+    // eingebetteten Schrift und war damit gruen, ohne den Fehler zu treffen.
     const { pdf } = await renderZugferdPdf(sampleInvoice(), {
       assets: await assets(),
       now: FESTER_ZEITPUNKT,
@@ -105,7 +211,7 @@ describe('Schriftzuordnung im erzeugten PDF', () => {
     });
 
     const befund = await pruefeZuordnung(pdf);
-    expect(befund.hoechste).toBeGreaterThanOrEqual(befund.kleinsteSchrift);
+    expect(befund.ohneCmap).toBeGreaterThan(0);
   }, 30_000);
 });
 
@@ -155,5 +261,10 @@ describe('Zeichen ausserhalb der eingebetteten Schrift', () => {
       now: FESTER_ZEITPUNKT,
     });
     expect(pdf.length).toBeGreaterThan(0);
+
+    // Auch hier wieder nachrechnen: dass nichts geworfen wurde, heisst noch
+    // nicht, dass die Sonderzeichen richtig gezeichnet sind.
+    const befund = await pruefeZuordnung(pdf);
+    expect(befund.falsch).toEqual([]);
   }, 30_000);
 });
