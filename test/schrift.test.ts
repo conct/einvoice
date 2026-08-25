@@ -1,0 +1,109 @@
+import { describe, expect, it } from 'vitest';
+import { readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+
+import { PDFArray, PDFDocument, PDFName, PDFRawStream, decodePDFRawStream } from 'pdf-lib';
+
+import { renderZugferdPdf } from '../src/pdf/pdfa3';
+import { sampleInvoice } from '../src/fixtures/sample';
+import { fromBase64 } from '../src/util/base64';
+import { SRGB_ICC_BASE64 } from '../../einvoice-assets/src/icc';
+
+const require = createRequire(import.meta.url);
+const FESTER_ZEITPUNKT = new Date('2026-08-24T10:15:00+02:00');
+
+async function assets() {
+  const [fontRegular, fontBold] = await Promise.all([
+    readFile(require.resolve('@expo-google-fonts/inter/400Regular/Inter_400Regular.ttf')),
+    readFile(require.resolve('@expo-google-fonts/inter/700Bold/Inter_700Bold.ttf')),
+  ]);
+  return {
+    fontRegular: new Uint8Array(fontRegular),
+    fontBold: new Uint8Array(fontBold),
+    iccProfile: fromBase64(SRGB_ICC_BASE64),
+  };
+}
+
+/** Anzahl Glyphen einer eingebetteten TrueType-Schrift, aus der maxp-Tabelle. */
+function glyphenzahl(schrift: Uint8Array): number {
+  const sicht = new DataView(schrift.buffer, schrift.byteOffset, schrift.byteLength);
+  const anzahl = sicht.getUint16(4);
+  for (let i = 0; i < anzahl; i++) {
+    const eintrag = 12 + i * 16;
+    if (String.fromCharCode(...schrift.subarray(eintrag, eintrag + 4)) === 'maxp') {
+      return sicht.getUint16(sicht.getUint32(eintrag + 8) + 4);
+    }
+  }
+  return 0;
+}
+
+async function pruefeZuordnung(pdf: Uint8Array) {
+  const doc = await PDFDocument.load(pdf, { throwOnInvalidObject: false });
+
+  // Bei Identity-H stehen die Glyphennummern als Hexpaare im Textbefehl.
+  let hoechste = 0;
+  const inhalt = doc.getPage(0).node.Contents();
+  const stroeme =
+    inhalt instanceof PDFArray ? inhalt.asArray().map((r) => doc.context.lookup(r)) : [inhalt];
+  for (const strom of stroeme) {
+    if (!(strom instanceof PDFRawStream)) continue;
+    const text = Buffer.from(decodePDFRawStream(strom).decode()).toString('latin1');
+    for (const treffer of text.matchAll(/<([0-9A-Fa-f]+)>/g)) {
+      const hex = treffer[1] ?? '';
+      for (let i = 0; i + 4 <= hex.length; i += 4) {
+        hoechste = Math.max(hoechste, parseInt(hex.slice(i, i + 4), 16));
+      }
+    }
+  }
+
+  const groessen: number[] = [];
+  for (const [, objekt] of doc.context.enumerateIndirectObjects()) {
+    if (!('lookup' in objekt) || typeof objekt.lookup !== 'function') continue;
+    const datei = (objekt as { lookup: (n: PDFName) => unknown }).lookup(PDFName.of('FontFile2'));
+    if (datei instanceof PDFRawStream) groessen.push(glyphenzahl(decodePDFRawStream(datei).decode()));
+  }
+
+  return { hoechste, kleinsteSchrift: Math.min(...groessen), schriften: groessen.length };
+}
+
+/**
+ * Das erzeugte PDF muss lesbar sein - nicht nur formal richtig.
+ *
+ * Anlass: ein Dokument bestand veraPDF, Mustang und den KoSIT-Validator und
+ * war trotzdem unleserlich. Beim Verkleinern der Schrift nummeriert pdf-lib
+ * die Glyphen neu, laesst die Textbefehle aber auf den alten Nummern stehen.
+ * Alles jenseits der neuen Glyphenzahl zeichnet nichts, alles darunter den
+ * falschen Buchstaben.
+ *
+ * Keine Strukturpruefung kann das sehen: Schrift eingebettet, ToUnicode
+ * vorhanden, PDF/A-3 erfuellt. Nur der Abgleich zwischen Textbefehl und
+ * Schriftumfang faellt darauf herein - und genau den macht dieser Test.
+ */
+describe('Schriftzuordnung im erzeugten PDF', () => {
+  it('verweist auf keine Glyphe ausserhalb der eingebetteten Schrift', async () => {
+    const { pdf } = await renderZugferdPdf(sampleInvoice(), {
+      assets: await assets(),
+      now: FESTER_ZEITPUNKT,
+    });
+
+    const befund = await pruefeZuordnung(pdf);
+    expect(befund.schriften).toBeGreaterThan(0);
+    expect(befund.hoechste).toBeGreaterThan(0);
+    expect(befund.hoechste).toBeLessThan(befund.kleinsteSchrift);
+  }, 30_000);
+
+  it('faellt auf, wenn die Teilmengenbildung wieder eingeschaltet wird', async () => {
+    // Dokumentiert den Fehler, statt ihn nur zu vermeiden: schlaegt dieser
+    // Test eines Tages fehl, hat pdf-lib das Problem behoben - dann laesst
+    // sich subsetFonts wieder einschalten und die Datei schrumpft um zwei
+    // Drittel.
+    const { pdf } = await renderZugferdPdf(sampleInvoice(), {
+      assets: await assets(),
+      now: FESTER_ZEITPUNKT,
+      subsetFonts: true,
+    });
+
+    const befund = await pruefeZuordnung(pdf);
+    expect(befund.hoechste).toBeGreaterThanOrEqual(befund.kleinsteSchrift);
+  }, 30_000);
+});

@@ -50,6 +50,16 @@ export interface RenderOptions {
   attachmentName?: string;
   theme?: Theme;
   footerNote?: string;
+  /**
+   * Nur die tatsaechlich benutzten Zeichen einbetten.
+   *
+   * Spart rund zwei Drittel der Dateigroesse, verlaesst sich aber darauf, dass
+   * die Teilmengenbildung von pdf-lib mit der jeweiligen Schrift zurechtkommt.
+   * Tut sie das nicht, fehlen im fertigen Dokument Buchstaben - und keine
+   * Strukturpruefung bemerkt es. Vor dem Umstellen auf true das Schriftbild
+   * pruefen: npm run schriftprobe --workspace @erechnung/validate
+   */
+  subsetFonts?: boolean;
   /** Fertiges CII-XML verwenden, statt es neu zu erzeugen */
   xml?: string;
   totals?: InvoiceTotals;
@@ -88,8 +98,9 @@ export async function renderZugferdPdf(
 
   // Nur eingebettete Schriften sind PDF/A-konform. Standard-14-Schriften
   // waeren kleiner, aber die Datei waere damit ungueltig.
-  const regular = await doc.embedFont(options.assets.fontRegular, { subset: true });
-  const bold = await doc.embedFont(options.assets.fontBold, { subset: true });
+  const subset = options.subsetFonts ?? false;
+  const regular = await doc.embedFont(options.assets.fontRegular, { subset });
+  const bold = await doc.embedFont(options.assets.fontBold, { subset });
   const logo = options.assets.logoPng ? await doc.embedPng(options.assets.logoPng) : undefined;
 
   const addPage = (): PDFPage => doc.addPage([A4.width, A4.height]);
