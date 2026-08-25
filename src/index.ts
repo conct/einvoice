@@ -28,6 +28,20 @@ export {
 export { buildXmp, xmpDate, type FacturXConformanceLevel, type XmpOptions } from './pdf/xmp';
 export { A4, DEFAULT_THEME, wrapText, type Theme } from './pdf/layout';
 
+// Lizenzschluessel fuer den Kauf im Browser. Kein E-Rechnungsthema, aber die
+// Stelle, die Ausstellungswerkzeug und App gemeinsam einbinden.
+export {
+  erzeugeSchluesselpaar,
+  laufzeitBis,
+  pruefeSchluessel,
+  stelleSchluesselAus,
+  PRODUKTE,
+  type Lizenzbefund,
+  type LizenzInhalt,
+  type LizenzStufe,
+  type Produkt,
+} from './lizenz/schluessel';
+
 // Empfang und Auswertung eingehender E-Rechnungen
 export {
   extractAttachments,
