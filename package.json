@@ -15,9 +15,11 @@
     "@erechnung/core": "*"
   },
   "scripts": {
-    "schrift": "node tools/schrift-erzeugen.mjs"
+    "schrift": "node tools/schrift-erzeugen.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "devDependencies": {
-    "@expo-google-fonts/inter": "^0.4.2"
+    "@expo-google-fonts/inter": "^0.4.2",
+    "typescript": "~6.0.3"
   }
 }
