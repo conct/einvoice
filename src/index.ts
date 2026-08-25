@@ -11,6 +11,7 @@
 export * from './model/codes';
 export * from './model/invoice';
 export * from './model/totals';
+export { istKleinunternehmerRechnung } from './model/kleinunternehmer';
 export * from './model/validate';
 export * from './model/specifications';
 
