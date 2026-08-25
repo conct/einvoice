@@ -4,6 +4,9 @@ import { utf8Decode } from '../util/base64';
 import { round } from '../util/money';
 import { extractInvoiceXml, type ExtractedAttachment, extractAttachments } from './extract';
 import { parseInvoiceXml, type ParsedInvoice } from './xml';
+import { asEInvoiceError, EInvoiceError } from './error';
+
+export { EInvoiceError, type EInvoiceErrorCode } from './error';
 
 export type SourceKind = 'pdf-hybrid' | 'xml' | 'pdf-without-xml' | 'unknown';
 
@@ -30,35 +33,41 @@ export async function readEInvoice(bytes: Uint8Array, filename?: string): Promis
   const kind = detectKind(bytes);
 
   if (kind === 'pdf-hybrid' || kind === 'pdf-without-xml') {
-    const attachments = await extractAttachments(bytes);
-    const found = await extractInvoiceXml(bytes);
-    if (!found) {
-      throw new EInvoiceError(
-        'Das PDF enthaelt keine eingebettete XML-Rechnung. Es ist damit keine E-Rechnung, sondern ein reines Bilddokument.',
-        'no-embedded-xml',
+    try {
+      const attachments = await extractAttachments(bytes);
+      const found = await extractInvoiceXml(bytes);
+      if (!found) {
+        throw new EInvoiceError(
+          'Das PDF enthaelt keine eingebettete XML-Rechnung. Es ist damit keine E-Rechnung, sondern ein reines Bilddokument.',
+          'no-embedded-xml',
+        );
+      }
+      return finish(parseInvoiceXml(found.xml), 'pdf-hybrid', found.filename, attachments);
+    } catch (fehler) {
+      throw asEInvoiceError(
+        fehler,
+        'Das PDF liess sich nicht lesen. Moeglicherweise ist die Datei unvollstaendig oder beim Uebertragen beschaedigt worden.',
+        'parse-failed',
       );
     }
-    return finish(parseInvoiceXml(found.xml), 'pdf-hybrid', found.filename, attachments);
   }
 
   if (kind === 'xml') {
-    return finish(parseInvoiceXml(utf8Decode(bytes)), 'xml', filename, []);
+    try {
+      return finish(parseInvoiceXml(utf8Decode(bytes)), 'xml', filename, []);
+    } catch (fehler) {
+      throw asEInvoiceError(
+        fehler,
+        'Die XML-Datei liess sich nicht auswerten. Moeglicherweise ist sie unvollstaendig oder kein Rechnungsdokument.',
+        'parse-failed',
+      );
+    }
   }
 
   throw new EInvoiceError(
     'Unbekanntes Dateiformat - erwartet wird ein PDF oder eine XML-Datei.',
     'unknown-format',
   );
-}
-
-export class EInvoiceError extends Error {
-  constructor(
-    message: string,
-    readonly code: 'no-embedded-xml' | 'unknown-format' | 'parse-failed',
-  ) {
-    super(message);
-    this.name = 'EInvoiceError';
-  }
 }
 
 function finish(

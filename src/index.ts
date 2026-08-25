@@ -44,6 +44,7 @@ export {
   detectKind,
   readEInvoice,
   EInvoiceError,
+  type EInvoiceErrorCode,
   type ReceivedInvoice,
   type SourceKind,
 } from './parse/receive';

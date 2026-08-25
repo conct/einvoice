@@ -1,6 +1,7 @@
 import { XMLParser } from 'fast-xml-parser';
 import type { Invoice, InvoiceInput, Line, Party, Vat } from '../model/invoice';
 import { parseInvoice } from '../model/invoice';
+import { EInvoiceError } from './error';
 
 export type InvoiceSyntax = 'cii' | 'ubl';
 
@@ -43,8 +44,9 @@ export function parseInvoiceXml(xml: string): ParsedInvoice {
   if (doc.CrossIndustryInvoice) return parseCii(doc.CrossIndustryInvoice as Node);
   if (doc.Invoice) return parseUbl(doc.Invoice as Node, false);
   if (doc.CreditNote) return parseUbl(doc.CreditNote as Node, true);
-  throw new Error(
-    'Unbekanntes Wurzelelement - weder CrossIndustryInvoice noch Invoice/CreditNote.',
+  throw new EInvoiceError(
+    'Die Datei ist kein Rechnungsdokument. Erwartet wird eine CrossIndustryInvoice (ZUGFeRD, XRechnung CII) oder eine Invoice bzw. CreditNote (UBL).',
+    'unknown-format',
   );
 }
 
