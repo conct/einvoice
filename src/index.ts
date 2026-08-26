@@ -36,6 +36,8 @@ export { farbeAusHex, istPng, pngFarbtyp, themaMitAkzent } from './pdf/gestaltun
 // Stelle, die Ausstellungswerkzeug und App gemeinsam einbinden.
 export {
   erzeugeSchluesselpaar,
+  euroText,
+  istProdukt,
   laufzeitBis,
   pruefeSchluessel,
   stelleSchluesselAus,
@@ -44,6 +46,7 @@ export {
   type LizenzInhalt,
   type LizenzStufe,
   type Produkt,
+  type Schluesselmaterial,
 } from './lizenz/schluessel';
 
 // Empfang und Auswertung eingehender E-Rechnungen
@@ -66,6 +69,26 @@ export {
   type ReceivedInvoice,
   type SourceKind,
 } from './parse/receive';
+
+// Export fuer die Buchhaltung
+export {
+  buildDatevBuchungsstapel,
+  type DatevErgebnis,
+  type DatevMandant,
+  type DatevOptionen,
+} from './export/datev';
+export {
+  abgewandelt,
+  istDebitorennummer,
+  steuerfallFuer,
+  SKR03,
+  SKR04,
+  VORLAGEN,
+  type Erloeskonto,
+  type Kontenrahmen,
+  type Steuerfall,
+} from './export/kontenrahmen';
+export { cp1252, type Cp1252Ergebnis } from './util/cp1252';
 
 // Hilfsfunktionen, die Anwendungen ohnehin brauchen
 export { decimal, formatAmount, formatQuantity, round, sum } from './util/money';

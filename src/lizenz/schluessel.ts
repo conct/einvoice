@@ -223,26 +223,53 @@ export const PRODUKTE = {
     stufe: 'pro' as const,
     monate: undefined,
     pflegeMonate: 12,
+    cent: 3900,
     beschreibung: 'Pro, einmalig - unbefristet nutzbar, zwoelf Monate Aktualisierungen',
   },
   'buero-monat': {
     stufe: 'buero' as const,
     monate: 1,
     pflegeMonate: 1,
+    cent: 900,
     beschreibung: 'Buero, ein Monat',
   },
   'buero-jahr': {
     stufe: 'buero' as const,
     monate: 12,
     pflegeMonate: 12,
+    cent: 9900,
     beschreibung: 'Buero, zwoelf Monate',
   },
 } satisfies Record<
   string,
-  { stufe: LizenzStufe; monate: number | undefined; pflegeMonate: number; beschreibung: string }
+  {
+    stufe: LizenzStufe;
+    monate: number | undefined;
+    pflegeMonate: number;
+    cent: number;
+    beschreibung: string;
+  }
 >;
 
 export type Produkt = keyof typeof PRODUKTE;
+
+export function istProdukt(name: unknown): name is Produkt {
+  // Nicht Object.hasOwn: das ist ES2022, und der Kern steht bewusst auf
+  // ES2020, weil er auf aelteren React-Native-Engines laufen muss. Die
+  // Zielversion hochzudrehen wuerde hier uebersetzen und dort abstuerzen.
+  return typeof name === 'string' && Object.prototype.hasOwnProperty.call(PRODUKTE, name);
+}
+
+/**
+ * Preis in Euro, deutsch geschrieben.
+ *
+ * Gerechnet wird durchgehend in Cent - Zahlungsdienste tun es auch, und ein
+ * Gleitkommabetrag fuer Geld ist eine Fehlerquelle, die man nicht braucht.
+ */
+export function euroText(cent: number): string {
+  const [ganz, rest] = [Math.trunc(cent / 100), Math.abs(cent % 100)];
+  return rest === 0 ? `${ganz} EUR` : `${ganz},${String(rest).padStart(2, '0')} EUR`;
+}
 
 /**
  * Letzter Gueltigkeitstag bei einer Laufzeit in Monaten.
