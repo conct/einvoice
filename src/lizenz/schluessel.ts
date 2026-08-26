@@ -102,6 +102,27 @@ export interface LizenzInhalt {
    * ausgestellt werden muss.
    */
   pflege?: string;
+
+  /**
+   * Adresse des Dienstes, den die App ansprechen soll.
+   *
+   * Nur fuer Buero. Wer diese Stufe auf einem eigenen Server betreibt, soll
+   * die Adresse nicht abtippen muessen - sie kommt mit dem Schluessel, den er
+   * ohnehin einloest. Das ist der einzige Weg, der ohne eine Oberflaeche
+   * auskommt, die niemand sonst braucht.
+   *
+   * Sicherheitshalber eng gefasst, denn ein Schluessel, der die App auf einen
+   * fremden Server richtet, wuerde dort Rechnungsdaten hinschicken:
+   *
+   *  - nur https, damit die Uebertragung nicht mitlesbar ist
+   *  - nur bei stufe 'buero'; Pro erzeugt ohnehin auf dem Geraet und haette
+   *    von einem Dienst nichts, ein Feld dort waere also nur verdaechtig
+   *  - die App nennt die Adresse beim Einloesen ausdruecklich, damit niemand
+   *    unbemerkt umgeleitet wird
+   *
+   * Faellt das Feld weg, bleibt es beim voreingestellten Dienst.
+   */
+  dienst?: string;
 }
 
 export type Lizenzbefund =
@@ -207,6 +228,22 @@ export async function pruefeSchluessel(
   }
   if (inhalt.bis && inhalt.bis < heute) {
     return { gueltig: false, grund: `Der Schluessel ist am ${inhalt.bis} abgelaufen.` };
+  }
+
+  // Ein Schluessel, der die App auf einen Dienst richtet, wird streng geprueft
+  // - siehe den Kommentar am Feld. Lieber ganz ablehnen als teilweise
+  // uebernehmen: Ein Schluessel mit einer Adresse, die wir nicht akzeptieren,
+  // ist nicht der, den der Kaeufer bekommen sollte.
+  if (inhalt.dienst !== undefined) {
+    if (typeof inhalt.dienst !== 'string' || !inhalt.dienst.startsWith('https://')) {
+      return { gueltig: false, grund: 'Der Schluessel nennt eine Dienstadresse ohne https.' };
+    }
+    if (inhalt.stufe !== 'buero') {
+      return {
+        gueltig: false,
+        grund: 'Nur ein Buero-Schluessel darf eine Dienstadresse nennen.',
+      };
+    }
   }
 
   return { gueltig: true, ...inhalt };

@@ -7,6 +7,7 @@ import {
   pruefeSchluessel,
   stelleSchluesselAus,
   PRODUKTE,
+  type LizenzInhalt,
   type Schluesselmaterial,
 } from '../src/lizenz/schluessel';
 
@@ -215,3 +216,69 @@ describe('Anschlusslaufzeit beim Nachkaufen', () => {
     expect(anschlussBis(1, '2027-01-15', '2027-01-31')).toBe('2027-02-28');
   });
 });
+
+/**
+ * Die Dienstadresse im Schluessel.
+ *
+ * Sie richtet die App auf einen fremden Server - dorthin gehen dann in der
+ * kostenlosen Stufe Rechnungsdaten. Deshalb sind die Schranken eng, und
+ * deshalb werden sie hier geprueft: Ein Fehler an dieser Stelle leitet Daten
+ * um, ohne dass es jemand merkt.
+ */
+describe('Dienstadresse im Lizenzschluessel', () => {
+  const heute = '2027-03-15';
+
+  async function schluessel(zusatz: Partial<LizenzInhalt>) {
+    const inhalt = {
+      v: 1 as const,
+      stufe: 'buero' as const,
+      email: 'kundin@example.de',
+      kauf: 'pi_3ABC',
+      ab: heute,
+      bis: '2028-03-15',
+      ...zusatz,
+    } as LizenzInhalt;
+    return stelleSchluesselAus(inhalt, privat);
+  }
+
+  it('nimmt eine https-Adresse bei Buero an', async () => {
+    const befund = await pruefeSchluessel(
+      await schluessel({ dienst: 'https://rechnungen.firma.de/api' }),
+      oeffentlich,
+      heute,
+    );
+    expect(befund.gueltig).toBe(true);
+    if (!befund.gueltig) return;
+    expect(befund.dienst).toBe('https://rechnungen.firma.de/api');
+  });
+
+  it('weist http ab', async () => {
+    // Unverschluesselt liest jeder mit, der dazwischen sitzt - und es stuenden
+    // Kundennamen, Preise und Margen darin.
+    const befund = await pruefeSchluessel(
+      await schluessel({ dienst: 'http://rechnungen.firma.de/api' }),
+      oeffentlich,
+      heute,
+    );
+    expect(befund.gueltig).toBe(false);
+  });
+
+  it('weist eine Adresse bei Pro ab', async () => {
+    // Pro erzeugt auf dem Geraet und haette von einem Dienst nichts. Ein Feld
+    // dort ist deshalb kein Sonderfall, sondern ein Verdachtsfall.
+    const befund = await pruefeSchluessel(
+      await schluessel({ stufe: 'pro', bis: undefined, dienst: 'https://fremd.example/api' }),
+      oeffentlich,
+      heute,
+    );
+    expect(befund.gueltig).toBe(false);
+  });
+
+  it('bleibt ohne Feld unveraendert gueltig', async () => {
+    const befund = await pruefeSchluessel(await schluessel({}), oeffentlich, heute);
+    expect(befund.gueltig).toBe(true);
+    if (!befund.gueltig) return;
+    expect(befund.dienst).toBeUndefined();
+  });
+});
+
