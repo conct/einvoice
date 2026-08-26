@@ -200,3 +200,6 @@ export {
   zeilenImBogen,
   type Zahlungsklausel,
 } from './absender/zahlungsklausel';
+export { entschluesseleCcitt, type CcittAngaben, type Fehlerbild } from './parse/ccitt';
+export { liesSeitenbilder, type Bildart, type Seitenbild } from './parse/pdf-bilder';
+export { alsGraustufenPng, maskeAlsGrau } from './util/png';
