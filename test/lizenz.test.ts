@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 
 import {
   erzeugeSchluesselpaar,
+  anschlussBis,
   laufzeitBis,
   pruefeSchluessel,
   stelleSchluesselAus,
@@ -174,5 +175,43 @@ describe('Pflegezeitraum im Schluessel', () => {
     // Zwei Jahre spaeter, Pflege laengst abgelaufen - und trotzdem nutzbar.
     expect(befund.pflege).toBe('2027-08-25');
     expect(befund.bis).toBeUndefined();
+  });
+});
+
+/**
+ * Nachkaufen von Buero.
+ *
+ * Die Regel ist eine Zusage aus Paragraf 4 Absatz 3 der
+ * Geschaeftsbedingungen: gezahlt wird ein Zeitraum im Voraus. Wer nachkauft,
+ * waehrend noch Laufzeit uebrig ist, darf sie nicht verlieren - genau das
+ * waere der naheliegende Fehler, und er faellt erst dem Kunden auf.
+ */
+describe('Anschlusslaufzeit beim Nachkaufen', () => {
+  it('rechnet ab heute, wenn nichts laeuft', () => {
+    expect(anschlussBis(1, '2027-03-15')).toBe('2027-04-15');
+    expect(anschlussBis(12, '2027-03-15')).toBe('2028-03-15');
+  });
+
+  it('haengt an die laufende Zeit an, statt sie zu verwerfen', () => {
+    // Am 15.03. nachgekauft, laeuft noch bis 30.11. - der neue Monat gehoert
+    // hinten dran, nicht auf den heutigen Tag.
+    expect(anschlussBis(1, '2027-03-15', '2027-11-30')).toBe('2027-12-30');
+    expect(anschlussBis(12, '2027-03-15', '2027-11-30')).toBe('2028-11-30');
+  });
+
+  it('ignoriert eine abgelaufene Zeit', () => {
+    expect(anschlussBis(1, '2027-03-15', '2026-12-31')).toBe('2027-04-15');
+  });
+
+  it('rechnet ab heute, wenn die Zeit genau heute endet', () => {
+    // Der letzte Gueltigkeitstag zaehlt ganz. Wer am letzten Tag nachkauft,
+    // bekommt einen Monat ab diesem Tag - nicht ab gestern.
+    expect(anschlussBis(1, '2027-03-15', '2027-03-15')).toBe('2027-04-15');
+  });
+
+  it('faellt auf den letzten Tag des Zielmonats zurueck', () => {
+    // 31.01. plus ein Monat gibt es nicht. Erwartet wird der 28., nicht der
+    // 2. Maerz - dieselbe Regel wie bei laufzeitBis.
+    expect(anschlussBis(1, '2027-01-15', '2027-01-31')).toBe('2027-02-28');
   });
 });

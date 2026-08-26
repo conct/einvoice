@@ -286,3 +286,23 @@ export function laufzeitBis(ab: string, monate: number): string {
   const ziel = new Date(Date.UTC(jahr, zielMonat, Math.min(tag, letzterImZielmonat)));
   return ziel.toISOString().slice(0, 10);
 }
+
+/**
+ * Letzter Gueltigkeitstag, wenn ein Zeitraum nachgekauft wird.
+ *
+ * Gerechnet wird ab heute - oder, wenn noch Laufzeit uebrig ist, ab deren
+ * Ende. Wer im letzten Monat seines Jahresbezugs nachkauft, verschenkt so
+ * keinen Tag. Das entspricht Paragraf 4 Absatz 3 der Geschaeftsbedingungen:
+ * gezahlt wird fuer einen Zeitraum im Voraus, nicht fuer ein Datum.
+ *
+ * Steht hier und nicht beim Aufrufer, weil es dieselbe Datumsrechnung ist wie
+ * laufzeitBis - und weil es dort, wo es gebraucht wird (der Store-Kauf in der
+ * App), neben einem nativen Modul liegt und damit nicht pruefbar waere.
+ *
+ * `bisher` ist der bisherige letzte Gueltigkeitstag oder undefined, wenn nichts
+ * laeuft. Liegt er in der Vergangenheit, zaehlt er nicht mehr.
+ */
+export function anschlussBis(monate: number, heute: string, bisher?: string): string {
+  const beginn = bisher && bisher > heute ? bisher : heute;
+  return laufzeitBis(beginn, monate);
+}

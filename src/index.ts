@@ -35,6 +35,7 @@ export { farbeAusHex, istPng, pngFarbtyp, themaMitAkzent } from './pdf/gestaltun
 // Lizenzschluessel fuer den Kauf im Browser. Kein E-Rechnungsthema, aber die
 // Stelle, die Ausstellungswerkzeug und App gemeinsam einbinden.
 export {
+  anschlussBis,
   erzeugeSchluesselpaar,
   euroText,
   istProdukt,
