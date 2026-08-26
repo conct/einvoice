@@ -82,6 +82,26 @@ export interface LayoutContext {
    * sonst passt der Brief nicht mehr in den Fensterumschlag.
    */
   kennzahlen?: Kennzahlenstellung;
+  /**
+   * Soll die eigene Fusszeile gezeichnet werden?
+   *
+   * Falsch, wenn der Briefbogen eine mitbringt. Die Seitenzahl bleibt davon
+   * unberuehrt.
+   */
+  eigeneFusszeile?: boolean;
+  /**
+   * Wo das Anschriftenfeld beginnt, wenn der Bogen es vorgibt.
+   *
+   * Ein uebernommener Bogen hat seine Rueckabsenderzeile und seine Trennlinie
+   * an einer bestimmten Hoehe; unser Feld muss darunter anfangen, sonst
+   * schreiben beide uebereinander. Gerendert nachgemessen: Ohne diese Angabe
+   * lag "21244 Buchholz in der Nordheide" auf der Rueckabsenderzeile des
+   * Bogens.
+   *
+   * Wird auf das Fenster nach DIN 5008 begrenzt - ein Bogen, der sein Feld
+   * ausserhalb hat, darf unseres nicht aus dem Umschlag schieben.
+   */
+  anschriftOben?: number;
 }
 
 export type Kennzahlenstellung =
@@ -94,6 +114,31 @@ export type Kennzahlenstellung =
 
 /** Die Hoehe einer Zeile im Kennzahlenblock. */
 const KENNZAHLENZEILE = 12;
+
+/**
+ * Wie viele Kennzahlen quer nebeneinander stehen duerfen.
+ *
+ * Vier: Die Satzbreite betraegt 475 Punkte, also je 119 - genug fuer
+ * "RE-2026-0042" und "04011000-12345-67". Bei sieben blieben 68, und dann
+ * steht eine abgeschnittene Rechnungsnummer auf der Rechnung.
+ */
+const QUERSPALTEN = 4;
+
+/**
+ * Wo das Anschriftenfeld beginnt.
+ *
+ * Nach DIN 5008 liegt das Fenster zwischen 45 und 90 mm von oben. Innerhalb
+ * dessen darf ein uebernommener Briefbogen bestimmen - er hat sein Feld dort,
+ * wo seine Rueckabsenderzeile und seine Trennlinie es vorsehen. Ausserhalb
+ * nicht: Ein Bogen, der sein Feld hoeher oder tiefer setzt, wuerde unseres aus
+ * dem Umschlag schieben, und der Brief kaeme nicht an.
+ */
+function anschriftenhoehe(wunsch?: number): number {
+  const oben = A4.height - 45 * MM;
+  const unten = A4.height - 90 * MM;
+  if (wunsch === undefined) return oben;
+  return Math.max(unten, Math.min(oben, wunsch));
+}
 
 const PAGE = {
   left: 20 * MM,
@@ -136,10 +181,21 @@ export function drawInvoice(
   const cursor: Cursor = { page: addPage(), y: PAGE.top, pageIndex: 0 };
   pages.push(cursor.page);
 
+  /*
+   * Wo Inhalt auf einer Folgeseite beginnen darf.
+   *
+   * Ohne Briefbogen der obere Rand. Mit Bogen darunter - gerendert
+   * nachgemessen stand sonst "Rechnung RE-2026-0042 - Fortsetzung" mitten im
+   * Briefkopf der zweiten Seite. Seite eins war davon unberuehrt, weil dort
+   * das Anschriftenfeld den Anfang setzt; deshalb faellt es nur auf, wenn man
+   * ueberhaupt eine zweite Seite ansieht.
+   */
+  const seitenanfang = context.anschriftOben !== undefined ? context.anschriftOben : PAGE.top;
+
   const nextPage = () => {
     cursor.page = addPage();
     cursor.pageIndex += 1;
-    cursor.y = PAGE.top;
+    cursor.y = seitenanfang;
     pages.push(cursor.page);
     drawContinuationHeader(cursor, invoice, context);
   };
@@ -214,8 +270,7 @@ function drawLetterhead(cursor: Cursor, invoice: Invoice, ctx: LayoutContext): v
 
 function drawAddressAndMeta(cursor: Cursor, invoice: Invoice, ctx: LayoutContext): void {
   const { page } = cursor;
-  // Anschriftenfeld nach DIN 5008: 45 mm von oben, damit es im Fensterumschlag steht
-  const addressTop = A4.height - 45 * MM;
+  const addressTop = anschriftenhoehe(ctx.anschriftOben);
 
   // Rueckabsender und Trennlinie nur ohne eigenen Briefbogen - ein
   // uebernommener bringt beides mit.
@@ -290,23 +345,38 @@ function zeichneKennzahlen(
   if (stellung === 'unter-anschrift') {
     /*
      * Quer unter dem Anschriftenfeld, so wie es gestaltete Rechnungen oft
-     * halten. Die Spalten werden gleichmaessig verteilt - Beschriftung ueber
-     * dem Wert, damit auch ein langer Wert nicht in den Nachbarn laeuft.
+     * halten - Beschriftung ueber dem Wert.
+     *
+     * Umgebrochen nach hoechstens vier Spalten. Anfangs wurde die Satzbreite
+     * durch die Zahl der Felder geteilt; bei sieben blieben je 68 Punkte, und
+     * gerendert stand da "RE-2026-00...", "04011000-1...", "BST-2026-8...".
+     * Eine Rechnungsnummer, die nicht vollstaendig auf der Rechnung steht, ist
+     * schlimmer als eine zweite Zeile.
      */
-    const oben = addressTop - 45 * MM;
-    const breite = (PAGE.right - PAGE.left) / Math.max(1, zeilen.length);
+    let oben = addressTop - 45 * MM;
 
-    for (const [nummer, [label, value]] of zeilen.entries()) {
-      const x = PAGE.left + nummer * breite;
-      drawText(page, label, x, oben, { font: ctx.fonts.regular, size: 8, color: ctx.theme.muted });
-      drawText(page, kuerzeAufBreite(value, ctx.fonts.bold, 8.5, breite - 6), x, oben - 11, {
-        font: ctx.fonts.bold,
-        size: 8.5,
-        color: ctx.theme.text,
-      });
+    for (let anfang = 0; anfang < zeilen.length; anfang += QUERSPALTEN) {
+      const reihe = zeilen.slice(anfang, anfang + QUERSPALTEN);
+      const breite = (PAGE.right - PAGE.left) / QUERSPALTEN;
+
+      for (const [nummer, [label, value]] of reihe.entries()) {
+        const x = PAGE.left + nummer * breite;
+        drawText(page, kuerzeAufBreite(label, ctx.fonts.regular, 8, breite - 6), x, oben, {
+          font: ctx.fonts.regular,
+          size: 8,
+          color: ctx.theme.muted,
+        });
+        drawText(page, kuerzeAufBreite(value, ctx.fonts.bold, 8.5, breite - 6), x, oben - 11, {
+          font: ctx.fonts.bold,
+          size: 8.5,
+          color: ctx.theme.text,
+        });
+      }
+
+      oben -= 26;
     }
 
-    return oben - 11;
+    return oben + 26 - 11;
   }
 
   /*
@@ -685,14 +755,18 @@ function drawNotes(
 }
 
 function drawContinuationHeader(cursor: Cursor, invoice: Invoice, ctx: LayoutContext): void {
+  // Von der Marke aus, die der Aufrufer gesetzt hat - nicht vom Seitenrand.
+  // Mit Briefbogen liegt sie tiefer, sonst schreibt die Fortsetzungszeile in
+  // den Briefkopf.
+  const oben = cursor.y;
   drawText(
     cursor.page,
     `${documentLabel(invoice.typeCode)} ${invoice.number} - Fortsetzung`,
     PAGE.left,
-    PAGE.top - 6,
+    oben - 6,
     { font: ctx.fonts.bold, size: 9, color: ctx.theme.muted },
   );
-  cursor.y = PAGE.top - 30;
+  cursor.y = oben - 30;
 }
 
 function drawFooter(
@@ -704,6 +778,29 @@ function drawFooter(
 ): void {
   const seller = invoice.seller;
   const y = PAGE.bottom;
+
+  /*
+   * Bringt der Briefbogen eine eigene Fusszeile mit, entfaellt unsere.
+   *
+   * Gerendert nachgemessen: Sonst stehen zwei uebereinander - unsere mit
+   * Registergericht und Steuernummer, seine mit Zahlungshinweis und AGB. Der
+   * Absender hat sich fuer eine entschieden, als er seinen Bogen entwarf.
+   *
+   * Die Seitenzahl bleibt trotzdem, sobald es mehr als eine Seite gibt: Sie
+   * gehoert zum Dokument, nicht zum Bogen, und ein Empfaenger muss sehen
+   * koennen, ob ihm ein Blatt fehlt.
+   */
+  if (ctx.eigeneFusszeile === false) {
+    if (total > 1) {
+      drawRight(page, `Seite ${index + 1} von ${total}`, PAGE.right, y + 16, {
+        font: ctx.fonts.regular,
+        size: 7,
+        color: ctx.theme.muted,
+      });
+    }
+    return;
+  }
+
   page.drawLine({
     start: { x: PAGE.left, y: y + 26 },
     end: { x: PAGE.right, y: y + 26 },
@@ -787,12 +884,19 @@ export function kennzahlenrahmen(
   stellung: Kennzahlenstellung,
   zeilen: number,
   obergrenze: number = PAGE.top,
+  anschriftOben?: number,
 ): { x1: number; y1: number; x2: number; y2: number } {
-  const addressTop = A4.height - 45 * MM;
+  const addressTop = anschriftenhoehe(anschriftOben);
 
   if (stellung === 'unter-anschrift') {
     const oben = addressTop - 45 * MM;
-    return { x1: PAGE.left, y1: oben - KENNZAHLENZEILE, x2: PAGE.right, y2: oben + 9 };
+    const reihen = Math.ceil(Math.max(1, zeilen) / QUERSPALTEN);
+    return {
+      x1: PAGE.left,
+      y1: oben - (reihen - 1) * 26 - KENNZAHLENZEILE,
+      x2: PAGE.right,
+      y2: oben + 9,
+    };
   }
 
   const start =

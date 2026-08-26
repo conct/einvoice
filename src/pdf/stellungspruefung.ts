@@ -49,6 +49,16 @@ export interface Stellungsbefund {
    * Haarlinie ist etwas anderes als einer mit einem Firmenzeichen.
    */
   anteil: number;
+  /**
+   * Der gepruefte Rahmen.
+   *
+   * Mitgegeben, damit niemand die Rechnung nachbauen muss, um zu wissen, wo
+   * geprueft wurde - weder eine Oberflaeche, die es anzeigen will, noch ein
+   * Test, der ein Hindernis genau dorthin legt. Eine nachgebaute Rechnung
+   * waere die Stelle, an der Pruefung und Test gemeinsam danebenliegen, ohne
+   * dass es auffiele.
+   */
+  rahmen: Rahmen;
 }
 
 /**
@@ -110,7 +120,19 @@ export function pruefeStellung(
   zeilen: number,
   flaechen: Rahmen[] = belegteFlaechen(papier),
 ): Stellungsbefund {
-  const block = kennzahlenrahmen(stellung, Math.max(1, zeilen));
+  /*
+   * Mit derselben Feldhoehe rechnen wie beim Zeichnen: Mit Bogen bestimmt
+   * dessen Grenze, wo das Anschriftenfeld beginnt, und daran haengt die Lage
+   * des Kennzahlenblocks. Wer hier die Vorgabe nimmt, prueft eine Stelle, an
+   * der nichts steht.
+   */
+  const versatzY = (A4.height - papier.seite.hoehe) / 2;
+  const block = kennzahlenrahmen(
+    stellung,
+    Math.max(1, zeilen),
+    undefined,
+    papier.grenze + versatzY - 11,
+  );
   const blockflaeche = Math.max(1, (block.x2 - block.x1) * (block.y2 - block.y1));
 
   let groesste = 0;
@@ -122,7 +144,13 @@ export function pruefeStellung(
   }
 
   const anteil = Math.min(1, summe / blockflaeche);
-  return { stellung, frei: anteil < MELDESCHWELLE, ueberschneidung: groesste, anteil };
+  return {
+    stellung,
+    frei: anteil < MELDESCHWELLE,
+    ueberschneidung: groesste,
+    anteil,
+    rahmen: block,
+  };
 }
 
 const ALLE: Kennzahlenstellung[] = ['neben-anschrift', 'ueber-anschrift', 'unter-anschrift'];

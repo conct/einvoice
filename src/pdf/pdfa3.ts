@@ -17,6 +17,7 @@ import { formatAmount } from '../util/money';
 import type { Briefpapier } from '../parse/pdf-gestaltung';
 import { zeichneBriefpapier } from './briefpapier';
 import type { Beschriftungen } from './beschriftungen';
+import { themaMitAkzent } from './gestaltung';
 import { A4, DEFAULT_THEME, drawInvoice, type Kennzahlenstellung, type Theme } from './layout';
 import { bereiteVorlagenschrift } from './vorlagenschrift';
 import { buildXmp, xmpDate, type FacturXConformanceLevel } from './xmp';
@@ -112,6 +113,16 @@ export interface RenderResult {
   totals: InvoiceTotals;
 }
 
+/**
+ * Abstand zwischen der Grenze des Bogens und unserer ersten Anschriftenzeile.
+ *
+ * `grenze` markiert die **Oberkante** des Anschriftenfeldes im Bogen, unsere
+ * Angabe dagegen die **Grundlinie** der ersten Zeile. Ohne diesen Versatz
+ * klebte "Stadtwerke Buchholz AoeR" an der Rueckabsenderzeile darueber - eine
+ * Zeilenhoehe zu hoch.
+ */
+const ANSCHRIFT_LUFT = 11;
+
 const DEFAULT_PRODUCER = 'erechnung-core (pdf-lib)';
 
 /**
@@ -183,12 +194,27 @@ export async function renderZugferdPdf(
     return seite;
   };
 
+  /*
+   * Mit Briefbogen bestimmt der Bogen drei Dinge, die sonst wir bestimmen.
+   * Alle drei erst gerendert aufgefallen, keines von einer Pruefung gemeldet.
+   */
+  const thema = options.theme ?? (bogen?.akzent ? themaMitAkzent(bogen.akzent) : DEFAULT_THEME);
+
   drawInvoice(addPage, invoice, totals, {
     fonts: { regular, bold },
-    theme: options.theme ?? DEFAULT_THEME,
+    theme: thema,
     logo,
     footerNote: options.footerNote,
     eigenerBriefbogen: Boolean(bogen),
+    // Bringt der Bogen eine Fusszeile mit, entfaellt unsere - sonst stehen
+    // zwei uebereinander.
+    ...(bogen && bogen.fussgrenze > 0 ? { eigeneFusszeile: false } : {}),
+    /*
+     * Und das Anschriftenfeld beginnt dort, wo der Bogen es vorsieht: `grenze`
+     * markiert genau die Kante unter seiner Rueckabsenderzeile. Ohne das lag
+     * die Empfaengeranschrift auf ihr.
+     */
+    ...(bogen ? { anschriftOben: bogen.grenze + versatz.y - ANSCHRIFT_LUFT } : {}),
     ...(options.beschriftungen ? { beschriftungen: options.beschriftungen } : {}),
     ...(options.kennzahlen ? { kennzahlen: options.kennzahlen } : {}),
     zahlungszielImBriefpapier: options.zahlungszielImBriefpapier,

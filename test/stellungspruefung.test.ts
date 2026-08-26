@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Briefpapier } from '../src/parse/pdf-gestaltung';
-import { A4, kennzahlenrahmen } from '../src/pdf/layout';
+import { A4 } from '../src/pdf/layout';
 import {
   belegteFlaechen,
   pruefeAlleStellungen,
@@ -41,9 +41,12 @@ describe('pruefeStellung', () => {
   });
 
   it('erkennt ein Firmenzeichen genau dort, wo der Block stehen soll', () => {
-    // Das Rechteck wird auf den Rahmen der Stellung gelegt - dann muss die
-    // Pruefung anschlagen, sonst prueft sie gegen die falsche Stelle.
-    const rahmen = kennzahlenrahmen('neben-anschrift', 6);
+    /*
+     * Das Hindernis wird auf den Rahmen gelegt, den die Pruefung selbst
+     * genannt hat - nicht auf einen im Test nachgerechneten. Sonst liegen
+     * beide gemeinsam daneben, sobald sich die Geometrie aendert.
+     */
+    const rahmen = pruefeStellung(leererBogen(), 'neben-anschrift', 6).rahmen;
     const bogen = leererBogen({
       pfade: [pfadAuf(rahmen.x1, rahmen.y1, rahmen.x2, rahmen.y2)],
     });
@@ -54,7 +57,7 @@ describe('pruefeStellung', () => {
   });
 
   it('laesst die anderen Stellungen frei, wenn nur eine belegt ist', () => {
-    const rahmen = kennzahlenrahmen('neben-anschrift', 6);
+    const rahmen = pruefeStellung(leererBogen(), 'neben-anschrift', 6).rahmen;
     const bogen = leererBogen({
       pfade: [pfadAuf(rahmen.x1, rahmen.y1, rahmen.x2, rahmen.y2)],
     });
@@ -69,7 +72,7 @@ describe('pruefeStellung', () => {
      * Sie zu melden hiesse, den Nutzer wegen nichts zu beunruhigen - und eine
      * Warnung, die staendig kommt, wird nicht mehr gelesen.
      */
-    const rahmen = kennzahlenrahmen('neben-anschrift', 6);
+    const rahmen = pruefeStellung(leererBogen(), 'neben-anschrift', 6).rahmen;
     const bogen = leererBogen({
       pfade: [pfadAuf(rahmen.x1, rahmen.y2 - 0.5, rahmen.x2, rahmen.y2)],
     });
@@ -94,7 +97,7 @@ describe('pruefeStellung', () => {
   });
 
   it('nimmt auch Textstuecke als belegt an', () => {
-    const rahmen = kennzahlenrahmen('unter-anschrift', 6);
+    const rahmen = pruefeStellung(leererBogen(), 'unter-anschrift', 6).rahmen;
     const bogen = leererBogen({
       texte: [
         { x: rahmen.x1, y: rahmen.y1 + 5, groesse: 10, breite: rahmen.x2 - rahmen.x1, text: 'x' },
