@@ -129,6 +129,19 @@ export interface LayoutContext {
    * nicht hat.
    */
   schlichteTabelle?: boolean;
+  /**
+   * Die Vorlage setzt keine Ueberschrift - wir dann auch nicht.
+   *
+   * Gemessen an ihren Schriftgroessen: Steht im ganzen Rechnungsinhalt nichts
+   * merklich Groesseres als der Fliesstext, gibt es dort keine Ueberschrift.
+   * Auf der vermessenen Vorlage ist alles zehn Punkt; unsere waren sechzehn,
+   * in der Farbe des Firmenzeichens.
+   *
+   * Gilt **nur fuer die gewoehnliche Rechnung**. Eine Gutschrift oder eine
+   * Berichtigung muss als solche bezeichnet sein - da ist die Ueberschrift
+   * keine Gestaltung, sondern die Angabe, um welche Art Beleg es sich handelt.
+   */
+  ohneTitel?: boolean;
 }
 
 /** Der linke Rand des Satzspiegels - vom Bogen, sonst die Vorgabe. */
@@ -443,6 +456,14 @@ function zeichneKennzahlen(
 
 function drawTitle(cursor: Cursor, invoice: Invoice, ctx: LayoutContext): void {
   const label = documentLabel(invoice.typeCode);
+
+  // 380 ist die gewoehnliche Rechnung. Bei allem anderen bleibt die
+  // Bezeichnung stehen, auch wenn die Vorlage keine setzt.
+  if (ctx.ohneTitel === true && invoice.typeCode === '380') {
+    cursor.y -= 6;
+    return;
+  }
+
   drawText(cursor.page, `${label} ${invoice.number}`, satzLinks(ctx), cursor.y, {
     font: ctx.fonts.bold,
     size: 16,

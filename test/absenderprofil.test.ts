@@ -38,6 +38,7 @@ const BOGEN = {
   ungedeutet: 0,
   ausgelassen: 0,
   inhaltFuellungen: 0,
+  inhaltSchrift: { median: 9, groesste: 9 },
 } satisfies Briefpapier;
 
 const herkunftVon = (identitaet: Identitaet): Herkunft => ({

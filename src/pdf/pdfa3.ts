@@ -206,10 +206,30 @@ export async function renderZugferdPdf(
    * Vorlage keine einzige gefuellte Flaeche kennt.
    *
    * Deshalb: Setzt die Vorlage in ihrem Inhalt keine Flaechen, bleibt es
-   * schlicht, und die Hausfarbe dient nur der Ueberschrift.
+   * schlicht - und die Hausfarbe bleibt ganz auf dem Bogen, wo sie herkommt.
    */
   const schlicht = Boolean(bogen) && bogen!.inhaltFuellungen === 0;
-  const thema = options.theme ?? (bogen?.akzent ? themaMitAkzent(bogen.akzent) : DEFAULT_THEME);
+
+  /*
+   * Und setzt die Vorlage keine Ueberschrift, setzen wir auch keine. Ein
+   * Viertel Unterschied zum Fliesstext genuegt als Nachweis - darunter ist es
+   * eine fette Zeile, keine Ueberschrift.
+   */
+  const ohneTitel =
+    Boolean(bogen) &&
+    bogen!.inhaltSchrift.median > 0 &&
+    bogen!.inhaltSchrift.groesste <= bogen!.inhaltSchrift.median * 1.25;
+  const grundthema =
+    options.theme ?? (bogen?.akzent ? themaMitAkzent(bogen.akzent) : DEFAULT_THEME);
+
+  /*
+   * Bleibt es schlicht, gehoert die Hausfarbe auch nicht in die Summenlinien.
+   * Die vermessene Vorlage setzt in ihrem Inhalt nur Schwarz und siebzig
+   * Prozent Grau; das Rot kommt genau einmal vor, im Firmenzeichen. Dort
+   * gehoert es hin - und nur dorthin.
+   */
+  const thema =
+    schlicht && !options.theme ? { ...grundthema, accent: grundthema.text } : grundthema;
 
   drawInvoice(addPage, invoice, totals, {
     fonts: { regular, bold },
@@ -227,6 +247,7 @@ export async function renderZugferdPdf(
      */
     ...(bogen ? { anschriftOben: bogen.grenze + versatz.y - ANSCHRIFT_LUFT } : {}),
     ...(schlicht ? { schlichteTabelle: true } : {}),
+    ...(ohneTitel ? { ohneTitel: true } : {}),
     /*
      * Und der Satzspiegel des Bogens. Ohne ihn stand unser Inhalt fuenf
      * Millimeter links neben seiner Rueckabsenderzeile und zehn Millimeter

@@ -190,6 +190,15 @@ export interface Briefpapier {
    */
   inhaltFuellungen: number;
   /**
+   * Die Schriftgroessen im Rechnungsinhalt der Vorlage.
+   *
+   * Verraet, ob sie eine Ueberschrift setzt. Auf der vermessenen Vorlage steht
+   * im ganzen Inhalt kein Stueck ueber zehn Punkt - Median und Groesstes sind
+   * gleich. Sie hat also keine; ihr auffaelligstes Element ist das fette
+   * "Rechnungs-Nr.".
+   */
+  inhaltSchrift: { median: number; groesste: number };
+  /**
    * Die Satzbreite des Bogens, an seinen durchgehenden Linien abgelesen.
    *
    * Genauer als der linkeste Text: Falz- und Lochmarken stehen weiter aussen
@@ -822,7 +831,34 @@ export async function liesBriefpapier(bytes: Uint8Array, seite = 0): Promise<Bri
     ungedeutet,
     ausgelassen: inhaltspfade.length,
     inhaltFuellungen: inhaltspfade.filter((pfad) => pfad.fuellung).length,
+    inhaltSchrift: messeInhaltsschrift(gelesen.seiten[seite]?.zeilen ?? [], grenze, fussgrenze),
     ...(findeSatzspiegel(briefkopfpfade, breite) ?? {}),
+  };
+}
+
+/**
+ * Wie gross die Vorlage ihren Rechnungsinhalt setzt.
+ *
+ * Der Median steht fuer den Fliesstext, das Groesste fuer eine etwaige
+ * Ueberschrift. Liegen beide nah beieinander, gibt es keine - und dann sollte
+ * auch keine erfunden werden.
+ */
+function messeInhaltsschrift(
+  zeilen: { y: number; stuecke: { groesse: number }[] }[],
+  grenze: number,
+  fussgrenze: number,
+): { median: number; groesste: number } {
+  const groessen: number[] = [];
+  for (const zeile of zeilen) {
+    if (zeile.y > grenze || (fussgrenze > 0 && zeile.y < fussgrenze)) continue;
+    for (const stueck of zeile.stuecke) groessen.push(Math.abs(stueck.groesse));
+  }
+  if (groessen.length === 0) return { median: 0, groesste: 0 };
+
+  groessen.sort((eins, zwei) => eins - zwei);
+  return {
+    median: groessen[Math.floor(groessen.length / 2)] ?? 0,
+    groesste: groessen[groessen.length - 1] ?? 0,
   };
 }
 

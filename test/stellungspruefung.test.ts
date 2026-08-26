@@ -23,6 +23,7 @@ const leererBogen = (teile: Partial<Briefpapier> = {}): Briefpapier => ({
   ungedeutet: 0,
   ausgelassen: 0,
   inhaltFuellungen: 0,
+  inhaltSchrift: { median: 9, groesste: 9 },
   ...teile,
 });
 
