@@ -37,6 +37,20 @@ export interface LayoutContext {
   logo?: PDFImage;
   /** Freitext fuer die Fusszeile, z.B. Geschaeftsfuehrer und Registergericht */
   footerNote?: string;
+  /**
+   * Das Zahlungsziel steht bereits fest im Briefpapier - dann hier weglassen.
+   *
+   * Der Anlass: Ein uebernommener Briefbogen kann seine Zahlungsklausel
+   * mitbringen ("innerhalb von 8 Tagen ohne Abzug"). Steht sie dann noch einmal
+   * im Zahlungsblock, widerspricht sie sich womoeglich sogar - zwei Fristen auf
+   * einem Blatt.
+   *
+   * Weggelassen wird nur die **Anzeige**. Im XML bleibt die Angabe stehen: EN
+   * 16931 verlangt mit BR-CO-25 entweder ein Faelligkeitsdatum oder eine
+   * Zahlungsbedingung, und der Empfaenger liest maschinell das XML. Auf dem
+   * Papier steht sie ja weiterhin, nur einmal statt zweimal.
+   */
+  zahlungszielImBriefpapier?: boolean;
 }
 
 const PAGE = {
@@ -146,7 +160,11 @@ function drawLetterhead(cursor: Cursor, invoice: Invoice, ctx: LayoutContext): v
 
   let y = PAGE.top - kopfhoehe;
   for (const line of lines) {
-    drawRight(page, line, PAGE.right, y, { font: ctx.fonts.regular, size: 8, color: ctx.theme.muted });
+    drawRight(page, line, PAGE.right, y, {
+      font: ctx.fonts.regular,
+      size: 8,
+      color: ctx.theme.muted,
+    });
     y -= 10;
   }
   cursor.y = Math.min(cursor.y, y) - 6;
@@ -173,7 +191,11 @@ function drawAddressAndMeta(cursor: Cursor, invoice: Invoice, ctx: LayoutContext
 
   let y = addressTop;
   for (const line of addressLines(invoice.buyer)) {
-    drawText(page, line, PAGE.left, y, { font: ctx.fonts.regular, size: 10, color: ctx.theme.text });
+    drawText(page, line, PAGE.left, y, {
+      font: ctx.fonts.regular,
+      size: 10,
+      color: ctx.theme.text,
+    });
     y -= 12.5;
   }
 
@@ -204,7 +226,11 @@ function drawAddressAndMeta(cursor: Cursor, invoice: Invoice, ctx: LayoutContext
   let metaY = Math.min(addressTop + 6, cursor.y);
   for (const [label, value] of metaRows) {
     if (!value) continue;
-    drawText(page, label, metaX, metaY, { font: ctx.fonts.regular, size: 8, color: ctx.theme.muted });
+    drawText(page, label, metaX, metaY, {
+      font: ctx.fonts.regular,
+      size: 8,
+      color: ctx.theme.muted,
+    });
     drawRight(page, value, PAGE.right, metaY, {
       font: ctx.fonts.bold,
       size: 8.5,
@@ -240,7 +266,13 @@ function drawTitle(cursor: Cursor, invoice: Invoice, ctx: LayoutContext): void {
   cursor.y -= 10;
 }
 
-function columnLayout(): Array<{ key: string; label: string; x: number; width: number; align: 'left' | 'right' }> {
+function columnLayout(): Array<{
+  key: string;
+  label: string;
+  x: number;
+  width: number;
+  align: 'left' | 'right';
+}> {
   const fixed = COLUMNS.reduce((acc, column) => acc + column.width, 0);
   const flexible = PAGE.right - PAGE.left - fixed;
   let x = PAGE.left;
@@ -334,7 +366,10 @@ function drawLineTable(
     cell('pos', line.id);
     cell('qty', `${formatQuantity(line.quantity)} ${unitLabel(line.unitCode)}`);
     cell('price', formatAmount(line.unitPrice, undefined, line.unitPrice % 1 === 0 ? 2 : 2));
-    cell('vat', line.vat.category === 'S' ? `${formatQuantity(line.vat.rate)} %` : line.vat.category);
+    cell(
+      'vat',
+      line.vat.category === 'S' ? `${formatQuantity(line.vat.rate)} %` : line.vat.category,
+    );
     cell('total', formatAmount(totals.lineAmounts[index] ?? 0), true);
 
     let textY = baseY;
@@ -396,9 +431,17 @@ function drawTotals(
   if (totals.roundingAmount !== 0) {
     rows.push(['Rundung', formatAmount(totals.roundingAmount, invoice.currency), false]);
   }
-  rows.push([`${documentLabel(invoice.typeCode)}sbetrag`, formatAmount(totals.grandTotal, invoice.currency), true]);
+  rows.push([
+    `${documentLabel(invoice.typeCode)}sbetrag`,
+    formatAmount(totals.grandTotal, invoice.currency),
+    true,
+  ]);
   if (totals.paidAmount !== 0) {
-    rows.push(['abzgl. bereits gezahlt', formatAmount(-totals.paidAmount, invoice.currency), false]);
+    rows.push([
+      'abzgl. bereits gezahlt',
+      formatAmount(-totals.paidAmount, invoice.currency),
+      false,
+    ]);
     rows.push(['Zahlbetrag', formatAmount(totals.duePayable, invoice.currency), true]);
   }
 
@@ -443,11 +486,17 @@ function drawVatBreakdown(
   if (reasons.length === 0) return;
   ensure(reasons.length * 12 + 16);
   for (const tax of reasons) {
-    drawText(cursor.page, `${vatCategoryLabel(tax.category)}: ${tax.exemptionReason}`, PAGE.left, cursor.y, {
-      font: ctx.fonts.regular,
-      size: 8,
-      color: ctx.theme.muted,
-    });
+    drawText(
+      cursor.page,
+      `${vatCategoryLabel(tax.category)}: ${tax.exemptionReason}`,
+      PAGE.left,
+      cursor.y,
+      {
+        font: ctx.fonts.regular,
+        size: 8,
+        color: ctx.theme.muted,
+      },
+    );
     cursor.y -= 11;
   }
   cursor.y -= 8;
@@ -463,11 +512,13 @@ function drawPaymentBlock(
 ): void {
   const payment = invoice.payment;
   const lines: string[] = [];
-  if (payment?.terms) lines.push(payment.terms);
-  else if (invoice.dueDate) {
-    lines.push(
-      `Zahlbar ohne Abzug bis zum ${formatDate(invoice.dueDate)} auf das unten genannte Konto.`,
-    );
+  if (!ctx.zahlungszielImBriefpapier) {
+    if (payment?.terms) lines.push(payment.terms);
+    else if (invoice.dueDate) {
+      lines.push(
+        `Zahlbar ohne Abzug bis zum ${formatDate(invoice.dueDate)} auf das unten genannte Konto.`,
+      );
+    }
   }
   if (payment?.iban) {
     lines.push(
@@ -574,10 +625,16 @@ function drawFooter(
   drawText(page, identity, PAGE.left, y + 16, options);
   if (ctx.footerNote) drawText(page, ctx.footerNote, PAGE.left, y + 7, options);
   drawRight(page, `Seite ${index + 1} von ${total}`, PAGE.right, y + 16, options);
-  drawRight(page, 'Diese Rechnung enthaelt strukturierte Daten nach ZUGFeRD 2.3.', PAGE.right, y + 7, {
-    ...options,
-    size: 6.5,
-  });
+  drawRight(
+    page,
+    'Diese Rechnung enthaelt strukturierte Daten nach ZUGFeRD 2.3.',
+    PAGE.right,
+    y + 7,
+    {
+      ...options,
+      size: 6.5,
+    },
+  );
 }
 
 // --- Hilfsfunktionen --------------------------------------------------------
@@ -592,9 +649,21 @@ function drawText(page: PDFPage, text: string, x: number, y: number, options: Te
   page.drawText(text, { x, y, font: options.font, size: options.size, color: options.color });
 }
 
-function drawRight(page: PDFPage, text: string, right: number, y: number, options: TextOptions): void {
+function drawRight(
+  page: PDFPage,
+  text: string,
+  right: number,
+  y: number,
+  options: TextOptions,
+): void {
   const width = options.font.widthOfTextAtSize(text, options.size);
-  page.drawText(text, { x: right - width, y, font: options.font, size: options.size, color: options.color });
+  page.drawText(text, {
+    x: right - width,
+    y,
+    font: options.font,
+    size: options.size,
+    color: options.color,
+  });
 }
 
 /**
@@ -604,7 +673,12 @@ function drawRight(page: PDFPage, text: string, right: number, y: number, option
  * Zeile stehen und der Betrag nicht weichen darf. Lieber ein sichtbar
  * gekuerzter Text als zwei uebereinandergedruckte.
  */
-export function kuerzeAufBreite(text: string, font: PDFFont, size: number, maxWidth: number): string {
+export function kuerzeAufBreite(
+  text: string,
+  font: PDFFont,
+  size: number,
+  maxWidth: number,
+): string {
   if (maxWidth <= 0 || font.widthOfTextAtSize(text, size) <= maxWidth) return text;
 
   let gekuerzt = text;
@@ -656,7 +730,10 @@ function addressLines(party: Party): string[] {
 }
 
 function formatIban(iban: string): string {
-  return iban.replace(/\s/g, '').replace(/(.{4})/g, '$1 ').trim();
+  return iban
+    .replace(/\s/g, '')
+    .replace(/(.{4})/g, '$1 ')
+    .trim();
 }
 
 function documentLabel(typeCode: string): string {
