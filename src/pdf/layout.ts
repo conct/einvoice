@@ -92,6 +92,9 @@ export type Kennzahlenstellung =
   /** Unter dem Anschriftenfeld, quer in einer Zeile. */
   | 'unter-anschrift';
 
+/** Die Hoehe einer Zeile im Kennzahlenblock. */
+const KENNZAHLENZEILE = 12;
+
 const PAGE = {
   left: 20 * MM,
   right: A4.width - 20 * MM,
@@ -329,7 +332,7 @@ function zeichneKennzahlen(
       size: 8.5,
       color: ctx.theme.text,
     });
-    metaY -= 12;
+    metaY -= KENNZAHLENZEILE;
   }
 
   return metaY;
@@ -769,6 +772,42 @@ function drawRight(
  * Zeile stehen und der Betrag nicht weichen darf. Lieber ein sichtbar
  * gekuerzter Text als zwei uebereinandergedruckte.
  */
+/**
+ * Wo der Kennzahlenblock zu liegen kommt - als Rechteck.
+ *
+ * Dieselben Zahlen wie beim Zeichnen, und zwar aus denselben Ausdruecken.
+ * Eine zweite Rechnung fuer dasselbe waere die Stelle, an der Pruefung und
+ * Wirklichkeit auseinanderlaufen - und dann meldet die Pruefung "frei", wo
+ * die Rechnung ueberdruckt.
+ *
+ * `obergrenze` ist, wie tief der Briefkopf reicht; ohne eigenen Briefkopf ist
+ * das der obere Seitenrand.
+ */
+export function kennzahlenrahmen(
+  stellung: Kennzahlenstellung,
+  zeilen: number,
+  obergrenze: number = PAGE.top,
+): { x1: number; y1: number; x2: number; y2: number } {
+  const addressTop = A4.height - 45 * MM;
+
+  if (stellung === 'unter-anschrift') {
+    const oben = addressTop - 45 * MM;
+    return { x1: PAGE.left, y1: oben - KENNZAHLENZEILE, x2: PAGE.right, y2: oben + 9 };
+  }
+
+  const start =
+    stellung === 'ueber-anschrift'
+      ? Math.min(addressTop + 20 * MM, obergrenze)
+      : Math.min(addressTop + 6, obergrenze);
+
+  return {
+    x1: PAGE.left + 105 * MM,
+    y1: start - zeilen * KENNZAHLENZEILE,
+    x2: PAGE.right,
+    y2: start + 9,
+  };
+}
+
 export function kuerzeAufBreite(
   text: string,
   font: PDFFont,

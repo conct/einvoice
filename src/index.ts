@@ -212,3 +212,11 @@ export {
 } from './pdf/beschriftungen';
 export type { Kennzahlenstellung } from './pdf/layout';
 export { schlageVorlageVor, type Vorlagenvorschlag } from './absender/vorlage';
+export {
+  belegteFlaechen,
+  pruefeAlleStellungen,
+  pruefeStellung,
+  type Rahmen,
+  type Stellungsbefund,
+} from './pdf/stellungspruefung';
+export { kennzahlenrahmen } from './pdf/layout';
