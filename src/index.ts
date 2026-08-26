@@ -49,13 +49,51 @@ export {
   type Produkt,
   type Schluesselmaterial,
 } from './lizenz/schluessel';
+export { pruefeDienstadresse, type Adressbefund } from './lizenz/dienstadresse';
+
+// Word-Dokumente aufschluesseln - die Umzugshilfe fuer alle, die ihre
+// Rechnungen bisher in Word schreiben. Deutet nichts, holt nur heraus.
+export {
+  liesWordDokument,
+  type WordAbsatz,
+  type WordBlock,
+  type WordDokument,
+  type WordTabelle,
+} from './parse/word';
+export {
+  positionenAus,
+  schlageZuordnungVor,
+  signaturVon,
+  zahlAus,
+  ROLLEN,
+  type Spaltenrolle,
+  type Uebernahme,
+} from './parse/word-uebernahme';
+
+// Text aus einem PDF holen - die Grundlage dafuer, aus einem Word-PDF ohne
+// eingebettete Daten doch noch eine Rechnung zu machen.
+export {
+  liesPdfText,
+  type PdfText,
+  type Textseite,
+  type Textstueck,
+  type Textzeile,
+} from './parse/pdf-text';
+export { schlageKopfzeileVor, tabelleAusZeilen, type Tabellenbefund } from './parse/pdf-tabelle';
+
+// Stammdaten aus einer fremden Rechnung - Anschriften, IBAN, Steuernummern.
+// Jeder Fund traegt seine Sicherheit mit sich; zugeordnet wird von Hand.
+export {
+  findeStammdaten,
+  type Anschrift,
+  type Feld,
+  type Fund,
+  type Sicherheit,
+  type Stammdatenfund,
+} from './parse/stammdaten';
 
 // Empfang und Auswertung eingehender E-Rechnungen
-export {
-  extractAttachments,
-  extractInvoiceXml,
-  type ExtractedAttachment,
-} from './parse/extract';
+export { extractAttachments, extractInvoiceXml, type ExtractedAttachment } from './parse/extract';
 export {
   parseInvoiceXml,
   type DeclaredTotals,
@@ -111,10 +149,53 @@ export function buildInvoiceXml(invoice: Invoice): { xml: string; filename: stri
   const totals = computeTotals(invoice);
   switch (invoice.profile) {
     case 'xrechnung-ubl':
-      return { xml: buildUbl(invoice, { totals }), filename: `${invoice.number}-xrechnung-ubl.xml` };
+      return {
+        xml: buildUbl(invoice, { totals }),
+        filename: `${invoice.number}-xrechnung-ubl.xml`,
+      };
     case 'xrechnung-cii':
-      return { xml: buildCii(invoice, { totals }), filename: `${invoice.number}-xrechnung-cii.xml` };
+      return {
+        xml: buildCii(invoice, { totals }),
+        filename: `${invoice.number}-xrechnung-cii.xml`,
+      };
     default:
       return { xml: buildCii(invoice, { totals }), filename: 'factur-x.xml' };
   }
 }
+
+export {
+  alsHex,
+  findeFussgrenze,
+  findeGrenze,
+  liesBriefpapier,
+  type Beschriftung,
+  type Briefpapier,
+  type Farbe,
+  type Flaeche,
+  type Kreis,
+  type Pfad,
+  type Strich,
+} from './parse/pdf-gestaltung';
+export { alsSvg, zeichneBriefpapier, type Zeichenbefund } from './pdf/briefpapier';
+export {
+  schriftenImBriefkopf,
+  setzeMitVorlagenschrift,
+  type Vorlagenbefund,
+} from './pdf/vorlagenschrift';
+export { type Textlauf } from './parse/pdf-gestaltung';
+export {
+  kennungVon,
+  profilAus,
+  pruefeZuordnung,
+  uebernimmBriefpapier,
+  type Absenderprofil,
+  type Herkunft,
+  type Identitaet,
+  type Zuordnung,
+} from './absender/profil';
+export { laufbreite, liefereBreiten, type Breiten } from './parse/pdf-breiten';
+export {
+  findeZahlungsklausel,
+  zahlungsklauselImBogen,
+  type Zahlungsklausel,
+} from './absender/zahlungsklausel';
