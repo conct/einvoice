@@ -3,6 +3,7 @@ import type { Invoice, Party } from '../model/invoice';
 import type { InvoiceTotals } from '../model/totals';
 import { formatAmount, formatQuantity } from '../util/money';
 import { formatDate } from '../util/date';
+import { beschriftungenMit, type Beschriftungen } from './beschriftungen';
 
 /** A4 in PostScript-Punkten */
 export const A4 = { width: 595.28, height: 841.89 } as const;
@@ -60,7 +61,36 @@ export interface LayoutContext {
    * zwei Stellen.
    */
   eigenerBriefbogen?: boolean;
+  /**
+   * Beschriftungen, soweit sie vom Standard abweichen.
+   *
+   * Vollstaendig gemacht wird der Satz beim Zeichnen, nicht hier - so muss
+   * keine Stelle im Layout nachsehen, ob ein Wort vorhanden ist.
+   */
+  beschriftungen?: Partial<Beschriftungen>;
+  /**
+   * Wo der Kennzahlenblock steht - Rechnungsnummer, -datum, Faelligkeit.
+   *
+   * Ein uebernommener Briefbogen setzt ihn oft woandershin als wir; auf einer
+   * vermessenen Fremdrechnung stand er auf halber Hoehe quer ueber die Seite,
+   * nicht rechts untereinander.
+   *
+   * Feste Stellungen statt freier Koordinaten: Wer Felder frei verschiebt,
+   * verliert womoeglich eine Pflichtangabe nach Paragraf 14 UStG, waehrend sie
+   * im XML weiterhin steht - und genau dieses Auseinanderlaufen faellt in
+   * einer Pruefung auf. Das Anschriftenfeld selbst bleibt ohnehin auf 45 mm,
+   * sonst passt der Brief nicht mehr in den Fensterumschlag.
+   */
+  kennzahlen?: Kennzahlenstellung;
 }
+
+export type Kennzahlenstellung =
+  /** Rechts neben dem Anschriftenfeld, untereinander. Die Vorgabe. */
+  | 'neben-anschrift'
+  /** Rechts oben, oberhalb des Anschriftenfeldes. */
+  | 'ueber-anschrift'
+  /** Unter dem Anschriftenfeld, quer in einer Zeile. */
+  | 'unter-anschrift';
 
 const PAGE = {
   left: 20 * MM,
@@ -71,12 +101,12 @@ const PAGE = {
 
 /** Spaltenraster der Positionstabelle, Anteile der verfuegbaren Breite */
 const COLUMNS = [
-  { key: 'pos', label: 'Pos.', width: 26, align: 'left' as const },
-  { key: 'name', label: 'Bezeichnung', width: 0, align: 'left' as const },
-  { key: 'qty', label: 'Menge', width: 58, align: 'right' as const },
-  { key: 'price', label: 'Einzelpreis', width: 72, align: 'right' as const },
-  { key: 'vat', label: 'USt.', width: 38, align: 'right' as const },
-  { key: 'total', label: 'Betrag', width: 76, align: 'right' as const },
+  { key: 'pos', beschriftung: 'pos' as const, width: 26, align: 'left' as const },
+  { key: 'name', beschriftung: 'bezeichnung' as const, width: 0, align: 'left' as const },
+  { key: 'qty', beschriftung: 'menge' as const, width: 58, align: 'right' as const },
+  { key: 'price', beschriftung: 'einzelpreis' as const, width: 72, align: 'right' as const },
+  { key: 'vat', beschriftung: 'umsatzsteuer' as const, width: 38, align: 'right' as const },
+  { key: 'total', beschriftung: 'betrag' as const, width: 76, align: 'right' as const },
 ];
 
 interface Cursor {
@@ -213,32 +243,82 @@ function drawAddressAndMeta(cursor: Cursor, invoice: Invoice, ctx: LayoutContext
   }
 
   // Kennzahlenblock rechts neben dem Anschriftenfeld
+  const wort = beschriftungenMit(ctx.beschriftungen);
   const metaRows: Array<[string, string | undefined]> = [
-    ['Rechnungsnummer', invoice.number],
-    ['Rechnungsdatum', formatDate(invoice.issueDate)],
-    ['Leistungsdatum', invoice.deliveryDate ? formatDate(invoice.deliveryDate) : undefined],
+    [wort.rechnungsnummer, invoice.number],
+    [wort.rechnungsdatum, formatDate(invoice.issueDate)],
+    [wort.leistungsdatum, invoice.deliveryDate ? formatDate(invoice.deliveryDate) : undefined],
     [
-      'Leistungszeitraum',
+      wort.leistungszeitraum,
       invoice.periodStart && invoice.periodEnd
         ? `${formatDate(invoice.periodStart)} - ${formatDate(invoice.periodEnd)}`
         : undefined,
     ],
-    ['Faellig am', invoice.dueDate ? formatDate(invoice.dueDate) : undefined],
-    ['Kundennummer', invoice.buyer.identifier],
-    ['Leitweg-ID', invoice.buyerReference],
-    ['Bestellnummer', invoice.orderReference],
-    ['Projekt', invoice.projectReference],
+    [wort.faelligAm, invoice.dueDate ? formatDate(invoice.dueDate) : undefined],
+    [wort.kundennummer, invoice.buyer.identifier],
+    [wort.leitwegId, invoice.buyerReference],
+    [wort.bestellnummer, invoice.orderReference],
+    [wort.projekt, invoice.projectReference],
   ];
 
-  const metaX = PAGE.left + 105 * MM;
+  const gefuellt = metaRows.filter((zeile): zeile is [string, string] => Boolean(zeile[1]));
+  const metaY = zeichneKennzahlen(page, gefuellt, ctx, addressTop, cursor.y);
 
-  // Der Kennzahlenblock steht rechts neben dem Anschriftenfeld - aber niemals
-  // hoeher als der Briefkopf endet. Beide sind rechtsbuendig an derselben
-  // Kante; ueberlappen sie, druckt der eine ueber den anderen, und auf der
-  // Rechnung steht "Tel. +4RE-2026-0042".
-  let metaY = Math.min(addressTop + 6, cursor.y);
-  for (const [label, value] of metaRows) {
-    if (!value) continue;
+  cursor.y = Math.min(y, metaY) - 22;
+}
+
+/**
+ * Setzt den Kennzahlenblock in der gewaehlten Stellung.
+ *
+ * Gibt zurueck, wie tief er reicht - danach richtet sich, wo der Fliesstext
+ * weitergeht.
+ */
+function zeichneKennzahlen(
+  page: PDFPage,
+  zeilen: Array<[string, string]>,
+  ctx: LayoutContext,
+  addressTop: number,
+  cursorY: number,
+): number {
+  if (zeilen.length === 0) return cursorY;
+
+  const stellung = ctx.kennzahlen ?? 'neben-anschrift';
+
+  if (stellung === 'unter-anschrift') {
+    /*
+     * Quer unter dem Anschriftenfeld, so wie es gestaltete Rechnungen oft
+     * halten. Die Spalten werden gleichmaessig verteilt - Beschriftung ueber
+     * dem Wert, damit auch ein langer Wert nicht in den Nachbarn laeuft.
+     */
+    const oben = addressTop - 45 * MM;
+    const breite = (PAGE.right - PAGE.left) / Math.max(1, zeilen.length);
+
+    for (const [nummer, [label, value]] of zeilen.entries()) {
+      const x = PAGE.left + nummer * breite;
+      drawText(page, label, x, oben, { font: ctx.fonts.regular, size: 8, color: ctx.theme.muted });
+      drawText(page, kuerzeAufBreite(value, ctx.fonts.bold, 8.5, breite - 6), x, oben - 11, {
+        font: ctx.fonts.bold,
+        size: 8.5,
+        color: ctx.theme.text,
+      });
+    }
+
+    return oben - 11;
+  }
+
+  /*
+   * Rechtsbuendig untereinander. "ueber-anschrift" setzt hoeher an, bleibt
+   * aber unter dem Briefkopf: Beide sind an derselben Kante ausgerichtet -
+   * ueberlappen sie, druckt der eine ueber den anderen, und auf der Rechnung
+   * steht "Tel. +4RE-2026-0042".
+   */
+  const metaX = PAGE.left + 105 * MM;
+  let metaY =
+    stellung === 'ueber-anschrift'
+      ? Math.min(addressTop + 20 * MM, cursorY)
+      : Math.min(addressTop + 6, cursorY);
+
+  for (const [label, value] of zeilen) {
     drawText(page, label, metaX, metaY, {
       font: ctx.fonts.regular,
       size: 8,
@@ -252,7 +332,7 @@ function drawAddressAndMeta(cursor: Cursor, invoice: Invoice, ctx: LayoutContext
     metaY -= 12;
   }
 
-  cursor.y = Math.min(y, metaY) - 22;
+  return metaY;
 }
 
 function drawTitle(cursor: Cursor, invoice: Invoice, ctx: LayoutContext): void {
@@ -279,7 +359,7 @@ function drawTitle(cursor: Cursor, invoice: Invoice, ctx: LayoutContext): void {
   cursor.y -= 10;
 }
 
-function columnLayout(): Array<{
+function columnLayout(wort: Beschriftungen): Array<{
   key: string;
   label: string;
   x: number;
@@ -291,14 +371,20 @@ function columnLayout(): Array<{
   let x = PAGE.left;
   return COLUMNS.map((column) => {
     const width = column.width === 0 ? flexible : column.width;
-    const entry = { key: column.key, label: column.label, x, width, align: column.align };
+    const entry = {
+      key: column.key,
+      label: wort[column.beschriftung],
+      x,
+      width,
+      align: column.align,
+    };
     x += width;
     return entry;
   });
 }
 
 function drawTableHead(cursor: Cursor, ctx: LayoutContext): void {
-  const columns = columnLayout();
+  const columns = columnLayout(beschriftungenMit(ctx.beschriftungen));
   const { page } = cursor;
   page.drawRectangle({
     x: PAGE.left,
@@ -326,7 +412,7 @@ function drawLineTable(
   ensure: (needed: number) => void,
   _nextPage: () => void,
 ): void {
-  const columns = columnLayout();
+  const columns = columnLayout(beschriftungenMit(ctx.beschriftungen));
   const nameColumn = columns.find((c) => c.key === 'name');
   drawTableHead(cursor, ctx);
 
@@ -422,17 +508,18 @@ function drawTotals(
   ctx: LayoutContext,
   ensure: (needed: number) => void,
 ): void {
+  const wort = beschriftungenMit(ctx.beschriftungen);
   const rows: Array<[string, string, boolean]> = [];
-  rows.push(['Zwischensumme netto', formatAmount(totals.lineTotal, invoice.currency), false]);
+  rows.push([wort.zwischensummeNetto, formatAmount(totals.lineTotal, invoice.currency), false]);
   for (const ac of invoice.allowancesCharges) {
     rows.push([
-      `${ac.isCharge ? 'Zuschlag' : 'Abschlag'}${ac.reason ? ` (${ac.reason})` : ''}`,
+      `${ac.isCharge ? wort.zuschlag : wort.abschlag}${ac.reason ? ` (${ac.reason})` : ''}`,
       formatAmount(ac.isCharge ? ac.amount : -ac.amount, invoice.currency),
       false,
     ]);
   }
   if (totals.allowanceTotal !== 0 || totals.chargeTotal !== 0) {
-    rows.push(['Gesamtsumme netto', formatAmount(totals.taxBasisTotal, invoice.currency), false]);
+    rows.push([wort.gesamtsummeNetto, formatAmount(totals.taxBasisTotal, invoice.currency), false]);
   }
   for (const tax of totals.vatBreakdown) {
     const label =
@@ -442,7 +529,7 @@ function drawTotals(
     rows.push([label, formatAmount(tax.taxAmount, invoice.currency), false]);
   }
   if (totals.roundingAmount !== 0) {
-    rows.push(['Rundung', formatAmount(totals.roundingAmount, invoice.currency), false]);
+    rows.push([wort.rundung, formatAmount(totals.roundingAmount, invoice.currency), false]);
   }
   rows.push([
     `${documentLabel(invoice.typeCode)}sbetrag`,
@@ -450,12 +537,8 @@ function drawTotals(
     true,
   ]);
   if (totals.paidAmount !== 0) {
-    rows.push([
-      'abzgl. bereits gezahlt',
-      formatAmount(-totals.paidAmount, invoice.currency),
-      false,
-    ]);
-    rows.push(['Zahlbetrag', formatAmount(totals.duePayable, invoice.currency), true]);
+    rows.push([wort.bereitsGezahlt, formatAmount(-totals.paidAmount, invoice.currency), false]);
+    rows.push([wort.zahlbetrag, formatAmount(totals.duePayable, invoice.currency), true]);
   }
 
   ensure(rows.length * 14 + 24);
@@ -558,7 +641,7 @@ function drawPaymentBlock(
   if (lines.length === 0) return;
 
   ensure(lines.length * 12 + 30);
-  drawText(cursor.page, 'Zahlung', PAGE.left, cursor.y, {
+  drawText(cursor.page, beschriftungenMit(ctx.beschriftungen).zahlung, PAGE.left, cursor.y, {
     font: ctx.fonts.bold,
     size: 9,
     color: ctx.theme.text,

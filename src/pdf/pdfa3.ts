@@ -16,7 +16,8 @@ import { formatDate } from '../util/date';
 import { formatAmount } from '../util/money';
 import type { Briefpapier } from '../parse/pdf-gestaltung';
 import { zeichneBriefpapier } from './briefpapier';
-import { A4, DEFAULT_THEME, drawInvoice, type Theme } from './layout';
+import type { Beschriftungen } from './beschriftungen';
+import { A4, DEFAULT_THEME, drawInvoice, type Kennzahlenstellung, type Theme } from './layout';
 import { bereiteVorlagenschrift } from './vorlagenschrift';
 import { buildXmp, xmpDate, type FacturXConformanceLevel } from './xmp';
 import { Zeichenpruefung, mitZeichenpruefung } from './zeichenvorrat';
@@ -90,6 +91,16 @@ export interface RenderOptions {
    * Nur die Anzeige; im XML bleibt die Angabe stehen, BR-CO-25 verlangt sie.
    */
   zahlungszielImBriefpapier?: boolean;
+  /**
+   * Eigene Beschriftungen, soweit sie vom Standard abweichen.
+   *
+   * "Rechnungs-Nr." statt "Rechnungsnummer" etwa. Unbrauchbares wird durch die
+   * Vorgabe ersetzt, nicht uebernommen - eine leere Beschriftung liesse einen
+   * Wert ohne Erklaerung stehen.
+   */
+  beschriftungen?: Partial<Beschriftungen>;
+  /** Wo der Kennzahlenblock steht - siehe `Kennzahlenstellung`. */
+  kennzahlen?: Kennzahlenstellung;
   /** Fertiges CII-XML verwenden, statt es neu zu erzeugen */
   xml?: string;
   totals?: InvoiceTotals;
@@ -178,6 +189,8 @@ export async function renderZugferdPdf(
     logo,
     footerNote: options.footerNote,
     eigenerBriefbogen: Boolean(bogen),
+    ...(options.beschriftungen ? { beschriftungen: options.beschriftungen } : {}),
+    ...(options.kennzahlen ? { kennzahlen: options.kennzahlen } : {}),
     zahlungszielImBriefpapier: options.zahlungszielImBriefpapier,
   });
   pruefung.wirfBeiLuecken();

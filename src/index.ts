@@ -203,3 +203,12 @@ export {
 export { entschluesseleCcitt, type CcittAngaben, type Fehlerbild } from './parse/ccitt';
 export { liesSeitenbilder, type Bildart, type Seitenbild } from './parse/pdf-bilder';
 export { alsGraustufenPng, maskeAlsGrau } from './util/png';
+export {
+  beschriftungenMit,
+  istBrauchbareBeschriftung,
+  nurAbweichungen,
+  STANDARD_BESCHRIFTUNGEN,
+  type Beschriftungen,
+} from './pdf/beschriftungen';
+export type { Kennzahlenstellung } from './pdf/layout';
+export { schlageVorlageVor, type Vorlagenvorschlag } from './absender/vorlage';
