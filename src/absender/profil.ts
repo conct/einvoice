@@ -124,8 +124,35 @@ export function pruefeZuordnung(profil: Absenderprofil, herkunft?: Herkunft): Zu
   const zu = herkunft ?? profil.herkunft;
   if (!zu) return { urteil: 'ohne-herkunft' };
 
-  const dort = kennungVon(zu.identitaet);
-  return dort === profil.kennung ? { urteil: 'passt' } : { urteil: 'fremd', gehoertZu: dort };
+  return gleicheFirma(profil.identitaet, zu.identitaet)
+    ? { urteil: 'passt' }
+    : { urteil: 'fremd', gehoertZu: kennungVon(zu.identitaet) };
+}
+
+/**
+ * Sind das zwei Namen fuer dieselbe Firma?
+ *
+ * Feldweise und nicht ueber die Kennung. Der Grund ist ein Fehler, der beim
+ * Bau der Oberflaeche auffiel: `kennungVon` liefert "st-..." wenn eine
+ * Steuernummer vorliegt und "na-..." sonst. Im Profil steht sie meist, in
+ * einer aus dem Briefkopf gelesenen Anschrift oft nicht - der eigene Bogen
+ * waere dann als fremd abgewiesen worden, und zwar bei jedem Nutzer.
+ *
+ * Die Steuernummer entscheidet, wo beide Seiten eine haben; sonst Name mit
+ * Ort. Dass eine Seite keine hat, ist kein Widerspruch, sondern eine Luecke.
+ */
+function gleicheFirma(eine: Identitaet, andere: Identitaet): boolean {
+  const steuerEine = eine.ustId ?? eine.steuernummer;
+  const steuerAndere = andere.ustId ?? andere.steuernummer;
+
+  if (steuerEine && steuerAndere) {
+    return vereinheitliche(steuerEine) === vereinheitliche(steuerAndere);
+  }
+
+  return (
+    vereinheitliche(eine.name) === vereinheitliche(andere.name) &&
+    vereinheitliche(`${eine.plz} ${eine.ort}`) === vereinheitliche(`${andere.plz} ${andere.ort}`)
+  );
 }
 
 /**

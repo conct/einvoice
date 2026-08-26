@@ -14,7 +14,10 @@ import { buildCii } from '../xml/cii';
 import { utf8Encode } from '../util/base64';
 import { formatDate } from '../util/date';
 import { formatAmount } from '../util/money';
+import type { Briefpapier } from '../parse/pdf-gestaltung';
+import { zeichneBriefpapier } from './briefpapier';
 import { A4, DEFAULT_THEME, drawInvoice, type Theme } from './layout';
+import { bereiteVorlagenschrift } from './vorlagenschrift';
 import { buildXmp, xmpDate, type FacturXConformanceLevel } from './xmp';
 import { Zeichenpruefung, mitZeichenpruefung } from './zeichenvorrat';
 
@@ -65,6 +68,28 @@ export interface RenderOptions {
    * @erechnung/validate
    */
   subsetFonts?: boolean;
+  /**
+   * Ein uebernommener Briefbogen, der unter jeder Seite liegt.
+   *
+   * Ist einer gesetzt, entfaellt der eigene Briefkopf - der Bogen bringt Logo,
+   * Absenderzeilen und Rueckabsender bereits mit.
+   */
+  briefpapier?: Briefpapier;
+  /**
+   * Die Bytes der Vorlage, aus der der Bogen gelesen wurde.
+   *
+   * Nur noetig, wenn der Briefkopftext in der **Originalschrift** stehen soll.
+   * Ohne sie wird er mit der Hausschrift nachgezeichnet und auf das gemessene
+   * Sollmass eingepasst. Das ist der Normalfall: Eine fremde Schriftlizenz
+   * deckt die Uebernahme nicht, das muss ein Mensch entscheiden.
+   */
+  briefpapierVorlage?: Uint8Array;
+  /**
+   * Das Zahlungsziel steht schon im Briefbogen - im Rumpf weglassen.
+   *
+   * Nur die Anzeige; im XML bleibt die Angabe stehen, BR-CO-25 verlangt sie.
+   */
+  zahlungszielImBriefpapier?: boolean;
   /** Fertiges CII-XML verwenden, statt es neu zu erzeugen */
   xml?: string;
   totals?: InvoiceTotals;
@@ -112,14 +137,48 @@ export async function renderZugferdPdf(
   // Zeichen ausserhalb davon wuerde nicht falsch, sondern gar nicht erscheinen
   // - deshalb faengt die Pruefung jeden Text ab, der ins Dokument geht.
   const pruefung = new Zeichenpruefung([options.assets.fontRegular, options.assets.fontBold]);
-  const addPage = (): PDFPage =>
-    mitZeichenpruefung(doc.addPage([A4.width, A4.height]), pruefung);
+
+  /*
+   * Eine Druckvorlage ist oft groesser als A4, weil sie einen Beschnittrand
+   * traegt - die vermessene Fremdrechnung misst 214 x 301 mm. Der Rand liegt
+   * ringsum gleich, also fuehrt die halbe Differenz den Bogen massgenau auf
+   * A4. Skalieren waere schlechter: Es verkleinerte die Schrift, und der Bogen
+   * saesse danach trotzdem nicht am Falz.
+   */
+  const bogen = options.briefpapier;
+  const versatz = bogen
+    ? {
+        x: (A4.width - bogen.seite.breite) / 2,
+        y: (A4.height - bogen.seite.hoehe) / 2,
+      }
+    : { x: 0, y: 0 };
+
+  const setzer =
+    bogen && options.briefpapierVorlage
+      ? await bereiteVorlagenschrift(doc, bogen, options.briefpapierVorlage)
+      : undefined;
+
+  const addPage = (): PDFPage => {
+    const seite = mitZeichenpruefung(doc.addPage([A4.width, A4.height]), pruefung);
+    if (!bogen) return seite;
+
+    /*
+     * Beim Anlegen der Seite, nicht am Ende: So liegt der Bogen unter dem
+     * Inhalt - und auf jedem Blatt, denn ein Briefbogen hoert nach Seite eins
+     * nicht auf.
+     */
+    zeichneBriefpapier(seite, setzer ? { ...bogen, texte: [] } : bogen, regular, versatz);
+    setzer?.setze(seite, bogen, versatz);
+    return seite;
+  };
 
   drawInvoice(addPage, invoice, totals, {
     fonts: { regular, bold },
     theme: options.theme ?? DEFAULT_THEME,
     logo,
     footerNote: options.footerNote,
+    eigenerBriefbogen: Boolean(bogen),
+    zahlungszielImBriefpapier: options.zahlungszielImBriefpapier,
   });
   pruefung.wirfBeiLuecken();
 

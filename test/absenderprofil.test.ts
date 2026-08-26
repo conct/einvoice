@@ -91,6 +91,19 @@ describe('pruefeZuordnung', () => {
     expect(urteil.urteil).toBe('fremd');
   });
 
+  it('weist den eigenen Bogen nicht ab, nur weil eine Steuernummer fehlt', () => {
+    /*
+     * Der Fall aus der Oberflaeche: Im Profil steht die Steuernummer, in der
+     * aus dem Briefkopf gelesenen Anschrift nicht. Ueber die Kennung
+     * verglichen waere das "st-..." gegen "na-..." - und jeder Nutzer haette
+     * seinen eigenen Bogen abgewiesen bekommen.
+     */
+    const profil = profilAus(SCHOENE);
+    const ohneSteuer = { name: SCHOENE.name, plz: SCHOENE.plz, ort: SCHOENE.ort };
+
+    expect(pruefeZuordnung(profil, herkunftVon(ohneSteuer))).toEqual({ urteil: 'passt' });
+  });
+
   it('haelt einen selbst gebauten Bogen nicht fuer fremd', () => {
     expect(pruefeZuordnung(profilAus(SCHOENE))).toEqual({ urteil: 'ohne-herkunft' });
   });

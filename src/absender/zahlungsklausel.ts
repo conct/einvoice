@@ -81,12 +81,13 @@ export function findeZahlungsklausel(zeilen: string[]): Zahlungsklausel | undefi
 }
 
 /**
- * Dasselbe fuer ein ausgelesenes Briefpapier.
+ * Die Textstuecke eines Bogens zu Zeilen zusammenlegen.
  *
- * Die Stuecke werden vorher je Hoehe zu Zeilen zusammengelegt, damit eine
- * Wendung ueber mehrere Stuecke hinweg gefunden wird.
+ * Noetig, weil eine gesetzte Zeile sich leicht auf mehrere Stuecke verteilt -
+ * "innerhalb von 8 Tagen" kann in fuenf Teilen dastehen und waere einzeln in
+ * keinem davon zu finden. Dasselbe gilt fuer eine Anschrift.
  */
-export function zahlungsklauselImBogen(papier: Briefpapier): Zahlungsklausel | undefined {
+export function zeilenImBogen(papier: Briefpapier): string[] {
   const nachHoehe = new Map<number, { x: number; text: string }[]>();
   for (const stueck of papier.texte) {
     const schluessel = Math.round(stueck.y);
@@ -95,15 +96,20 @@ export function zahlungsklauselImBogen(papier: Briefpapier): Zahlungsklausel | u
     nachHoehe.set(schluessel, bisher);
   }
 
-  const zeilen = [...nachHoehe.entries()]
+  return [...nachHoehe.entries()]
     .sort((a, b) => b[0] - a[0])
     .map(([, stuecke]) =>
       stuecke
         .sort((a, b) => a.x - b.x)
         .map((stueck) => stueck.text)
         .join('')
-        .replace(/\s+/g, ' '),
-    );
+        .replace(/\s+/g, ' ')
+        .trim(),
+    )
+    .filter(Boolean);
+}
 
-  return findeZahlungsklausel(zeilen);
+/** Dasselbe fuer ein ausgelesenes Briefpapier. */
+export function zahlungsklauselImBogen(papier: Briefpapier): Zahlungsklausel | undefined {
+  return findeZahlungsklausel(zeilenImBogen(papier));
 }

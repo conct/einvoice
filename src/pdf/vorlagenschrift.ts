@@ -49,6 +49,19 @@ import type { Briefpapier, Farbe, Textlauf } from '../parse/pdf-gestaltung';
  * ausdruecklich gewaehlt, und die Hausschrift bleibt der Normalfall.
  */
 
+export interface Vorlagensetzer {
+  /** Namen der Schriften aus der Vorlage, die uebernommen werden konnten. */
+  schriften: string[];
+  /** Setzt den Briefkopftext auf eine Seite. Beliebig oft aufrufbar. */
+  setze(seite: PDFPage, papier: Briefpapier, versatz?: Versatz): Vorlagenbefund;
+}
+
+/** Verschiebung beim Setzen - fuer Vorlagen, deren Seite groesser ist als A4. */
+export interface Versatz {
+  x: number;
+  y: number;
+}
+
 export interface Vorlagenbefund {
   /** Gesetzte Textlaeufe. */
   laeufe: number;
@@ -70,57 +83,56 @@ const alsHexString = (bytes: number[]): PDFHexString =>
  * gelesen wurde. Sie wird erneut geoeffnet, weil das Schriftobjekt daraus
  * kopiert werden muss und der Befund selbst keine PDF-Objekte traegt.
  */
-export async function setzeMitVorlagenschrift(
-  zielSeite: PDFPage,
+export async function bereiteVorlagenschrift(
+  zielDoc: PDFDocument,
   papier: Briefpapier,
   quelle: Uint8Array,
   quellseite = 0,
-): Promise<Vorlagenbefund> {
-  const zielDoc = zielSeite.doc;
+): Promise<Vorlagensetzer> {
   const quellDoc = await PDFDocument.load(quelle, { throwOnInvalidObject: false });
-
   const quellRessourcen = quellDoc.getPage(quellseite).node.Resources();
   const quellSchriften = quellRessourcen?.lookupMaybe(PDFName.of('Font'), PDFDict);
-
   const kopierer = PDFObjectCopier.for(quellDoc.context, zielDoc.context);
 
-  /** Name in der Vorlage -> Name auf unserer Seite. */
-  const uebernommen = new Map<string, PDFName>();
+  /*
+   * Die Schriften werden einmal ins Zieldokument kopiert, das Eintragen in die
+   * Seitenressourcen geschieht je Seite. Deshalb die Teilung: Das Kopieren
+   * braucht die Quelldatei und ist asynchron, das Setzen muss synchron sein,
+   * weil es beim Anlegen jeder Seite passiert - und eine Rechnung kann
+   * mehrere haben.
+   */
+  const verweise = new Map<string, PDFRef>();
   const namen: string[] = [];
 
-  const holeSchrift = (name: string): PDFName | undefined => {
-    const schon = uebernommen.get(name);
-    if (schon) return schon;
-    if (!quellSchriften) return undefined;
+  for (const name of new Set(papier.laeufe.map((lauf) => lauf.schrift))) {
+    const verweis = quellSchriften?.get(PDFName.of(name));
+    if (!verweis) continue;
 
-    const verweis = quellSchriften.get(PDFName.of(name));
-    if (!verweis) return undefined;
-
-    /*
-     * Der Kopierer zieht das ganze Geflecht mit: Schriftdeskriptor,
-     * eingebettetes Programm, Kodierungstabelle. Eines davon von Hand
-     * nachzubauen waere die Stelle, an der still etwas verlorenginge.
-     */
-    /*
-     * Bei einem Verweis liefert der Kopierer bereits einen im Zieldokument
-     * zugewiesenen Verweis zurueck. Ihn noch einmal zu registrieren erzeugt ein
-     * Objekt, das nur einen Verweis enthaelt - das Schriftprogramm haengt dann
-     * an keiner Seite mehr. Nachgemessen: Die Ausgabe schrumpfte auf 14 kB und
-     * enthielt kein FontFile3 mehr, waehrend die Textbefehle voellig richtig
-     * dastanden. Ein Fehler, den man dem Inhaltsstrom nicht ansieht.
-     */
     const kopie = kopierer.copy(verweis);
-    const ref: PDFRef = kopie instanceof PDFRef ? kopie : zielDoc.context.register(kopie);
-
-    // "BP" fuer Briefpapier - der Schluessel darf mit nichts kollidieren, was
-    // die Rechnung selbst spaeter an Schriften einsetzt.
-    const zielname = zielSeite.node.newFontDictionaryKey('BP');
-    zielSeite.node.setFontDictionary(zielname, ref);
-
-    uebernommen.set(name, zielname);
+    verweise.set(name, kopie instanceof PDFRef ? kopie : zielDoc.context.register(kopie));
     namen.push(name);
-    return zielname;
+  }
+
+  return {
+    schriften: namen,
+    setze: (seite, bogen, versatz = { x: 0, y: 0 }) =>
+      setzeAufSeite(seite, bogen, verweise, versatz),
   };
+}
+
+function setzeAufSeite(
+  seite: PDFPage,
+  papier: Briefpapier,
+  verweise: Map<string, PDFRef>,
+  versatz: Versatz,
+): Vorlagenbefund {
+  // Je Seite ein eigener Schluessel; das Schriftobjekt dahinter ist dasselbe.
+  const schluessel = new Map<string, PDFName>();
+  for (const [name, ref] of verweise) {
+    const zielname = seite.node.newFontDictionaryKey('BP');
+    seite.node.setFontDictionary(zielname, ref);
+    schluessel.set(name, zielname);
+  }
 
   const befehle: PDFOperator[] = [];
   let gesetzt = 0;
@@ -128,7 +140,7 @@ export async function setzeMitVorlagenschrift(
   let letzteFarbe: Farbe | undefined;
 
   for (const lauf of papier.laeufe) {
-    const schrift = holeSchrift(lauf.schrift);
+    const schrift = schluessel.get(lauf.schrift);
     if (!schrift) {
       uebersprungen += 1;
       continue;
@@ -136,8 +148,6 @@ export async function setzeMitVorlagenschrift(
 
     befehle.push(PDFOperator.of(PDFOperatorNames.PushGraphicsState));
 
-    // Die Farbe nur wechseln, wenn sie sich aendert - das haelt den
-    // Inhaltsstrom lesbar, wenn jemand hineinsieht.
     if (
       !letzteFarbe ||
       letzteFarbe.r !== lauf.farbe.r ||
@@ -154,6 +164,10 @@ export async function setzeMitVorlagenschrift(
       letzteFarbe = lauf.farbe;
     }
 
+    const matrix: number[] = [...lauf.matrix];
+    matrix[4] = (matrix[4] ?? 0) + versatz.x;
+    matrix[5] = (matrix[5] ?? 0) + versatz.y;
+
     befehle.push(
       PDFOperator.of(PDFOperatorNames.BeginText),
       PDFOperator.of(PDFOperatorNames.SetFontAndSize, [schrift, zahl(lauf.groesse)]),
@@ -161,15 +175,14 @@ export async function setzeMitVorlagenschrift(
        * Zeichen- und Wortabstand muessen mit, sonst geht der Blocksatz
        * verloren: Die Vorlage gleicht ihre Fusszeile ueber `Tw` aus, und ohne
        * ihn endet die Zeile zu frueh - der Trennstrich am rechten Rand steht
-       * dann frei. Sie werden je Lauf gesetzt, weil sie sich innerhalb eines
-       * Textblocks aendern duerfen.
+       * dann frei.
        */
       PDFOperator.of(PDFOperatorNames.SetCharacterSpacing, [zahl(lauf.zeichenabstand)]),
       PDFOperator.of(PDFOperatorNames.SetWordSpacing, [zahl(lauf.wortabstand)]),
       PDFOperator.of(PDFOperatorNames.SetTextHorizontalScaling, [zahl(lauf.streckung * 100)]),
-      PDFOperator.of(PDFOperatorNames.SetTextMatrix, lauf.matrix.map(zahl)),
+      PDFOperator.of(PDFOperatorNames.SetTextMatrix, matrix.map(zahl)),
       PDFOperator.of(PDFOperatorNames.ShowTextAdjusted, [
-        zielDoc.context.obj(
+        seite.doc.context.obj(
           lauf.stuecke.map((teil) =>
             Array.isArray(teil) ? alsHexString(teil) : zahl(teil as number),
           ),
@@ -182,9 +195,21 @@ export async function setzeMitVorlagenschrift(
     gesetzt += 1;
   }
 
-  zielSeite.pushOperators(...befehle);
+  seite.pushOperators(...befehle);
+  return { laeufe: gesetzt, schriften: [...verweise.keys()], uebersprungen };
+}
 
-  return { laeufe: gesetzt, schriften: namen, uebersprungen };
+/**
+ * Bequemlichkeit fuer einmalige Ausgaben - bereitet vor und setzt in einem.
+ */
+export async function setzeMitVorlagenschrift(
+  zielSeite: PDFPage,
+  papier: Briefpapier,
+  quelle: Uint8Array,
+  quellseite = 0,
+): Promise<Vorlagenbefund> {
+  const setzer = await bereiteVorlagenschrift(zielSeite.doc, papier, quelle, quellseite);
+  return setzer.setze(zielSeite, papier);
 }
 
 /** Nur zur Anzeige: welche Schriften die Vorlage im Briefkopf benutzt. */

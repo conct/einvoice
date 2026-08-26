@@ -51,6 +51,15 @@ export interface LayoutContext {
    * Papier steht sie ja weiterhin, nur einmal statt zweimal.
    */
   zahlungszielImBriefpapier?: boolean;
+  /**
+   * Unter dem Inhalt liegt ein uebernommener Briefbogen.
+   *
+   * Dann entfaellt der eigene Briefkopf - Logo, Absenderzeilen und die
+   * Rueckabsenderzeile ueber dem Anschriftenfeld stehen bereits auf dem Bogen.
+   * Beides zu zeichnen ergaebe den Absender doppelt, in zwei Schriften und an
+   * zwei Stellen.
+   */
+  eigenerBriefbogen?: boolean;
 }
 
 const PAGE = {
@@ -106,7 +115,7 @@ export function drawInvoice(
     if (cursor.y - needed < PAGE.bottom + 40) nextPage();
   };
 
-  drawLetterhead(cursor, invoice, context);
+  if (!context.eigenerBriefbogen) drawLetterhead(cursor, invoice, context);
   drawAddressAndMeta(cursor, invoice, context);
   drawTitle(cursor, invoice, context);
   drawLineTable(cursor, invoice, totals, context, ensure, nextPage);
@@ -175,19 +184,23 @@ function drawAddressAndMeta(cursor: Cursor, invoice: Invoice, ctx: LayoutContext
   // Anschriftenfeld nach DIN 5008: 45 mm von oben, damit es im Fensterumschlag steht
   const addressTop = A4.height - 45 * MM;
 
-  drawText(
-    page,
-    `${invoice.seller.name} - ${invoice.seller.address.line1} - ${invoice.seller.address.postcode ?? ''} ${invoice.seller.address.city}`,
-    PAGE.left,
-    addressTop + 14,
-    { font: ctx.fonts.regular, size: 6.5, color: ctx.theme.muted },
-  );
-  page.drawLine({
-    start: { x: PAGE.left, y: addressTop + 11 },
-    end: { x: PAGE.left + 85 * MM, y: addressTop + 11 },
-    thickness: 0.4,
-    color: ctx.theme.hairline,
-  });
+  // Rueckabsender und Trennlinie nur ohne eigenen Briefbogen - ein
+  // uebernommener bringt beides mit.
+  if (!ctx.eigenerBriefbogen) {
+    drawText(
+      page,
+      `${invoice.seller.name} - ${invoice.seller.address.line1} - ${invoice.seller.address.postcode ?? ''} ${invoice.seller.address.city}`,
+      PAGE.left,
+      addressTop + 14,
+      { font: ctx.fonts.regular, size: 6.5, color: ctx.theme.muted },
+    );
+    page.drawLine({
+      start: { x: PAGE.left, y: addressTop + 11 },
+      end: { x: PAGE.left + 85 * MM, y: addressTop + 11 },
+      thickness: 0.4,
+      color: ctx.theme.hairline,
+    });
+  }
 
   let y = addressTop;
   for (const line of addressLines(invoice.buyer)) {

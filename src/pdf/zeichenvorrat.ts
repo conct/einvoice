@@ -104,7 +104,10 @@ export class Zeichenpruefung {
 
     const liste = [...this.fehlend.entries()]
       .sort(([a], [b]) => a - b)
-      .map(([nummer, zeichen]) => `${zeichen} (U+${nummer.toString(16).toUpperCase().padStart(4, '0')})`)
+      .map(
+        ([nummer, zeichen]) =>
+          `${zeichen} (U+${nummer.toString(16).toUpperCase().padStart(4, '0')})`,
+      )
       .join(', ');
 
     throw new ZeichenvorratFehler(

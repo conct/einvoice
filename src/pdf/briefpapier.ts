@@ -6,6 +6,15 @@ import { alsHex, type Briefpapier, type Farbe } from '../parse/pdf-gestaltung';
 /**
  * Ein abgelesenes Briefpapier wieder ausgeben - als SVG und als PDF.
  *
+ * ## Der Versatz
+ *
+ * Eine Druckvorlage ist oft groesser als A4, weil sie einen Beschnittrand
+ * traegt: Die Fremdrechnung misst 214 x 301 mm statt 210 x 297. Der Rand
+ * liegt ringsum gleich, also fuehrt eine Verschiebung um die halbe Differenz
+ * - hier 5,67 pt in beide Richtungen - den beschnittenen Bogen massgenau auf
+ * A4. Skalieren waere der schlechtere Weg: Es verkleinerte die Schrift um
+ * zwei Prozent, und der Bogen sitzt danach trotzdem nicht am Falz.
+ *
  * ## Warum beides
  *
  * Ein PDF kann kein SVG aufnehmen; es gibt keinen Einbettungsweg. Wer SVG
@@ -110,13 +119,14 @@ export function zeichneBriefpapier(
   seite: PDFPage,
   papier: Briefpapier,
   schrift: PDFFont,
+  versatz: { x: number; y: number } = { x: 0, y: 0 },
 ): Zeichenbefund {
   /*
    * Dieselben Pfaddaten wie im SVG. `drawSvgPath` legt den Ursprung des Pfades
    * auf den uebergebenen Punkt und zaehlt y nach unten - deshalb die linke
    * obere Ecke, dann stimmen SVG und PDF ohne weitere Umrechnung ueberein.
    */
-  const ursprung = { x: 0, y: papier.seite.hoehe };
+  const ursprung = { x: versatz.x, y: papier.seite.hoehe + versatz.y };
   for (const p of papier.pfade) {
     /*
      * Galt fuer den Pfad eine Beschneidung, muss sie mit. `drawSvgPath` kennt
@@ -128,8 +138,8 @@ export function zeichneBriefpapier(
       seite.pushOperators(
         PDFOperator.of(PDFOperatorNames.PushGraphicsState),
         PDFOperator.of(PDFOperatorNames.AppendRectangle, [
-          PDFNumber.of(p.beschnitt.x),
-          PDFNumber.of(p.beschnitt.y),
+          PDFNumber.of(p.beschnitt.x + versatz.x),
+          PDFNumber.of(p.beschnitt.y + versatz.y),
           PDFNumber.of(p.beschnitt.breite),
           PDFNumber.of(p.beschnitt.hoehe),
         ]),
@@ -193,14 +203,22 @@ export function zeichneBriefpapier(
     const ist = schrift.widthOfTextAtSize(text, groesse);
 
     /*
-     * Nur massvoll einpassen. Weicht die Ersatzschrift um mehr als ein Siebtel
-     * ab, stimmt etwas anderes nicht - dann lieber unverzerrt zeichnen und die
-     * Abweichung sehen, als sie durch Quetschen zu verstecken.
+     * Immer einpassen, wo ein Sollmass bekannt ist.
+     *
+     * Anfangs galt ein enges Band von plus/minus einem Siebtel - alles
+     * darueber wurde unverzerrt gezeichnet, "damit man die Abweichung sieht".
+     * Die Ueberlappungspruefung hat das widerlegt: Die Rechnung ueberdruckte
+     * an zwanzig Stellen. Ein Stueck, das breiter ausfaellt als sein Platz,
+     * laeuft in das naechste hinein, und ueberdruckter Text ist schlimmer als
+     * gestauchter. Das Sollmass der Vorlage ist die Wahrheit.
+     *
+     * Die Schranken bleiben als Notbremse: Jenseits davon stimmt etwas
+     * anderes nicht, und Quetschen machte es unleserlich statt nur eng.
      */
     let streckung = 100;
     if (t.breite > 0 && ist > 0) {
       const verhaeltnis = (t.breite / ist) * 100;
-      if (verhaeltnis > 85 && verhaeltnis < 115) {
+      if (verhaeltnis >= 50 && verhaeltnis <= 200) {
         streckung = verhaeltnis;
         gestreckt += 1;
       }
@@ -218,8 +236,8 @@ export function zeichneBriefpapier(
         PDFNumber.of(0),
         PDFNumber.of(0),
         PDFNumber.of(1),
-        PDFNumber.of(Number(t.x.toFixed(3))),
-        PDFNumber.of(Number(t.y.toFixed(3))),
+        PDFNumber.of(Number((t.x + versatz.x).toFixed(3))),
+        PDFNumber.of(Number((t.y + versatz.y).toFixed(3))),
       ]),
       PDFOperator.of(PDFOperatorNames.ShowText, [schrift.encodeText(text)]),
       PDFOperator.of(PDFOperatorNames.EndText),

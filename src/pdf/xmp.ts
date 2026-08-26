@@ -2,12 +2,7 @@ import { escapeXml } from '../util/xml';
 
 /** Konformitaetsstufe im Sinne von ZUGFeRD/Factur-X, landet so im XMP */
 export type FacturXConformanceLevel =
-  | 'MINIMUM'
-  | 'BASIC WL'
-  | 'BASIC'
-  | 'EN 16931'
-  | 'EXTENDED'
-  | 'XRECHNUNG';
+  'MINIMUM' | 'BASIC WL' | 'BASIC' | 'EN 16931' | 'EXTENDED' | 'XRECHNUNG';
 
 export interface XmpOptions {
   title: string;
