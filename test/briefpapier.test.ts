@@ -133,6 +133,7 @@ const leer = (teile: Partial<Briefpapier> = {}): Briefpapier => ({
   fussgrenze: 0,
   ungedeutet: 0,
   ausgelassen: 0,
+  inhaltFuellungen: 0,
   ...teile,
 });
 

@@ -22,7 +22,14 @@ const zeile = (y: number, ...stuecke: Array<[number, string]>): Textzeile => ({
 /** Nachgebaut aus einer erzeugten Rechnung - die x-Werte sind gemessen. */
 const rechnung: Textzeile[] = [
   zeile(614, [57, 'Rechnung RE-2026-0042']),
-  zeile(593, [61, 'Pos.'], [87, 'Bezeichnung'], [322, 'Menge'], [377, 'Einzelpreis'], [509, 'Betrag']),
+  zeile(
+    593,
+    [61, 'Pos.'],
+    [87, 'Bezeichnung'],
+    [322, 'Menge'],
+    [377, 'Einzelpreis'],
+    [509, 'Betrag'],
+  ),
   zeile(572, [61, '1'], [87, 'Konzeption'], [318, '84 Std.'], [394, '118,00'], [495, '9.912,00']),
   zeile(561, [87, 'Frontend, Anbindung']),
   zeile(540, [61, '2'], [87, 'Betrieb'], [318, '1 Mon.'], [394, '480,00'], [495, '432,00']),

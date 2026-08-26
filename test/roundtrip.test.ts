@@ -15,8 +15,7 @@ import { SRGB_ICC_BASE64 } from '../../einvoice-assets/src/icc';
 import { fromBase64 } from '../src/util/base64';
 
 /** Dieselben vorbereiteten Teilmengen, die auch App und Dienst einbetten. */
-const schrift = (name: string) =>
-  new URL(`../../einvoice-assets/files/${name}`, import.meta.url);
+const schrift = (name: string) => new URL(`../../einvoice-assets/files/${name}`, import.meta.url);
 const FIXED_NOW = new Date('2026-08-24T10:15:00+02:00');
 
 async function assets() {

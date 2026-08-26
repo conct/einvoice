@@ -67,7 +67,9 @@ describe('Buchungsstapel', () => {
 
     expect(kopf?.startsWith('"EXTF";700;21;"Buchungsstapel";13;')).toBe(true);
     expect(kopf).toContain(';12345;6789;20260101;4;');
-    expect(spalten?.startsWith('"Umsatz (ohne Soll/Haben-Kz)";"Soll/Haben-Kennzeichen"')).toBe(true);
+    expect(spalten?.startsWith('"Umsatz (ohne Soll/Haben-Kz)";"Soll/Haben-Kennzeichen"')).toBe(
+      true,
+    );
   });
 
   it('bucht je Steuergruppe einen Satz, brutto gegen das Erloeskonto', () => {

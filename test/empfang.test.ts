@@ -11,8 +11,7 @@ import { fromBase64, utf8Encode } from '../src/util/base64';
 import { SRGB_ICC_BASE64 } from '../../einvoice-assets/src/icc';
 
 /** Dieselben vorbereiteten Teilmengen, die auch App und Dienst einbetten. */
-const schrift = (name: string) =>
-  new URL(`../../einvoice-assets/files/${name}`, import.meta.url);
+const schrift = (name: string) => new URL(`../../einvoice-assets/files/${name}`, import.meta.url);
 
 async function assets() {
   const [fontRegular, fontBold] = await Promise.all([

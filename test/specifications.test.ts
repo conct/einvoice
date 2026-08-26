@@ -56,9 +56,9 @@ describe('Spezifikationskennungen', () => {
 
   it('weist unvollstaendige Staende zurueck', () => {
     expect(() => parseSpecificationSet(null)).toThrow();
-    expect(() => parseSpecificationSet({ ...BUNDLED_SPECIFICATIONS, publishedAt: '24.08.2026' })).toThrow(
-      /YYYY-MM-DD/,
-    );
+    expect(() =>
+      parseSpecificationSet({ ...BUNDLED_SPECIFICATIONS, publishedAt: '24.08.2026' }),
+    ).toThrow(/YYYY-MM-DD/);
   });
 
   it('erkennt einen ueberfaelligen Stand', () => {
@@ -111,7 +111,9 @@ describe('Regeln aus dem Mustang-Lauf', () => {
     };
     const xml = buildCii(ohneLieferung);
     expect(xml).toContain('<ram:ApplicableHeaderTradeDelivery/>');
-    expect(xml).not.toMatch(/<ram:ApplicableHeaderTradeDelivery>\s*<\/ram:ApplicableHeaderTradeDelivery>/);
+    expect(xml).not.toMatch(
+      /<ram:ApplicableHeaderTradeDelivery>\s*<\/ram:ApplicableHeaderTradeDelivery>/,
+    );
 
     // Paragraf 14 UStG: fehlender Leistungszeitpunkt ist eine Warnung, kein Fehler.
     const issues = validateInvoice(ohneLieferung).issues;

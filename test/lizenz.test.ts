@@ -85,7 +85,10 @@ describe('Lizenzschluessel abweisen', () => {
   });
 
   it('weist einen veraenderten Inhalt ab', async () => {
-    const schluessel = await stelleSchluesselAus(inhalt({ stufe: 'buero', bis: '2026-09-25' }), privat);
+    const schluessel = await stelleSchluesselAus(
+      inhalt({ stufe: 'buero', bis: '2026-09-25' }),
+      privat,
+    );
     const [kennung, rumpf, signatur] = schluessel.split('.') as [string, string, string];
 
     // Die Laufzeit im Rumpf verlaengern, Signatur unveraendert lassen - der
@@ -100,7 +103,11 @@ describe('Lizenzschluessel abweisen', () => {
       .replace(/\//g, '_')
       .replace(/=+$/, '');
 
-    const befund = await pruefeSchluessel(`${kennung}.${gefaelscht}.${signatur}`, oeffentlich, HEUTE);
+    const befund = await pruefeSchluessel(
+      `${kennung}.${gefaelscht}.${signatur}`,
+      oeffentlich,
+      HEUTE,
+    );
     expect(befund.gueltig).toBe(false);
     if (befund.gueltig) return;
     expect(befund.grund).toContain('Signatur');
@@ -164,10 +171,7 @@ describe('Laufzeiten', () => {
 
 describe('Pflegezeitraum im Schluessel', () => {
   it('traegt ein Pflegedatum, ohne die Nutzung zu befristen', async () => {
-    const schluessel = await stelleSchluesselAus(
-      inhalt({ pflege: '2027-08-25' }),
-      privat,
-    );
+    const schluessel = await stelleSchluesselAus(inhalt({ pflege: '2027-08-25' }), privat);
 
     const befund = await pruefeSchluessel(schluessel, oeffentlich, '2028-01-01');
     expect(befund.gueltig).toBe(true);
@@ -281,4 +285,3 @@ describe('Dienstadresse im Lizenzschluessel', () => {
     expect(befund.dienst).toBeUndefined();
   });
 });
-

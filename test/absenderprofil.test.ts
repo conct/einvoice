@@ -37,6 +37,7 @@ const BOGEN = {
   fussgrenze: 60,
   ungedeutet: 0,
   ausgelassen: 0,
+  inhaltFuellungen: 0,
 } satisfies Briefpapier;
 
 const herkunftVon = (identitaet: Identitaet): Herkunft => ({

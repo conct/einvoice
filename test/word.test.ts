@@ -130,9 +130,9 @@ describe('Word-Dokument lesen', () => {
     // versehentlich ein PDF waehlt, sucht den Fehler dann an der falschen
     // Stelle.
     expect(() => liesWordDokument(new Uint8Array([0x25, 0x50, 0x44, 0x46]))).toThrowError(/PDF/);
-    expect(() =>
-      liesWordDokument(new Uint8Array([0x7b, 0x5c, 0x72, 0x74, 0x66])),
-    ).toThrowError(/RTF/);
+    expect(() => liesWordDokument(new Uint8Array([0x7b, 0x5c, 0x72, 0x74, 0x66]))).toThrowError(
+      /RTF/,
+    );
     expect(() => liesWordDokument(new Uint8Array([1, 2, 3, 4]))).toThrowError(/keine Word-Datei/);
   });
 

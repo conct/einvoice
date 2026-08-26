@@ -181,6 +181,21 @@ export interface Briefpapier {
   ungedeutet: number;
   /** Pfade, die als Rechnungsinhalt aussortiert wurden. */
   ausgelassen: number;
+  /**
+   * Wie viele davon gefuellte Flaechen waren.
+   *
+   * Null heisst: Die Vorlage setzt ihren Rechnungsinhalt ohne farbige Baender -
+   * nur Text und Haarlinien. Wer dann ein gefuelltes Tabellenband zeichnet,
+   * erfindet eine Gestaltung, die es dort nie gab.
+   */
+  inhaltFuellungen: number;
+  /**
+   * Die Satzbreite des Bogens, an seinen durchgehenden Linien abgelesen.
+   *
+   * Genauer als der linkeste Text: Falz- und Lochmarken stehen weiter aussen
+   * als der Satzspiegel und wuerden ihn zu breit erscheinen lassen.
+   */
+  satzspiegel?: { links: number; rechts: number };
 }
 
 // --- Farben -----------------------------------------------------------------
@@ -278,6 +293,9 @@ const RANDMARKE_BIS = 60;
 
 /** Ab diesem Anteil der breitesten Linie gilt eine Linie als Briefbogenlinie. */
 const VOLLE_SATZBREITE = 0.9;
+
+/** Ab diesem Anteil der Seitenbreite taugt eine Linie zur Satzspiegelmessung. */
+const SATZBREITE_AB = 0.6;
 
 /**
  * Ein Kreis wird als vier Bezierboegen gesetzt, deren Endpunkte genau auf den
@@ -787,6 +805,7 @@ export async function liesBriefpapier(bytes: Uint8Array, seite = 0): Promise<Bri
   }
 
   const briefkopfpfade = pfade.filter((pfad) => gehoertZumBriefkopf(pfad, imBriefpapier, pfade));
+  const inhaltspfade = pfade.filter((pfad) => !briefkopfpfade.includes(pfad));
 
   return {
     seite: { breite, hoehe },
@@ -801,8 +820,32 @@ export async function liesBriefpapier(bytes: Uint8Array, seite = 0): Promise<Bri
     grenze,
     fussgrenze,
     ungedeutet,
-    ausgelassen: pfade.length - briefkopfpfade.length,
+    ausgelassen: inhaltspfade.length,
+    inhaltFuellungen: inhaltspfade.filter((pfad) => pfad.fuellung).length,
+    ...(findeSatzspiegel(briefkopfpfade, breite) ?? {}),
   };
+}
+
+/**
+ * Liest die Satzbreite an den durchgehenden Linien des Bogens ab.
+ *
+ * Genommen wird die breiteste - sie ist die Trennlinie des Briefbogens und
+ * markiert seinen Satzspiegel. Ist keine breit genug, gibt es keine Aussage;
+ * dann bleibt es bei unserer Vorgabe, statt aus einem kurzen Strich einen
+ * Satzspiegel zu erfinden.
+ */
+function findeSatzspiegel(
+  pfade: Pfad[],
+  seitenbreite: number,
+): { satzspiegel: { links: number; rechts: number } } | undefined {
+  let beste: Pfad | undefined;
+  for (const pfad of pfade) {
+    const breite = pfad.rahmen.x2 - pfad.rahmen.x1;
+    if (breite < seitenbreite * SATZBREITE_AB) continue;
+    if (!beste || breite > beste.rahmen.x2 - beste.rahmen.x1) beste = pfad;
+  }
+
+  return beste ? { satzspiegel: { links: beste.rahmen.x1, rechts: beste.rahmen.x2 } } : undefined;
 }
 
 /**

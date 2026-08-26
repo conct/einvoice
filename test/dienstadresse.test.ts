@@ -61,7 +61,13 @@ describe('Dienstadressen', () => {
   });
 
   it('weist Unfug ab', () => {
-    for (const adresse of ['', '   ', 'rechnungen.firma.de', 'ftp://firma.de', 'javascript:alert(1)']) {
+    for (const adresse of [
+      '',
+      '   ',
+      'rechnungen.firma.de',
+      'ftp://firma.de',
+      'javascript:alert(1)',
+    ]) {
       expect(pruefeDienstadresse(adresse).gut, JSON.stringify(adresse)).toBe(false);
     }
   });

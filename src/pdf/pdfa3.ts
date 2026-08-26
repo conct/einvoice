@@ -198,6 +198,17 @@ export async function renderZugferdPdf(
    * Mit Briefbogen bestimmt der Bogen drei Dinge, die sonst wir bestimmen.
    * Alle drei erst gerendert aufgefallen, keines von einer Pruefung gemeldet.
    */
+  /*
+   * Die Hausfarbe des Bogens ist die Farbe seines Firmenzeichens, nicht die
+   * seines Rechnungskoerpers. Sie als gefuelltes Tabellenband einzusetzen
+   * erfindet eine Gestaltung, die die Vorlage nie hatte - gerendert
+   * nachgemessen war das ein rotes Band auf einer Rechnung, die in der ganzen
+   * Vorlage keine einzige gefuellte Flaeche kennt.
+   *
+   * Deshalb: Setzt die Vorlage in ihrem Inhalt keine Flaechen, bleibt es
+   * schlicht, und die Hausfarbe dient nur der Ueberschrift.
+   */
+  const schlicht = Boolean(bogen) && bogen!.inhaltFuellungen === 0;
   const thema = options.theme ?? (bogen?.akzent ? themaMitAkzent(bogen.akzent) : DEFAULT_THEME);
 
   drawInvoice(addPage, invoice, totals, {
@@ -215,6 +226,20 @@ export async function renderZugferdPdf(
      * die Empfaengeranschrift auf ihr.
      */
     ...(bogen ? { anschriftOben: bogen.grenze + versatz.y - ANSCHRIFT_LUFT } : {}),
+    ...(schlicht ? { schlichteTabelle: true } : {}),
+    /*
+     * Und der Satzspiegel des Bogens. Ohne ihn stand unser Inhalt fuenf
+     * Millimeter links neben seiner Rueckabsenderzeile und zehn Millimeter
+     * innerhalb seiner Trennlinien - nichts fluchtete.
+     */
+    ...(bogen?.satzspiegel
+      ? {
+          satzspiegel: {
+            links: bogen.satzspiegel.links + versatz.x,
+            rechts: bogen.satzspiegel.rechts + versatz.x,
+          },
+        }
+      : {}),
     ...(options.beschriftungen ? { beschriftungen: options.beschriftungen } : {}),
     ...(options.kennzahlen ? { kennzahlen: options.kennzahlen } : {}),
     zahlungszielImBriefpapier: options.zahlungszielImBriefpapier,

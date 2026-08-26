@@ -102,7 +102,40 @@ export interface LayoutContext {
    * ausserhalb hat, darf unseres nicht aus dem Umschlag schieben.
    */
   anschriftOben?: number;
+  /**
+   * Der Satzspiegel, wenn der Briefbogen einen vorgibt.
+   *
+   * Unsere Vorgabe sind 20 mm Rand. Eine gestaltete Vorlage hat ihren eigenen -
+   * die vermessene setzt von 25,0 bis 200,0 mm. Gerendert nachgemessen stand
+   * unser Inhalt dadurch fuenf Millimeter links neben der Rueckabsenderzeile
+   * des Bogens und zehn Millimeter innerhalb seiner Trennlinien. Nichts
+   * fluchtete.
+   *
+   * Abgelesen wird er an den durchgehenden Linien des Bogens; die markieren
+   * seine Satzbreite genauer als der linkeste Text, der auch eine Marke am
+   * Rand sein kann.
+   */
+  satzspiegel?: { links: number; rechts: number };
+  /**
+   * Schlichter Tabellenstil - ohne gefuelltes Kopfband und ohne Zebrastreifen.
+   *
+   * Der Anlass: Auf der vermessenen Vorlage steht in der ganzen Rechnung keine
+   * einzige gefuellte Flaeche, nur Text und Haarlinien. Die einzige Farbe ist
+   * das Firmenzeichen. Wir haben daraus ein rotes Kopfband gemacht - eine
+   * Gestaltung, die es dort nie gab, und in der Hausfarbe des Zeichens
+   * obendrein.
+   *
+   * Ein uebernommener Bogen soll unseren Aufbau nicht erfinden lassen, was er
+   * nicht hat.
+   */
+  schlichteTabelle?: boolean;
 }
+
+/** Der linke Rand des Satzspiegels - vom Bogen, sonst die Vorgabe. */
+const satzLinks = (ctx: LayoutContext): number => ctx.satzspiegel?.links ?? PAGE.left;
+
+/** Der rechte Rand des Satzspiegels. */
+const satzRechts = (ctx: LayoutContext): number => ctx.satzspiegel?.rechts ?? PAGE.right;
 
 export type Kennzahlenstellung =
   /** Rechts neben dem Anschriftenfeld, untereinander. Die Vorgabe. */
@@ -232,7 +265,7 @@ function drawLetterhead(cursor: Cursor, invoice: Invoice, ctx: LayoutContext): v
     const scale = Math.min(maxWidth / ctx.logo.width, maxHeight / ctx.logo.height, 1);
     const width = ctx.logo.width * scale;
     const height = ctx.logo.height * scale;
-    page.drawImage(ctx.logo, { x: PAGE.right - width, y: PAGE.top - height, width, height });
+    page.drawImage(ctx.logo, { x: satzRechts(ctx) - width, y: PAGE.top - height, width, height });
 
     // Die tatsaechliche Hoehe und nicht ein fester Wert: Ein breites, flaches
     // Logo wird auf 150 Punkte Breite eingepasst und ist dann womoeglich nur
@@ -241,7 +274,7 @@ function drawLetterhead(cursor: Cursor, invoice: Invoice, ctx: LayoutContext): v
     // Kennzahlenblock. Genau das ist am 26.08.2026 passiert.
     kopfhoehe = height + 8;
   } else {
-    drawRight(page, seller.tradingName ?? seller.name, PAGE.right, PAGE.top - 12, {
+    drawRight(page, seller.tradingName ?? seller.name, satzRechts(ctx), PAGE.top - 12, {
       font: ctx.fonts.bold,
       size: 13,
       color: ctx.theme.accent,
@@ -258,7 +291,7 @@ function drawLetterhead(cursor: Cursor, invoice: Invoice, ctx: LayoutContext): v
 
   let y = PAGE.top - kopfhoehe;
   for (const line of lines) {
-    drawRight(page, line, PAGE.right, y, {
+    drawRight(page, line, satzRechts(ctx), y, {
       font: ctx.fonts.regular,
       size: 8,
       color: ctx.theme.muted,
@@ -278,13 +311,13 @@ function drawAddressAndMeta(cursor: Cursor, invoice: Invoice, ctx: LayoutContext
     drawText(
       page,
       `${invoice.seller.name} - ${invoice.seller.address.line1} - ${invoice.seller.address.postcode ?? ''} ${invoice.seller.address.city}`,
-      PAGE.left,
+      satzLinks(ctx),
       addressTop + 14,
       { font: ctx.fonts.regular, size: 6.5, color: ctx.theme.muted },
     );
     page.drawLine({
-      start: { x: PAGE.left, y: addressTop + 11 },
-      end: { x: PAGE.left + 85 * MM, y: addressTop + 11 },
+      start: { x: satzLinks(ctx), y: addressTop + 11 },
+      end: { x: satzLinks(ctx) + 85 * MM, y: addressTop + 11 },
       thickness: 0.4,
       color: ctx.theme.hairline,
     });
@@ -292,7 +325,7 @@ function drawAddressAndMeta(cursor: Cursor, invoice: Invoice, ctx: LayoutContext
 
   let y = addressTop;
   for (const line of addressLines(invoice.buyer)) {
-    drawText(page, line, PAGE.left, y, {
+    drawText(page, line, satzLinks(ctx), y, {
       font: ctx.fonts.regular,
       size: 10,
       color: ctx.theme.text,
@@ -357,10 +390,10 @@ function zeichneKennzahlen(
 
     for (let anfang = 0; anfang < zeilen.length; anfang += QUERSPALTEN) {
       const reihe = zeilen.slice(anfang, anfang + QUERSPALTEN);
-      const breite = (PAGE.right - PAGE.left) / QUERSPALTEN;
+      const breite = (satzRechts(ctx) - satzLinks(ctx)) / QUERSPALTEN;
 
       for (const [nummer, [label, value]] of reihe.entries()) {
-        const x = PAGE.left + nummer * breite;
+        const x = satzLinks(ctx) + nummer * breite;
         drawText(page, kuerzeAufBreite(label, ctx.fonts.regular, 8, breite - 6), x, oben, {
           font: ctx.fonts.regular,
           size: 8,
@@ -385,7 +418,7 @@ function zeichneKennzahlen(
    * ueberlappen sie, druckt der eine ueber den anderen, und auf der Rechnung
    * steht "Tel. +4RE-2026-0042".
    */
-  const metaX = PAGE.left + 105 * MM;
+  const metaX = satzLinks(ctx) + 105 * MM;
   let metaY =
     stellung === 'ueber-anschrift'
       ? Math.min(addressTop + 20 * MM, cursorY)
@@ -397,7 +430,7 @@ function zeichneKennzahlen(
       size: 8,
       color: ctx.theme.muted,
     });
-    drawRight(page, value, PAGE.right, metaY, {
+    drawRight(page, value, satzRechts(ctx), metaY, {
       font: ctx.fonts.bold,
       size: 8.5,
       color: ctx.theme.text,
@@ -410,7 +443,7 @@ function zeichneKennzahlen(
 
 function drawTitle(cursor: Cursor, invoice: Invoice, ctx: LayoutContext): void {
   const label = documentLabel(invoice.typeCode);
-  drawText(cursor.page, `${label} ${invoice.number}`, PAGE.left, cursor.y, {
+  drawText(cursor.page, `${label} ${invoice.number}`, satzLinks(ctx), cursor.y, {
     font: ctx.fonts.bold,
     size: 16,
     color: ctx.theme.accent,
@@ -423,7 +456,7 @@ function drawTitle(cursor: Cursor, invoice: Invoice, ctx: LayoutContext): void {
         (invoice.precedingInvoice.issueDate
           ? ` vom ${formatDate(invoice.precedingInvoice.issueDate)}`
           : ''),
-      PAGE.left,
+      satzLinks(ctx),
       cursor.y,
       { font: ctx.fonts.regular, size: 8.5, color: ctx.theme.muted },
     );
@@ -432,7 +465,10 @@ function drawTitle(cursor: Cursor, invoice: Invoice, ctx: LayoutContext): void {
   cursor.y -= 10;
 }
 
-function columnLayout(wort: Beschriftungen): Array<{
+function columnLayout(
+  wort: Beschriftungen,
+  ctx: LayoutContext,
+): Array<{
   key: string;
   label: string;
   x: number;
@@ -440,8 +476,8 @@ function columnLayout(wort: Beschriftungen): Array<{
   align: 'left' | 'right';
 }> {
   const fixed = COLUMNS.reduce((acc, column) => acc + column.width, 0);
-  const flexible = PAGE.right - PAGE.left - fixed;
-  let x = PAGE.left;
+  const flexible = satzRechts(ctx) - satzLinks(ctx) - fixed;
+  let x = satzLinks(ctx);
   return COLUMNS.map((column) => {
     const width = column.width === 0 ? flexible : column.width;
     const entry = {
@@ -457,17 +493,34 @@ function columnLayout(wort: Beschriftungen): Array<{
 }
 
 function drawTableHead(cursor: Cursor, ctx: LayoutContext): void {
-  const columns = columnLayout(beschriftungenMit(ctx.beschriftungen));
+  const columns = columnLayout(beschriftungenMit(ctx.beschriftungen), ctx);
   const { page } = cursor;
-  page.drawRectangle({
-    x: PAGE.left,
-    y: cursor.y - 4,
-    width: PAGE.right - PAGE.left,
-    height: 18,
-    color: ctx.theme.accent,
-  });
+  const schlicht = ctx.schlichteTabelle === true;
+
+  if (schlicht) {
+    // Statt eines Bandes eine Linie darunter - so haelt es die Vorlage.
+    page.drawLine({
+      start: { x: satzLinks(ctx), y: cursor.y - 4 },
+      end: { x: satzRechts(ctx), y: cursor.y - 4 },
+      thickness: 0.6,
+      color: ctx.theme.text,
+    });
+  } else {
+    page.drawRectangle({
+      x: satzLinks(ctx),
+      y: cursor.y - 4,
+      width: satzRechts(ctx) - satzLinks(ctx),
+      height: 18,
+      color: ctx.theme.accent,
+    });
+  }
+
   for (const column of columns) {
-    const options = { font: ctx.fonts.bold, size: 8, color: rgb(1, 1, 1) };
+    const options = {
+      font: ctx.fonts.bold,
+      size: 8,
+      color: schlicht ? ctx.theme.text : rgb(1, 1, 1),
+    };
     if (column.align === 'right') {
       drawRight(page, column.label, column.x + column.width - 4, cursor.y + 1, options);
     } else {
@@ -485,7 +538,7 @@ function drawLineTable(
   ensure: (needed: number) => void,
   _nextPage: () => void,
 ): void {
-  const columns = columnLayout(beschriftungenMit(ctx.beschriftungen));
+  const columns = columnLayout(beschriftungenMit(ctx.beschriftungen), ctx);
   const nameColumn = columns.find((c) => c.key === 'name');
   drawTableHead(cursor, ctx);
 
@@ -509,11 +562,11 @@ function drawLineTable(
     ensure(rowHeight + 4);
     if (cursor.y === PAGE.top) drawTableHead(cursor, ctx);
 
-    if (index % 2 === 1) {
+    if (index % 2 === 1 && ctx.schlichteTabelle !== true) {
       cursor.page.drawRectangle({
-        x: PAGE.left,
+        x: satzLinks(ctx),
         y: cursor.y - rowHeight + 10,
-        width: PAGE.right - PAGE.left,
+        width: satzRechts(ctx) - satzLinks(ctx),
         height: rowHeight,
         color: ctx.theme.zebra,
       });
@@ -546,7 +599,7 @@ function drawLineTable(
 
     let textY = baseY;
     for (const text of nameLines) {
-      drawText(cursor.page, text, (nameColumn?.x ?? PAGE.left) + 4, textY, {
+      drawText(cursor.page, text, (nameColumn?.x ?? satzLinks(ctx)) + 4, textY, {
         font: ctx.fonts.bold,
         size: 9,
         color: ctx.theme.text,
@@ -554,7 +607,7 @@ function drawLineTable(
       textY -= 11;
     }
     for (const text of extraLines) {
-      drawText(cursor.page, text, (nameColumn?.x ?? PAGE.left) + 4, textY, {
+      drawText(cursor.page, text, (nameColumn?.x ?? satzLinks(ctx)) + 4, textY, {
         font: ctx.fonts.regular,
         size: 8,
         color: ctx.theme.muted,
@@ -564,8 +617,8 @@ function drawLineTable(
 
     cursor.y -= rowHeight;
     cursor.page.drawLine({
-      start: { x: PAGE.left, y: cursor.y + 7 },
-      end: { x: PAGE.right, y: cursor.y + 7 },
+      start: { x: satzLinks(ctx), y: cursor.y + 7 },
+      end: { x: satzRechts(ctx), y: cursor.y + 7 },
       thickness: 0.4,
       color: ctx.theme.hairline,
     });
@@ -615,13 +668,13 @@ function drawTotals(
   }
 
   ensure(rows.length * 14 + 24);
-  const boxLeft = PAGE.left + 95 * MM;
+  const boxLeft = satzLinks(ctx) + 95 * MM;
 
   for (const [label, value, emphasised] of rows) {
     if (emphasised) {
       cursor.page.drawLine({
         start: { x: boxLeft, y: cursor.y + 11 },
-        end: { x: PAGE.right, y: cursor.y + 11 },
+        end: { x: satzRechts(ctx), y: cursor.y + 11 },
         thickness: 0.8,
         color: ctx.theme.accent,
       });
@@ -632,13 +685,13 @@ function drawTotals(
     // Die Beschriftung kann Freitext enthalten - der Grund eines Abschlags
     // steht so in der Rechnung, wie der Aussteller ihn geschrieben hat. Ohne
     // Grenze laeuft sie ueber den Betrag und ueber den rechten Rand hinaus.
-    const platz = PAGE.right - font.widthOfTextAtSize(value, size) - 8 - boxLeft;
+    const platz = satzRechts(ctx) - font.widthOfTextAtSize(value, size) - 8 - boxLeft;
     drawText(cursor.page, kuerzeAufBreite(label, font, size, platz), boxLeft, cursor.y, {
       font,
       size,
       color: emphasised ? ctx.theme.text : ctx.theme.muted,
     });
-    drawRight(cursor.page, value, PAGE.right, cursor.y, { font, size, color: ctx.theme.text });
+    drawRight(cursor.page, value, satzRechts(ctx), cursor.y, { font, size, color: ctx.theme.text });
     cursor.y -= emphasised ? 16 : 13;
   }
   cursor.y -= 8;
@@ -658,7 +711,7 @@ function drawVatBreakdown(
     drawText(
       cursor.page,
       `${vatCategoryLabel(tax.category)}: ${tax.exemptionReason}`,
-      PAGE.left,
+      satzLinks(ctx),
       cursor.y,
       {
         font: ctx.fonts.regular,
@@ -714,15 +767,20 @@ function drawPaymentBlock(
   if (lines.length === 0) return;
 
   ensure(lines.length * 12 + 30);
-  drawText(cursor.page, beschriftungenMit(ctx.beschriftungen).zahlung, PAGE.left, cursor.y, {
+  drawText(cursor.page, beschriftungenMit(ctx.beschriftungen).zahlung, satzLinks(ctx), cursor.y, {
     font: ctx.fonts.bold,
     size: 9,
     color: ctx.theme.text,
   });
   cursor.y -= 13;
   for (const line of lines) {
-    for (const wrapped of wrapText(line, ctx.fonts.regular, 8.5, PAGE.right - PAGE.left)) {
-      drawText(cursor.page, wrapped, PAGE.left, cursor.y, {
+    for (const wrapped of wrapText(
+      line,
+      ctx.fonts.regular,
+      8.5,
+      satzRechts(ctx) - satzLinks(ctx),
+    )) {
+      drawText(cursor.page, wrapped, satzLinks(ctx), cursor.y, {
         font: ctx.fonts.regular,
         size: 8.5,
         color: ctx.theme.text,
@@ -742,8 +800,13 @@ function drawNotes(
   if (invoice.notes.length === 0) return;
   ensure(invoice.notes.length * 14 + 10);
   for (const note of invoice.notes) {
-    for (const wrapped of wrapText(note.text, ctx.fonts.regular, 8.5, PAGE.right - PAGE.left)) {
-      drawText(cursor.page, wrapped, PAGE.left, cursor.y, {
+    for (const wrapped of wrapText(
+      note.text,
+      ctx.fonts.regular,
+      8.5,
+      satzRechts(ctx) - satzLinks(ctx),
+    )) {
+      drawText(cursor.page, wrapped, satzLinks(ctx), cursor.y, {
         font: ctx.fonts.regular,
         size: 8.5,
         color: ctx.theme.muted,
@@ -762,7 +825,7 @@ function drawContinuationHeader(cursor: Cursor, invoice: Invoice, ctx: LayoutCon
   drawText(
     cursor.page,
     `${documentLabel(invoice.typeCode)} ${invoice.number} - Fortsetzung`,
-    PAGE.left,
+    satzLinks(ctx),
     oben - 6,
     { font: ctx.fonts.bold, size: 9, color: ctx.theme.muted },
   );
@@ -792,7 +855,7 @@ function drawFooter(
    */
   if (ctx.eigeneFusszeile === false) {
     if (total > 1) {
-      drawRight(page, `Seite ${index + 1} von ${total}`, PAGE.right, y + 16, {
+      drawRight(page, `Seite ${index + 1} von ${total}`, satzRechts(ctx), y + 16, {
         font: ctx.fonts.regular,
         size: 7,
         color: ctx.theme.muted,
@@ -802,8 +865,8 @@ function drawFooter(
   }
 
   page.drawLine({
-    start: { x: PAGE.left, y: y + 26 },
-    end: { x: PAGE.right, y: y + 26 },
+    start: { x: satzLinks(ctx), y: y + 26 },
+    end: { x: satzRechts(ctx), y: y + 26 },
     thickness: 0.4,
     color: ctx.theme.hairline,
   });
@@ -818,13 +881,13 @@ function drawFooter(
     .join('  |  ');
 
   const options = { font: ctx.fonts.regular, size: 7, color: ctx.theme.muted };
-  drawText(page, identity, PAGE.left, y + 16, options);
-  if (ctx.footerNote) drawText(page, ctx.footerNote, PAGE.left, y + 7, options);
-  drawRight(page, `Seite ${index + 1} von ${total}`, PAGE.right, y + 16, options);
+  drawText(page, identity, satzLinks(ctx), y + 16, options);
+  if (ctx.footerNote) drawText(page, ctx.footerNote, satzLinks(ctx), y + 7, options);
+  drawRight(page, `Seite ${index + 1} von ${total}`, satzRechts(ctx), y + 16, options);
   drawRight(
     page,
     'Diese Rechnung enthaelt strukturierte Daten nach ZUGFeRD 2.3.',
-    PAGE.right,
+    satzRechts(ctx),
     y + 7,
     {
       ...options,
@@ -885,16 +948,18 @@ export function kennzahlenrahmen(
   zeilen: number,
   obergrenze: number = PAGE.top,
   anschriftOben?: number,
+  satzspiegel?: { links: number; rechts: number },
 ): { x1: number; y1: number; x2: number; y2: number } {
+  const ctx = { satzspiegel } as LayoutContext;
   const addressTop = anschriftenhoehe(anschriftOben);
 
   if (stellung === 'unter-anschrift') {
     const oben = addressTop - 45 * MM;
     const reihen = Math.ceil(Math.max(1, zeilen) / QUERSPALTEN);
     return {
-      x1: PAGE.left,
+      x1: satzLinks(ctx),
       y1: oben - (reihen - 1) * 26 - KENNZAHLENZEILE,
-      x2: PAGE.right,
+      x2: satzRechts(ctx),
       y2: oben + 9,
     };
   }
@@ -905,9 +970,9 @@ export function kennzahlenrahmen(
       : Math.min(addressTop + 6, obergrenze);
 
   return {
-    x1: PAGE.left + 105 * MM,
+    x1: satzLinks(ctx) + 105 * MM,
     y1: start - zeilen * KENNZAHLENZEILE,
-    x2: PAGE.right,
+    x2: satzRechts(ctx),
     y2: start + 9,
   };
 }

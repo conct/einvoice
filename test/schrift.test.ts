@@ -62,7 +62,11 @@ async function pruefeZuordnung(pdf: Uint8Array): Promise<Zuordnung> {
 
   const schriften = new Map<
     string,
-    { quelle: number; font: ReturnType<typeof fontkit.create> | undefined; unicode: Map<number, string> }
+    {
+      quelle: number;
+      font: ReturnType<typeof fontkit.create> | undefined;
+      unicode: Map<number, string>;
+    }
   >();
 
   const mittel = seite.node.Resources()?.lookupMaybe(PDFName.of('Font'), PDFDict);
@@ -119,9 +123,13 @@ async function pruefeZuordnung(pdf: Uint8Array): Promise<Zuordnung> {
     const schrift = aktuell ? schriften.get(aktuell) : undefined;
     if (!schrift || !aktuell) continue;
 
-    const eintrag = jeDatei.get(schrift.quelle) ?? { schluessel: aktuell, nummern: new Set<number>() };
+    const eintrag = jeDatei.get(schrift.quelle) ?? {
+      schluessel: aktuell,
+      nummern: new Set<number>(),
+    };
     const hex = treffer[2] ?? '';
-    for (let i = 0; i + 4 <= hex.length; i += 4) eintrag.nummern.add(parseInt(hex.slice(i, i + 4), 16));
+    for (let i = 0; i + 4 <= hex.length; i += 4)
+      eintrag.nummern.add(parseInt(hex.slice(i, i + 4), 16));
     jeDatei.set(schrift.quelle, eintrag);
   }
 
@@ -149,7 +157,8 @@ async function pruefeZuordnung(pdf: Uint8Array): Promise<Zuordnung> {
 
       let umriss = false;
       try {
-        umriss = nummer < schrift.font.numGlyphs && schrift.font.getGlyph(nummer).path.commands.length > 0;
+        umriss =
+          nummer < schrift.font.numGlyphs && schrift.font.getGlyph(nummer).path.commands.length > 0;
       } catch {
         umriss = false;
       }
