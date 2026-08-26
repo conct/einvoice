@@ -27,6 +27,7 @@
  * ausschliesslich beim Anbieter und niemals im App-Bundle.
  */
 
+import { pruefeDienstadresse } from './dienstadresse';
 import { fromBase64, toBase64, utf8Decode, utf8Encode } from '../util/base64';
 
 /**
@@ -114,7 +115,7 @@ export interface LizenzInhalt {
    * Sicherheitshalber eng gefasst, denn ein Schluessel, der die App auf einen
    * fremden Server richtet, wuerde dort Rechnungsdaten hinschicken:
    *
-   *  - nur https, damit die Uebertragung nicht mitlesbar ist
+   *  - nur https, oder http im eigenen Netz - siehe pruefeDienstadresse
    *  - nur bei stufe 'buero'; Pro erzeugt ohnehin auf dem Geraet und haette
    *    von einem Dienst nichts, ein Feld dort waere also nur verdaechtig
    *  - die App nennt die Adresse beim Einloesen ausdruecklich, damit niemand
@@ -235,8 +236,8 @@ export async function pruefeSchluessel(
   // uebernehmen: Ein Schluessel mit einer Adresse, die wir nicht akzeptieren,
   // ist nicht der, den der Kaeufer bekommen sollte.
   if (inhalt.dienst !== undefined) {
-    if (typeof inhalt.dienst !== 'string' || !inhalt.dienst.startsWith('https://')) {
-      return { gueltig: false, grund: 'Der Schluessel nennt eine Dienstadresse ohne https.' };
+    if (typeof inhalt.dienst !== 'string' || !pruefeDienstadresse(inhalt.dienst).gut) {
+      return { gueltig: false, grund: 'Der Schluessel nennt keine zulaessige Dienstadresse.' };
     }
     if (inhalt.stufe !== 'buero') {
       return {
