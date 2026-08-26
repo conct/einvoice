@@ -205,6 +205,18 @@ export interface Briefpapier {
    * als der Satzspiegel und wuerden ihn zu breit erscheinen lassen.
    */
   satzspiegel?: { links: number; rechts: number };
+  /**
+   * Wo der Rechnungsinhalt der Vorlage beginnt - oft weiter rechts als der
+   * Satzspiegel.
+   *
+   * Nachgemessen: Die Vorlage setzt nur das Anschriftenfeld an ihre linke
+   * Kante (27 mm); Fliesstext und Kennzahlen ruecken auf 64 mm ein, die
+   * Positionen auf 76 mm. Der breite linke Rand traegt Falz- und Lochmarke.
+   *
+   * Das Anschriftenfeld darf **nicht** mitwandern - es muss im Fenster des
+   * Umschlags bleiben. Deshalb zwei Kanten und nicht eine.
+   */
+  inhaltLinks?: number;
 }
 
 // --- Farben -----------------------------------------------------------------
@@ -833,7 +845,44 @@ export async function liesBriefpapier(bytes: Uint8Array, seite = 0): Promise<Bri
     inhaltFuellungen: inhaltspfade.filter((pfad) => pfad.fuellung).length,
     inhaltSchrift: messeInhaltsschrift(gelesen.seiten[seite]?.zeilen ?? [], grenze, fussgrenze),
     ...(findeSatzspiegel(briefkopfpfade, breite) ?? {}),
+    ...findeInhaltskante(gelesen.seiten[seite]?.zeilen ?? [], grenze, fussgrenze),
   };
+}
+
+/**
+ * Wo der Rechnungsinhalt der Vorlage beginnt.
+ *
+ * Genommen wird die **linkeste Kante, an der mindestens zwei Zeilen
+ * beginnen** - eine einzelne Zeile kann eine Randnotiz sein. Die Kante des
+ * Anschriftenfeldes bleibt aussen vor: Sie gehoert zum Umschlagfenster, nicht
+ * zum Inhalt, und wuerde sonst immer gewinnen.
+ */
+function findeInhaltskante(
+  zeilen: { y: number; stuecke: { x: number }[] }[],
+  grenze: number,
+  fussgrenze: number,
+): { inhaltLinks: number } | Record<string, never> {
+  const zaehler = new Map<number, { anzahl: number; x: number }>();
+
+  for (const zeile of zeilen) {
+    if (zeile.y > grenze || (fussgrenze > 0 && zeile.y < fussgrenze)) continue;
+    const x = zeile.stuecke[0]?.x;
+    if (x === undefined) continue;
+
+    // Auf fuenf Punkte gerundet gruppieren - gesetzte Zeilen einer Spalte
+    // stehen selten auf den Hundertstel genau uebereinander.
+    const fach = Math.round(x / 5) * 5;
+    const bisher = zaehler.get(fach);
+    zaehler.set(fach, { anzahl: (bisher?.anzahl ?? 0) + 1, x: Math.min(bisher?.x ?? x, x) });
+  }
+
+  const kanten = [...zaehler.values()]
+    .filter((eintrag) => eintrag.anzahl >= 2)
+    .sort((eins, zwei) => eins.x - zwei.x);
+
+  // Die erste ist das Anschriftenfeld; gesucht ist die naechste dahinter.
+  const inhalt = kanten[1];
+  return inhalt ? { inhaltLinks: inhalt.x } : {};
 }
 
 /**

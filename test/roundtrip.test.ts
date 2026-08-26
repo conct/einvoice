@@ -86,10 +86,15 @@ describe('Summen nach EN 16931', () => {
   });
 
   it('weist bei Kleinunternehmern keine Steuer aus', () => {
-    const totals = computeTotals(smallBusinessInvoice());
+    const rechnung = smallBusinessInvoice();
+    const totals = computeTotals(rechnung);
     expect(totals.taxTotal).toBe(0);
     expect(totals.grandTotal).toBe(totals.taxBasisTotal);
-    expect(totals.vatBreakdown[0]?.exemptionReason).toContain('Paragraf 19');
+
+    // Gegen die Vorlage selbst, nicht gegen eine abgeschriebene Wendung: Sonst
+    // faellt der Test um, sobald jemand die Formulierung verbessert - und
+    // geprueft werden soll, dass der Grund erhalten bleibt, nicht wie er lautet.
+    expect(totals.vatBreakdown[0]?.exemptionReason).toBe(rechnung.lines[0]?.vat.exemptionReason);
   });
 });
 
@@ -159,9 +164,12 @@ describe('CII-Rundlauf', () => {
   });
 
   it('erhaelt den Befreiungsgrund des Kleinunternehmers', () => {
-    const parsed = parseInvoiceXml(buildCii(smallBusinessInvoice()));
+    const rechnung = smallBusinessInvoice();
+    const parsed = parseInvoiceXml(buildCii(rechnung));
     expect(parsed.invoice.lines[0]?.vat.category).toBe('E');
-    expect(parsed.invoice.lines[0]?.vat.exemptionReason).toContain('Paragraf 19');
+    expect(parsed.invoice.lines[0]?.vat.exemptionReason).toBe(
+      rechnung.lines[0]?.vat.exemptionReason,
+    );
   });
 });
 

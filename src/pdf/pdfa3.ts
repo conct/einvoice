@@ -123,6 +123,40 @@ export interface RenderResult {
  */
 const ANSCHRIFT_LUFT = 11;
 
+/**
+ * Wo auf einer Folgeseite Inhalt beginnen darf.
+ *
+ * Unter dem untersten Teil des Briefkopfs, nicht unter dem Anschriftenfeld:
+ * Zum Bogen gehoert auch die Trennlinie darunter, und die lief sonst mitten
+ * durch den Zahlungsblock der zweiten Seite. Gesucht wird deshalb das tiefste
+ * Element in der oberen Blatthaelfte.
+ */
+function folgeseitenanfang(bogen: Briefpapier, versatz: { x: number; y: number }): number {
+  const mitte = A4.height / 2;
+
+  /*
+   * Falz- und Lochmarke stehen im linken Rand und liegen nie im Weg. Sie
+   * mitzuzaehlen druckte den Anfang der Folgeseite auf halbe Blatthoehe -
+   * eine halbe Seite verschenkt fuer zwei Striche von drei Millimetern.
+   */
+  const imWeg = (x2: number) => x2 + versatz.x > (bogen.inhaltLinks ?? 0) + versatz.x;
+
+  let tiefstes = Number.POSITIVE_INFINITY;
+  for (const pfad of bogen.pfade) {
+    const y = pfad.rahmen.y1 + versatz.y;
+    if (y > mitte && y < tiefstes && imWeg(pfad.rahmen.x2)) tiefstes = y;
+  }
+  for (const text of bogen.texte) {
+    const y = text.y + versatz.y;
+    if (y > mitte && y < tiefstes && imWeg(text.x + text.breite)) tiefstes = y;
+  }
+
+  return Number.isFinite(tiefstes) ? tiefstes - FOLGESEITE_LUFT : A4.height * 0.85;
+}
+
+/** Abstand zwischen dem untersten Briefkopfteil und dem Inhalt der Folgeseite. */
+const FOLGESEITE_LUFT = 16;
+
 const DEFAULT_PRODUCER = 'erechnung-core (pdf-lib)';
 
 /**
@@ -261,6 +295,13 @@ export async function renderZugferdPdf(
           },
         }
       : {}),
+    /*
+     * Und die Einrueckung des Inhalts, falls die Vorlage eine hat. Getrennt
+     * vom Satzspiegel: Das Anschriftenfeld bleibt an der linken Kante, sonst
+     * verlaesst es das Fenster des Umschlags.
+     */
+    ...(bogen?.inhaltLinks !== undefined ? { inhaltLinks: bogen.inhaltLinks + versatz.x } : {}),
+    ...(bogen ? { folgeseiteOben: folgeseitenanfang(bogen, versatz) } : {}),
     ...(options.beschriftungen ? { beschriftungen: options.beschriftungen } : {}),
     ...(options.kennzahlen ? { kennzahlen: options.kennzahlen } : {}),
     zahlungszielImBriefpapier: options.zahlungszielImBriefpapier,

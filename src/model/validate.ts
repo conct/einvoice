@@ -36,9 +36,9 @@ export function validateInvoice(invoice: Invoice): ValidationResult {
   if (!invoice.number) add('BR-02', 'error', 'number', 'Die Rechnungsnummer fehlt.');
   if (!invoice.issueDate) add('BR-03', 'error', 'issueDate', 'Das Rechnungsdatum fehlt.');
   if (!invoice.typeCode) add('BR-04', 'error', 'typeCode', 'Der Rechnungstyp fehlt.');
-  if (!invoice.currency) add('BR-05', 'error', 'currency', 'Die Waehrung fehlt.');
+  if (!invoice.currency) add('BR-05', 'error', 'currency', 'Die Währung fehlt.');
   if (invoice.lines.length === 0) {
-    add('BR-16', 'error', 'lines', 'Die Rechnung enthaelt keine Position.');
+    add('BR-16', 'error', 'lines', 'Die Rechnung enthält keine Position.');
   }
 
   const ALLOWED_TYPE_CODES = ['326', '380', '381', '384', '386', '389', '875', '876', '877'];
@@ -54,14 +54,14 @@ export function validateInvoice(invoice: Invoice): ValidationResult {
     );
   }
   if (invoice.dueDate && invoice.dueDate < invoice.issueDate) {
-    add('BR-CO-25', 'error', 'dueDate', 'Das Faelligkeitsdatum liegt vor dem Rechnungsdatum.');
+    add('BR-CO-25', 'error', 'dueDate', 'Das Fälligkeitsdatum liegt vor dem Rechnungsdatum.');
   }
   if (!invoice.dueDate && !invoice.payment?.terms && invoice.paidAmount === 0) {
     add(
       'BR-CO-25',
       'error',
       'dueDate',
-      'Es fehlt entweder ein Faelligkeitsdatum oder eine Zahlungsbedingung.',
+      'Es fehlt entweder ein Fälligkeitsdatum oder eine Zahlungsbedingung.',
     );
   }
   if ((invoice.periodStart && !invoice.periodEnd) || (!invoice.periodStart && invoice.periodEnd)) {

@@ -68,7 +68,7 @@ export const STANDARD_BESCHRIFTUNGEN: Beschriftungen = {
   rechnungsdatum: 'Rechnungsdatum',
   leistungsdatum: 'Leistungsdatum',
   leistungszeitraum: 'Leistungszeitraum',
-  faelligAm: 'Faellig am',
+  faelligAm: 'Fällig am',
   kundennummer: 'Kundennummer',
   leitwegId: 'Leitweg-ID',
   bestellnummer: 'Bestellnummer',

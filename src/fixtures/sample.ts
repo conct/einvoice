@@ -82,7 +82,7 @@ export function sampleInvoice(profile: InvoiceProfile = 'zugferd-en16931'): Invo
       {
         id: '3',
         name: 'Handbuch Kundenportal, gedruckt',
-        description: 'Ermaessigter Steuersatz nach Paragraf 12 Abs. 2 Nr. 1 UStG',
+        description: 'Ermäßigter Steuersatz nach § 12 Abs. 2 Nr. 1 UStG',
         sellerItemId: 'DOC-2026-01',
         quantity: 25,
         unitCode: 'C62',
@@ -103,7 +103,7 @@ export function sampleInvoice(profile: InvoiceProfile = 'zugferd-en16931'): Invo
       {
         isCharge: false,
         amount: 150,
-        reason: 'Skonto bei Sofortzahlung, bereits beruecksichtigt',
+        reason: 'Skonto bei Sofortzahlung, bereits berücksichtigt',
         reasonCode: '95',
         vat: { category: 'S', rate: 19 },
       },
@@ -118,7 +118,7 @@ export function sampleInvoice(profile: InvoiceProfile = 'zugferd-en16931'): Invo
     },
     notes: [
       {
-        text: 'Vielen Dank fuer die Zusammenarbeit. Rueckfragen zur Rechnung bitte unter Angabe der Rechnungsnummer.',
+        text: 'Vielen Dank für die Zusammenarbeit. Rückfragen zur Rechnung bitte unter Angabe der Rechnungsnummer.',
       },
     ],
     paidAmount: 1000,
@@ -143,7 +143,9 @@ export function minimalInvoice(): Invoice {
       name: 'Kundin GmbH',
       address: { line1: 'Nebenweg 2', city: 'Lue' + 'beck', postcode: '23552' },
     },
-    lines: [{ id: '1', name: 'Beratung', quantity: 1, unitPrice: 100, vat: { category: 'S', rate: 19 } }],
+    lines: [
+      { id: '1', name: 'Beratung', quantity: 1, unitPrice: 100, vat: { category: 'S', rate: 19 } },
+    ],
     payment: { meansCode: '58', iban: 'DE02100500000054540402' },
   });
 }
@@ -162,7 +164,11 @@ export function smallBusinessInvoice(): Invoice {
       // Ohne USt-IdNr. verlangt BR-CO-26 eine eigene Kennung (BT-29) oder einen
       // Registereintrag (BT-30) - die Steuernummer zaehlt dafuer nicht.
       identifier: 'ATELIER-LINDGREN-FL',
-      contact: { name: 'Ari Lindgren', phone: '+49 461 22222', email: 'post@atelier-lindgren.example' },
+      contact: {
+        name: 'Ari Lindgren',
+        phone: '+49 461 22222',
+        email: 'post@atelier-lindgren.example',
+      },
     },
     buyer: {
       name: 'Cafe Hafenblick',
@@ -177,7 +183,7 @@ export function smallBusinessInvoice(): Invoice {
         vat: {
           category: 'E',
           rate: 0,
-          exemptionReason: 'Kein Ausweis von Umsatzsteuer gemaess Paragraf 19 UStG (Kleinunternehmer).',
+          exemptionReason: 'Kein Ausweis von Umsatzsteuer gemäß § 19 UStG (Kleinunternehmer).',
           exemptionReasonCode: 'VATEX-EU-O',
         },
       },

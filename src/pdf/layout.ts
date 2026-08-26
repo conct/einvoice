@@ -117,6 +117,25 @@ export interface LayoutContext {
    */
   satzspiegel?: { links: number; rechts: number };
   /**
+   * Wo der Rechnungsinhalt beginnt, wenn die Vorlage ihn einrueckt.
+   *
+   * Getrennt vom Satzspiegel, weil das Anschriftenfeld **nicht** mitwandern
+   * darf - es muss im Fenster des Umschlags bleiben. Die vermessene Vorlage
+   * setzt die Anschrift auf 27 mm und alles Uebrige auf 64 mm.
+   */
+  inhaltLinks?: number;
+  /**
+   * Wo auf einer **Folgeseite** Inhalt beginnen darf.
+   *
+   * Auf Seite eins setzt das Anschriftenfeld den Anfang, und alles vom Bogen
+   * darueber ist unbedenklich. Auf Seite zwei gibt es kein Anschriftenfeld -
+   * dort muss der Inhalt unter dem **untersten** Teil des Briefkopfs beginnen.
+   *
+   * Gerendert nachgemessen: Die Trennlinie des Bogens lief sonst mitten durch
+   * den Zahlungsblock der zweiten Seite.
+   */
+  folgeseiteOben?: number;
+  /**
    * Schlichter Tabellenstil - ohne gefuelltes Kopfband und ohne Zebrastreifen.
    *
    * Der Anlass: Auf der vermessenen Vorlage steht in der ganzen Rechnung keine
@@ -150,6 +169,14 @@ const satzLinks = (ctx: LayoutContext): number => ctx.satzspiegel?.links ?? PAGE
 /** Der rechte Rand des Satzspiegels. */
 const satzRechts = (ctx: LayoutContext): number => ctx.satzspiegel?.rechts ?? PAGE.right;
 
+/**
+ * Die linke Kante des Rechnungsinhalts.
+ *
+ * Alles ausser dem Anschriftenfeld richtet sich danach. Fehlt die Angabe,
+ * faellt sie mit dem Satzspiegel zusammen.
+ */
+const inhaltLinks = (ctx: LayoutContext): number => ctx.inhaltLinks ?? satzLinks(ctx);
+
 export type Kennzahlenstellung =
   /** Rechts neben dem Anschriftenfeld, untereinander. Die Vorgabe. */
   | 'neben-anschrift'
@@ -160,6 +187,24 @@ export type Kennzahlenstellung =
 
 /** Die Hoehe einer Zeile im Kennzahlenblock. */
 const KENNZAHLENZEILE = 12;
+
+/** Luft ueber der ersten und unter der letzten Grundlinie einer Tabellenzeile. */
+const ZEILE_OBEN = 8;
+const ZEILE_UNTEN = 7;
+
+/** Abstand vom Text zur Spaltenkante. */
+const ZELLENLUFT = 6;
+
+/** Wie breit der Summenblock ist - Beschriftung und Betrag zusammen. */
+const SUMMENBREITE = 80 * MM;
+
+/**
+ * Wie breit die Bezeichnungsspalte moeglichst sein soll.
+ *
+ * 165 Punkte tragen "Konzeption und Umsetzung Kundenportal" in einer Zeile.
+ * Weniger heisst Umbruch - hinnehmbar, aber nicht die erste Wahl.
+ */
+const MINDESTBREITE_NAME = 165;
 
 /**
  * Wie viele Kennzahlen quer nebeneinander stehen duerfen.
@@ -236,7 +281,7 @@ export function drawInvoice(
    * das Anschriftenfeld den Anfang setzt; deshalb faellt es nur auf, wenn man
    * ueberhaupt eine zweite Seite ansieht.
    */
-  const seitenanfang = context.anschriftOben !== undefined ? context.anschriftOben : PAGE.top;
+  const seitenanfang = context.folgeseiteOben ?? context.anschriftOben ?? PAGE.top;
 
   const nextPage = () => {
     cursor.page = addPage();
@@ -403,10 +448,10 @@ function zeichneKennzahlen(
 
     for (let anfang = 0; anfang < zeilen.length; anfang += QUERSPALTEN) {
       const reihe = zeilen.slice(anfang, anfang + QUERSPALTEN);
-      const breite = (satzRechts(ctx) - satzLinks(ctx)) / QUERSPALTEN;
+      const breite = (satzRechts(ctx) - inhaltLinks(ctx)) / QUERSPALTEN;
 
       for (const [nummer, [label, value]] of reihe.entries()) {
-        const x = satzLinks(ctx) + nummer * breite;
+        const x = inhaltLinks(ctx) + nummer * breite;
         drawText(page, kuerzeAufBreite(label, ctx.fonts.regular, 8, breite - 6), x, oben, {
           font: ctx.fonts.regular,
           size: 8,
@@ -431,7 +476,7 @@ function zeichneKennzahlen(
    * ueberlappen sie, druckt der eine ueber den anderen, und auf der Rechnung
    * steht "Tel. +4RE-2026-0042".
    */
-  const metaX = satzLinks(ctx) + 105 * MM;
+  const metaX = inhaltLinks(ctx) + 105 * MM;
   let metaY =
     stellung === 'ueber-anschrift'
       ? Math.min(addressTop + 20 * MM, cursorY)
@@ -464,7 +509,7 @@ function drawTitle(cursor: Cursor, invoice: Invoice, ctx: LayoutContext): void {
     return;
   }
 
-  drawText(cursor.page, `${label} ${invoice.number}`, satzLinks(ctx), cursor.y, {
+  drawText(cursor.page, `${label} ${invoice.number}`, inhaltLinks(ctx), cursor.y, {
     font: ctx.fonts.bold,
     size: 16,
     color: ctx.theme.accent,
@@ -477,7 +522,7 @@ function drawTitle(cursor: Cursor, invoice: Invoice, ctx: LayoutContext): void {
         (invoice.precedingInvoice.issueDate
           ? ` vom ${formatDate(invoice.precedingInvoice.issueDate)}`
           : ''),
-      satzLinks(ctx),
+      inhaltLinks(ctx),
       cursor.y,
       { font: ctx.fonts.regular, size: 8.5, color: ctx.theme.muted },
     );
@@ -497,10 +542,22 @@ function columnLayout(
   align: 'left' | 'right';
 }> {
   const fixed = COLUMNS.reduce((acc, column) => acc + column.width, 0);
-  const flexible = satzRechts(ctx) - satzLinks(ctx) - fixed;
-  let x = satzLinks(ctx);
+  const vorhanden = satzRechts(ctx) - inhaltLinks(ctx);
+
+  /*
+   * Rueckt die Vorlage ihren Inhalt ein, wird es schmal. Dann schrumpfen die
+   * festen Spalten mit, statt die Bezeichnung allein zu bestrafen - sie ist
+   * die einzige, in der ein Umbruch stoert. Unter drei Vierteln wird nicht
+   * gequetscht; dann ist die Spalte fuer ihren Inhalt zu eng, und ein
+   * abgeschnittener Betrag waere schlimmer als eine zweizeilige Bezeichnung.
+   */
+  const fehlt = MINDESTBREITE_NAME - (vorhanden - fixed);
+  const faktor = fehlt > 0 ? Math.max(0.75, (fixed - fehlt) / fixed) : 1;
+
+  const flexible = vorhanden - fixed * faktor;
+  let x = inhaltLinks(ctx);
   return COLUMNS.map((column) => {
-    const width = column.width === 0 ? flexible : column.width;
+    const width = column.width === 0 ? flexible : column.width * faktor;
     const entry = {
       key: column.key,
       label: wort[column.beschriftung],
@@ -521,16 +578,16 @@ function drawTableHead(cursor: Cursor, ctx: LayoutContext): void {
   if (schlicht) {
     // Statt eines Bandes eine Linie darunter - so haelt es die Vorlage.
     page.drawLine({
-      start: { x: satzLinks(ctx), y: cursor.y - 4 },
+      start: { x: inhaltLinks(ctx), y: cursor.y - 4 },
       end: { x: satzRechts(ctx), y: cursor.y - 4 },
       thickness: 0.6,
       color: ctx.theme.text,
     });
   } else {
     page.drawRectangle({
-      x: satzLinks(ctx),
+      x: inhaltLinks(ctx),
       y: cursor.y - 4,
-      width: satzRechts(ctx) - satzLinks(ctx),
+      width: satzRechts(ctx) - inhaltLinks(ctx),
       height: 18,
       color: ctx.theme.accent,
     });
@@ -543,9 +600,9 @@ function drawTableHead(cursor: Cursor, ctx: LayoutContext): void {
       color: schlicht ? ctx.theme.text : rgb(1, 1, 1),
     };
     if (column.align === 'right') {
-      drawRight(page, column.label, column.x + column.width - 4, cursor.y + 1, options);
+      drawRight(page, column.label, column.x + column.width - ZELLENLUFT, cursor.y + 1, options);
     } else {
-      drawText(page, column.label, column.x + 4, cursor.y + 1, options);
+      drawText(page, column.label, column.x + ZELLENLUFT, cursor.y + 1, options);
     }
   }
   cursor.y -= 20;
@@ -578,16 +635,24 @@ function drawLineTable(
       ...(periodText ? [periodText] : []),
       ...line.attributes.map((a) => `${a.name}: ${a.value}`),
     ];
-    const rowHeight = 8 + nameLines.length * 11 + extraLines.length * 9.5;
+    /*
+     * Oben Luft fuer die Oberlaengen, unten fuer die Unterlaengen.
+     *
+     * Die untere fehlte: Die Trennlinie lag einen Punkt unter der letzten
+     * Grundlinie, und das g in "Abrechnungssystem" schnitt hindurch. Im
+     * gerenderten Bild sah es aus, als stiessen die Zellen an ihren Rahmen -
+     * weil sie das taten.
+     */
+    const rowHeight = ZEILE_OBEN + nameLines.length * 11 + extraLines.length * 9.5 + ZEILE_UNTEN;
 
     ensure(rowHeight + 4);
     if (cursor.y === PAGE.top) drawTableHead(cursor, ctx);
 
     if (index % 2 === 1 && ctx.schlichteTabelle !== true) {
       cursor.page.drawRectangle({
-        x: satzLinks(ctx),
+        x: inhaltLinks(ctx),
         y: cursor.y - rowHeight + 10,
-        width: satzRechts(ctx) - satzLinks(ctx),
+        width: satzRechts(ctx) - inhaltLinks(ctx),
         height: rowHeight,
         color: ctx.theme.zebra,
       });
@@ -603,9 +668,9 @@ function drawLineTable(
         color: ctx.theme.text,
       };
       if (column.align === 'right') {
-        drawRight(cursor.page, text, column.x + column.width - 4, baseY, options);
+        drawRight(cursor.page, text, column.x + column.width - ZELLENLUFT, baseY, options);
       } else {
-        drawText(cursor.page, text, column.x + 4, baseY, options);
+        drawText(cursor.page, text, column.x + ZELLENLUFT, baseY, options);
       }
     };
 
@@ -620,7 +685,7 @@ function drawLineTable(
 
     let textY = baseY;
     for (const text of nameLines) {
-      drawText(cursor.page, text, (nameColumn?.x ?? satzLinks(ctx)) + 4, textY, {
+      drawText(cursor.page, text, (nameColumn?.x ?? inhaltLinks(ctx)) + ZELLENLUFT, textY, {
         font: ctx.fonts.bold,
         size: 9,
         color: ctx.theme.text,
@@ -628,7 +693,7 @@ function drawLineTable(
       textY -= 11;
     }
     for (const text of extraLines) {
-      drawText(cursor.page, text, (nameColumn?.x ?? satzLinks(ctx)) + 4, textY, {
+      drawText(cursor.page, text, (nameColumn?.x ?? inhaltLinks(ctx)) + ZELLENLUFT, textY, {
         font: ctx.fonts.regular,
         size: 8,
         color: ctx.theme.muted,
@@ -637,12 +702,20 @@ function drawLineTable(
     }
 
     cursor.y -= rowHeight;
-    cursor.page.drawLine({
-      start: { x: satzLinks(ctx), y: cursor.y + 7 },
-      end: { x: satzRechts(ctx), y: cursor.y + 7 },
-      thickness: 0.4,
-      color: ctx.theme.hairline,
-    });
+
+    /*
+     * Keine Zeilenlinien im schlichten Stil. Die vermessene Vorlage trennt
+     * ihre Positionen allein durch Abstand; Linien dazwischen waeren wieder
+     * eine Gestaltung, die sie nicht hat.
+     */
+    if (ctx.schlichteTabelle !== true) {
+      cursor.page.drawLine({
+        start: { x: inhaltLinks(ctx), y: cursor.y + 7 },
+        end: { x: satzRechts(ctx), y: cursor.y + 7 },
+        thickness: 0.4,
+        color: ctx.theme.hairline,
+      });
+    }
   });
 
   cursor.y -= 10;
@@ -689,7 +762,20 @@ function drawTotals(
   }
 
   ensure(rows.length * 14 + 24);
-  const boxLeft = satzLinks(ctx) + 95 * MM;
+  /*
+   * Der Summenblock haengt am **rechten** Rand, nicht an einem festen Abstand
+   * von links.
+   *
+   * Vorher waren es 95 mm ab der linken Kante. Sobald eine Vorlage ihren
+   * Inhalt einrueckt - die vermessene auf 64 mm -, blieb fuer Beschriftung und
+   * Betrag zusammen weniger als die Haelfte, und gerendert stand da
+   * "Zwischensu... 10.991,50 EUR" und "Zahlbe... 11.846,19 EUR". Ein
+   * abgeschnittener "Zahlbetrag" auf einer Rechnung ist kein Schoenheitsfehler.
+   *
+   * Von rechts gemessen bleibt die Breite gleich, egal wie tief der Inhalt
+   * eingerueckt ist - und weiter links als der Inhalt beginnt er nie.
+   */
+  const boxLeft = Math.max(inhaltLinks(ctx), satzRechts(ctx) - SUMMENBREITE);
 
   for (const [label, value, emphasised] of rows) {
     if (emphasised) {
@@ -732,7 +818,7 @@ function drawVatBreakdown(
     drawText(
       cursor.page,
       `${vatCategoryLabel(tax.category)}: ${tax.exemptionReason}`,
-      satzLinks(ctx),
+      inhaltLinks(ctx),
       cursor.y,
       {
         font: ctx.fonts.regular,
@@ -788,7 +874,7 @@ function drawPaymentBlock(
   if (lines.length === 0) return;
 
   ensure(lines.length * 12 + 30);
-  drawText(cursor.page, beschriftungenMit(ctx.beschriftungen).zahlung, satzLinks(ctx), cursor.y, {
+  drawText(cursor.page, beschriftungenMit(ctx.beschriftungen).zahlung, inhaltLinks(ctx), cursor.y, {
     font: ctx.fonts.bold,
     size: 9,
     color: ctx.theme.text,
@@ -799,9 +885,9 @@ function drawPaymentBlock(
       line,
       ctx.fonts.regular,
       8.5,
-      satzRechts(ctx) - satzLinks(ctx),
+      satzRechts(ctx) - inhaltLinks(ctx),
     )) {
-      drawText(cursor.page, wrapped, satzLinks(ctx), cursor.y, {
+      drawText(cursor.page, wrapped, inhaltLinks(ctx), cursor.y, {
         font: ctx.fonts.regular,
         size: 8.5,
         color: ctx.theme.text,
@@ -825,9 +911,9 @@ function drawNotes(
       note.text,
       ctx.fonts.regular,
       8.5,
-      satzRechts(ctx) - satzLinks(ctx),
+      satzRechts(ctx) - inhaltLinks(ctx),
     )) {
-      drawText(cursor.page, wrapped, satzLinks(ctx), cursor.y, {
+      drawText(cursor.page, wrapped, inhaltLinks(ctx), cursor.y, {
         font: ctx.fonts.regular,
         size: 8.5,
         color: ctx.theme.muted,
@@ -907,7 +993,7 @@ function drawFooter(
   drawRight(page, `Seite ${index + 1} von ${total}`, satzRechts(ctx), y + 16, options);
   drawRight(
     page,
-    'Diese Rechnung enthaelt strukturierte Daten nach ZUGFeRD 2.3.',
+    'Diese Rechnung enthält strukturierte Daten nach ZUGFeRD 2.3.',
     satzRechts(ctx),
     y + 7,
     {
