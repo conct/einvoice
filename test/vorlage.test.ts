@@ -39,6 +39,39 @@ describe('schlageVorlageVor', () => {
     expect(vorschlag.beschriftungen.rechnungsdatum).toBe('Rechnungsdatum:');
   });
 
+  it('liest auch die Woerter des Summenblocks', () => {
+    /*
+     * Die Vorlage schreibt "Ueberweisungsbetrag", nicht "Zahlbetrag", und
+     * kuerzt die Steuer mit "MwSt." ab. Beides ist Hausbrauch und beides
+     * gehoert uebernommen.
+     */
+    const seite = seiteAus([
+      [stueck(344, 315, 'Gesamtbetrag netto'), stueck(528, 315, '65,00 Euro')],
+      [stueck(355, 291, 'zzgl. 19 % MwSt.'), stueck(527, 291, '12,35 Euro')],
+      [stueck(337, 267, 'Überweisungsbetrag'), stueck(526, 267, '77,35 Euro')],
+    ]);
+
+    const vorschlag = schlageVorlageVor(seite, A4_HOEHE);
+
+    expect(vorschlag.beschriftungen.zwischensummeNetto).toBe('Gesamtbetrag netto');
+    expect(vorschlag.beschriftungen.gesamtbetrag).toBe('Überweisungsbetrag');
+    // Das Kuerzel steht mitten im Stueck, nicht am Anfang.
+    expect(vorschlag.beschriftungen.steuerkuerzel).toBe('MwSt.');
+  });
+
+  it('haelt die Zwischensumme von der Endsumme auseinander', () => {
+    // "Gesamtbetrag netto" und "Gesamtbetrag" unterscheiden sich nur durch
+    // das Wort danach - ohne dieses Merkmal bekaeme der Block zweimal
+    // dasselbe Wort.
+    const netto = schlageVorlageVor(seiteAus([[stueck(344, 315, 'Gesamtbetrag netto')]]), A4_HOEHE);
+    expect(netto.beschriftungen.zwischensummeNetto).toBe('Gesamtbetrag netto');
+    expect(netto.beschriftungen.gesamtbetrag).toBeUndefined();
+
+    const brutto = schlageVorlageVor(seiteAus([[stueck(344, 267, 'Gesamtbetrag')]]), A4_HOEHE);
+    expect(brutto.beschriftungen.gesamtbetrag).toBe('Gesamtbetrag');
+    expect(brutto.beschriftungen.zwischensummeNetto).toBeUndefined();
+  });
+
   it('erkennt an drei Angaben in einer Zeile den quer gesetzten Block', () => {
     const seite = seiteAus([
       [

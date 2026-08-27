@@ -50,7 +50,7 @@ export interface Vorlagenvorschlag {
  * Bewusst eng gefasst und auf den Zeilenanfang oder ein vorangehendes
  * Trennzeichen bezogen: "Nr." allein kaeme in jeder Positionsbezeichnung vor.
  */
-const WENDUNGEN: { feld: keyof Beschriftungen; muster: RegExp }[] = [
+const WENDUNGEN: { feld: keyof Beschriftungen; muster: RegExp; ueberall?: boolean }[] = [
   { feld: 'rechnungsnummer', muster: /Rechnungs?\s*-?\s*(?:Nr\.?|Nummer)\s*:?/i },
   { feld: 'kundennummer', muster: /Kunden\s*-?\s*(?:Nr\.?|Nummer)\s*:?/i },
   { feld: 'rechnungsdatum', muster: /Rechnungs\s*-?\s*datum\s*:?/i },
@@ -64,6 +64,28 @@ const WENDUNGEN: { feld: keyof Beschriftungen; muster: RegExp }[] = [
   { feld: 'menge', muster: /^(?:Menge|Anzahl)\s*:?$/i },
   { feld: 'einzelpreis', muster: /^(?:Einzelpreis|Einzel|E-Preis)\s*:?$/i },
   { feld: 'betrag', muster: /^(?:Betrag|Gesamtpreis|Gesamt|Summe)\s*:?$/i },
+
+  /*
+   * Der Summenblock. "netto" trennt die Zwischensumme von der Endsumme -
+   * ohne das Merkmal faengt "Gesamtbetrag netto" beide, und der Block bekaeme
+   * zweimal dasselbe Wort.
+   */
+  {
+    feld: 'zwischensummeNetto',
+    muster: /^(?:Zwischensumme|Gesamtbetrag|Nettosumme|Nettobetrag|Summe)\s+netto\b/i,
+  },
+  {
+    feld: 'gesamtbetrag',
+    muster:
+      /^(?:(?:Ü|Ue)berweisungsbetrag|Rechnungsbetrag|Rechnungssumme|Zahlbetrag|Endbetrag|Gesamtbetrag)(?!\s+netto)/i,
+  },
+  /*
+   * Das Steuerkuerzel steht nicht am Anfang, sondern mitten in der Zeile:
+   * "zzgl. 19 % MwSt.". Deshalb hier ausdruecklich ueberall erlaubt - die
+   * Regel, dass eine Beschriftung vorn steht, gilt fuer Beschriftungen, und
+   * das hier ist eine Abkuerzung innerhalb einer.
+   */
+  { feld: 'steuerkuerzel', muster: /(?:MwSt\.?|USt\.?)(?=\s|$)/i, ueberall: true },
 ];
 
 /** Wie viele Kennzahlen in einer Zeile stehen muessen, damit sie als Block gilt. */
@@ -95,7 +117,7 @@ export function schlageVorlageVor(seite: Textseite, seitenhoehe: number): Vorlag
 
   for (const zeile of seite.zeilen) {
     for (const stueck of zeile.stuecke) {
-      for (const { feld, muster } of WENDUNGEN) {
+      for (const { feld, muster, ueberall } of WENDUNGEN) {
         if (beschriftungen[feld]) continue;
 
         const inhalt = stueck.text.trim();
@@ -103,8 +125,8 @@ export function schlageVorlageVor(seite: Textseite, seitenhoehe: number): Vorlag
 
         const treffer = muster.exec(inhalt);
         // Nur am Anfang: Eine Beschriftung steht vor ihrem Wert, nicht mitten
-        // in einem Satz.
-        if (!treffer || treffer.index !== 0) continue;
+        // in einem Satz. Ausnahmen sagen es selbst.
+        if (!treffer || (treffer.index !== 0 && !ueberall)) continue;
 
         const wort = treffer[0].trim();
         if (!istBrauchbareBeschriftung(wort)) continue;

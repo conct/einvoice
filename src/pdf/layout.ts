@@ -3,7 +3,7 @@ import type { Invoice, Party } from '../model/invoice';
 import type { InvoiceTotals } from '../model/totals';
 import { formatAmount, formatQuantity } from '../util/money';
 import { formatDate } from '../util/date';
-import { beschriftungenMit, type Beschriftungen } from './beschriftungen';
+import { beschriftungenMit, STANDARD_BESCHRIFTUNGEN, type Beschriftungen } from './beschriftungen';
 
 /** A4 in PostScript-Punkten */
 export const A4 = { width: 595.28, height: 841.89 } as const;
@@ -135,6 +135,13 @@ export interface LayoutContext {
    * den Zahlungsblock der zweiten Seite.
    */
   folgeseiteOben?: number;
+  /** Wie tief Inhalt auf einer Seite reichen darf. */
+  inhaltUnten?: number;
+  /**
+   * Wie die Waehrung geschrieben wird - "Euro" statt "EUR", wenn die Vorlage
+   * es so haelt. Der ISO-Kode steht ohnehin im XML.
+   */
+  waehrungswort?: string;
   /**
    * Schlichter Tabellenstil - ohne gefuelltes Kopfband und ohne Zebrastreifen.
    *
@@ -197,6 +204,20 @@ const ZELLENLUFT = 6;
 
 /** Wie breit der Summenblock ist - Beschriftung und Betrag zusammen. */
 const SUMMENBREITE = 80 * MM;
+
+/** Die Betragsspalte im schlichten Summenblock - so breit wie in der Vorlage. */
+const BETRAGSSPALTE = 38 * MM;
+
+/**
+ * Zeilenabstand im schlichten Summenblock.
+ *
+ * Luftiger als sonst, aber nicht so luftig wie in der Vorlage: Die hatte drei
+ * Zeilen, eine Rechnung mit Abschlag und zwei Steuersaetzen hat acht. Mit den
+ * 24 Punkten der Vorlage brauchte der Block 216 Punkte und rutschte
+ * geschlossen auf die zweite Seite, waehrend die erste halb leer blieb.
+ */
+const SUMMENZEILE_SCHLICHT = 18;
+const SUMMENZEILE_SCHLICHT_STARK = 22;
 
 /**
  * Wie breit die Bezeichnungsspalte moeglichst sein soll.
@@ -291,8 +312,19 @@ export function drawInvoice(
     drawContinuationHeader(cursor, invoice, context);
   };
 
+  /*
+   * Wie tief Inhalt reichen darf.
+   *
+   * Ohne Briefbogen bleibt Platz fuer unsere Fusszeile. Bringt der Bogen eine
+   * mit, zeichnen wir keine - dann darf der Inhalt bis kurz ueber seine
+   * reichen. Ohne diese Unterscheidung reservierten wir Platz fuer etwas, das
+   * gar nicht gedruckt wird, und der Summenblock rutschte auf die naechste
+   * Seite, obwohl ein Drittel der Seite frei war.
+   */
+  const boden = context.inhaltUnten ?? PAGE.bottom + 40;
+
   const ensure = (needed: number) => {
-    if (cursor.y - needed < PAGE.bottom + 40) nextPage();
+    if (cursor.y - needed < boden) nextPage();
   };
 
   if (!context.eigenerBriefbogen) drawLetterhead(cursor, invoice, context);
@@ -729,39 +761,66 @@ function drawTotals(
   ensure: (needed: number) => void,
 ): void {
   const wort = beschriftungenMit(ctx.beschriftungen);
+  const waehrung = ctx.waehrungswort ?? invoice.currency;
   const rows: Array<[string, string, boolean]> = [];
-  rows.push([wort.zwischensummeNetto, formatAmount(totals.lineTotal, invoice.currency), false]);
+  rows.push([wort.zwischensummeNetto, formatAmount(totals.lineTotal, waehrung), false]);
   for (const ac of invoice.allowancesCharges) {
     rows.push([
       `${ac.isCharge ? wort.zuschlag : wort.abschlag}${ac.reason ? ` (${ac.reason})` : ''}`,
-      formatAmount(ac.isCharge ? ac.amount : -ac.amount, invoice.currency),
+      formatAmount(ac.isCharge ? ac.amount : -ac.amount, waehrung),
       false,
     ]);
   }
   if (totals.allowanceTotal !== 0 || totals.chargeTotal !== 0) {
-    rows.push([wort.gesamtsummeNetto, formatAmount(totals.taxBasisTotal, invoice.currency), false]);
+    rows.push([wort.gesamtsummeNetto, formatAmount(totals.taxBasisTotal, waehrung), false]);
   }
   for (const tax of totals.vatBreakdown) {
     const label =
       tax.category === 'S'
-        ? `zzgl. ${formatQuantity(tax.rate)} % USt. auf ${formatAmount(tax.taxableAmount)}`
+        ? `zzgl. ${formatQuantity(tax.rate)} % ${wort.steuerkuerzel} auf ${formatAmount(tax.taxableAmount)}`
         : `${vatCategoryLabel(tax.category)} auf ${formatAmount(tax.taxableAmount)}`;
-    rows.push([label, formatAmount(tax.taxAmount, invoice.currency), false]);
+    rows.push([label, formatAmount(tax.taxAmount, waehrung), false]);
   }
   if (totals.roundingAmount !== 0) {
-    rows.push([wort.rundung, formatAmount(totals.roundingAmount, invoice.currency), false]);
+    rows.push([wort.rundung, formatAmount(totals.roundingAmount, waehrung), false]);
   }
-  rows.push([
-    `${documentLabel(invoice.typeCode)}sbetrag`,
-    formatAmount(totals.grandTotal, invoice.currency),
-    true,
-  ]);
+  /*
+   * Der Name der Endsumme darf aus der Vorlage kommen - "Ueberweisungsbetrag"
+   * statt "Rechnungsbetrag" -, aber nur bei der gewoehnlichen Rechnung. Bei
+   * einer Gutschrift bliebe sonst nirgends auf dem Blatt stehen, dass es eine
+   * ist: Die Ueberschrift entfaellt bei uebernommenem Bogen ohnehin oft.
+   */
+  const endsumme =
+    invoice.typeCode === '380' && wort.gesamtbetrag !== STANDARD_BESCHRIFTUNGEN.gesamtbetrag
+      ? wort.gesamtbetrag
+      : `${documentLabel(invoice.typeCode)}sbetrag`;
+  rows.push([endsumme, formatAmount(totals.grandTotal, waehrung), true]);
   if (totals.paidAmount !== 0) {
-    rows.push([wort.bereitsGezahlt, formatAmount(-totals.paidAmount, invoice.currency), false]);
-    rows.push([wort.zahlbetrag, formatAmount(totals.duePayable, invoice.currency), true]);
+    rows.push([wort.bereitsGezahlt, formatAmount(-totals.paidAmount, waehrung), false]);
+    rows.push([wort.zahlbetrag, formatAmount(totals.duePayable, waehrung), true]);
   }
 
-  ensure(rows.length * 14 + 24);
+  /*
+   * Mit der tatsaechlichen Zeilenhoehe rechnen, nicht mit einer geschaetzten.
+   * Im schlichten Stil sind es 24 Punkte statt 13 bis 16; mit der alten
+   * Schaetzung lief der Block in die Fusszeile, und "Seite 1 von 2" stand auf
+   * dem Zahlbetrag.
+   */
+  /*
+   * Genau rechnen, nicht mit dem schlechtesten Fall je Zeile: Sonst meldet
+   * der Block mehr Platzbedarf an, als er hat, und rutscht geschlossen auf
+   * die naechste Seite, waehrend die erste halb leer bleibt.
+   */
+  const zeilenhoehe = (emphasised: boolean) =>
+    ctx.schlichteTabelle
+      ? emphasised
+        ? SUMMENZEILE_SCHLICHT_STARK
+        : SUMMENZEILE_SCHLICHT
+      : emphasised
+        ? 16
+        : 13;
+
+  ensure(rows.reduce((summe, [, , emphasised]) => summe + zeilenhoehe(emphasised), 0) + 24);
   /*
    * Der Summenblock haengt am **rechten** Rand, nicht an einem festen Abstand
    * von links.
@@ -775,10 +834,42 @@ function drawTotals(
    * Von rechts gemessen bleibt die Breite gleich, egal wie tief der Inhalt
    * eingerueckt ist - und weiter links als der Inhalt beginnt er nie.
    */
-  const boxLeft = Math.max(inhaltLinks(ctx), satzRechts(ctx) - SUMMENBREITE);
+  /*
+   * Im schlichten Stil beginnt der Block an der Inhaltskante statt in fester
+   * Breite. Die Beschriftungen stehen rechtsbuendig, brauchen also Platz nach
+   * links - und eine kann Freitext sein: der Grund eines Abschlags, so wie
+   * der Aussteller ihn geschrieben hat. Gerendert stand da "Abschlag (Skonto
+   * bei So...".
+   */
+  const boxLeft = ctx.schlichteTabelle
+    ? inhaltLinks(ctx)
+    : Math.max(inhaltLinks(ctx), satzRechts(ctx) - SUMMENBREITE);
+
+  const schlicht = ctx.schlichteTabelle === true;
+
+  /*
+   * Im schlichten Stil folgt der Summenblock dem Aufbau der Vorlage:
+   * Beschriftungen rechtsbuendig an einer gemeinsamen Kante, der Betrag in
+   * einer eigenen Spalte, und die Linie **unter** dem Betrag statt ueber der
+   * ganzen Zeile. Nachgemessen an der Vorlage: drei Linien von 38 mm unter
+   * den Betraegen, dazu eine durchgehende ueber dem Block.
+   */
+  const betragslinks = satzRechts(ctx) - BETRAGSSPALTE;
+
+  if (schlicht) {
+    cursor.page.drawLine({
+      start: { x: boxLeft, y: cursor.y + 13 },
+      end: { x: satzRechts(ctx), y: cursor.y + 13 },
+      thickness: 0.4,
+      color: ctx.theme.hairline,
+    });
+  }
 
   for (const [label, value, emphasised] of rows) {
-    if (emphasised) {
+    const font = emphasised ? ctx.fonts.bold : ctx.fonts.regular;
+    const size = emphasised ? 10 : 8.5;
+
+    if (emphasised && !schlicht) {
       cursor.page.drawLine({
         start: { x: boxLeft, y: cursor.y + 11 },
         end: { x: satzRechts(ctx), y: cursor.y + 11 },
@@ -786,20 +877,44 @@ function drawTotals(
         color: ctx.theme.accent,
       });
     }
-    const font = emphasised ? ctx.fonts.bold : ctx.fonts.regular;
-    const size = emphasised ? 10 : 8.5;
 
-    // Die Beschriftung kann Freitext enthalten - der Grund eines Abschlags
-    // steht so in der Rechnung, wie der Aussteller ihn geschrieben hat. Ohne
-    // Grenze laeuft sie ueber den Betrag und ueber den rechten Rand hinaus.
-    const platz = satzRechts(ctx) - font.widthOfTextAtSize(value, size) - 8 - boxLeft;
-    drawText(cursor.page, kuerzeAufBreite(label, font, size, platz), boxLeft, cursor.y, {
-      font,
-      size,
-      color: emphasised ? ctx.theme.text : ctx.theme.muted,
-    });
+    /*
+     * Die Beschriftung kann Freitext enthalten - der Grund eines Abschlags
+     * steht so in der Rechnung, wie der Aussteller ihn geschrieben hat. Ohne
+     * Grenze laeuft sie ueber den Betrag und ueber den rechten Rand hinaus.
+     */
+    const rechteKante = schlicht ? betragslinks - 10 : satzRechts(ctx);
+    const platz = schlicht
+      ? rechteKante - boxLeft
+      : satzRechts(ctx) - font.widthOfTextAtSize(value, size) - 8 - boxLeft;
+    const gekuerzt = kuerzeAufBreite(label, font, size, platz);
+
+    if (schlicht) {
+      drawRight(cursor.page, gekuerzt, rechteKante, cursor.y, {
+        font,
+        size,
+        color: emphasised ? ctx.theme.text : ctx.theme.muted,
+      });
+    } else {
+      drawText(cursor.page, gekuerzt, boxLeft, cursor.y, {
+        font,
+        size,
+        color: emphasised ? ctx.theme.text : ctx.theme.muted,
+      });
+    }
+
     drawRight(cursor.page, value, satzRechts(ctx), cursor.y, { font, size, color: ctx.theme.text });
-    cursor.y -= emphasised ? 16 : 13;
+
+    if (schlicht) {
+      cursor.page.drawLine({
+        start: { x: betragslinks, y: cursor.y - 6 },
+        end: { x: satzRechts(ctx), y: cursor.y - 6 },
+        thickness: 0.4,
+        color: ctx.theme.hairline,
+      });
+    }
+
+    cursor.y -= zeilenhoehe(emphasised);
   }
   cursor.y -= 8;
 }
@@ -867,7 +982,7 @@ function drawPaymentBlock(
   }
   if (payment?.meansCode === '59') {
     lines.push(
-      `Der Betrag von ${formatAmount(totals.duePayable, invoice.currency)} wird per SEPA-Lastschrift eingezogen.` +
+      `Der Betrag von ${formatAmount(totals.duePayable, ctx.waehrungswort ?? invoice.currency)} wird per SEPA-Lastschrift eingezogen.` +
         (payment.mandateReference ? ` Mandatsreferenz: ${payment.mandateReference}` : ''),
     );
   }

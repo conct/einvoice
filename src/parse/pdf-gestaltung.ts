@@ -217,6 +217,13 @@ export interface Briefpapier {
    * Umschlags bleiben. Deshalb zwei Kanten und nicht eine.
    */
   inhaltLinks?: number;
+  /**
+   * Wie die Vorlage ihre Waehrung schreibt - "Euro", "EUR" oder das Zeichen.
+   *
+   * Nachgemessen: Die Vorlage setzt "65,00 Euro", nicht "65,00 EUR". Das ist
+   * kein Fachbegriff, sondern Hausbrauch, und beides ist zulaessig.
+   */
+  waehrungswort?: string;
 }
 
 // --- Farben -----------------------------------------------------------------
@@ -846,6 +853,7 @@ export async function liesBriefpapier(bytes: Uint8Array, seite = 0): Promise<Bri
     inhaltSchrift: messeInhaltsschrift(gelesen.seiten[seite]?.zeilen ?? [], grenze, fussgrenze),
     ...(findeSatzspiegel(briefkopfpfade, breite) ?? {}),
     ...findeInhaltskante(gelesen.seiten[seite]?.zeilen ?? [], grenze, fussgrenze),
+    ...findeWaehrungswort(gelesen.seiten[seite]?.zeilen ?? [], grenze, fussgrenze),
   };
 }
 
@@ -883,6 +891,27 @@ function findeInhaltskante(
   // Die erste ist das Anschriftenfeld; gesucht ist die naechste dahinter.
   const inhalt = kanten[1];
   return inhalt ? { inhaltLinks: inhalt.x } : {};
+}
+
+/**
+ * Wie die Vorlage ihre Waehrung schreibt.
+ *
+ * Gesucht wird direkt hinter einem Betrag - "65,00 Euro". Das Wort allein
+ * waere zu wenig: "in Euro" im Fliesstext sagt nichts darueber, wie die
+ * Betraege gesetzt sind.
+ */
+function findeWaehrungswort(
+  zeilen: { y: number; text: string }[],
+  grenze: number,
+  fussgrenze: number,
+): { waehrungswort: string } | Record<string, never> {
+  for (const zeile of zeilen) {
+    if (zeile.y > grenze || (fussgrenze > 0 && zeile.y < fussgrenze)) continue;
+
+    const treffer = /\d[\d.]*,\d{2}\s*(Euro|EUR|€)(?![A-Za-z])/.exec(zeile.text);
+    if (treffer?.[1]) return { waehrungswort: treffer[1] };
+  }
+  return {};
 }
 
 /**

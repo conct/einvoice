@@ -23,11 +23,15 @@
  *
  * ## Was hier bewusst fehlt
  *
- * Die Umsatzsteuerzeilen ("zzgl. 19 % USt. auf ...") und der Belegname
- * ("Rechnungsbetrag", "Gutschriftsbetrag") entstehen aus den Daten und
- * richten sich nach dem Steuerschluessel des Dokuments. Sie frei zu machen
- * hiesse, dem Nutzer die Moeglichkeit zu geben, eine Steuerbefreiung falsch
- * zu benennen - und das ist keine Frage des Geschmacks.
+ * Die **Befreiungsgruende** ("steuerfrei nach Paragraf 4 Nr. ...") entstehen
+ * aus dem Steuerschluessel des Dokuments und bleiben fest. Sie freizugeben
+ * hiesse, eine Steuerbefreiung falsch benennen zu koennen, und das ist keine
+ * Frage des Geschmacks.
+ *
+ * Die Abkuerzung in der Steuerzeile dagegen schon: "USt." und "MwSt." meinen
+ * dasselbe, und welche ein Haus benutzt, ist Hausbrauch. Ebenso der Name der
+ * Endsumme - die vermessene Vorlage schreibt "Ueberweisungsbetrag", nicht
+ * "Rechnungsbetrag".
  */
 
 export interface Beschriftungen {
@@ -58,6 +62,16 @@ export interface Beschriftungen {
   rundung: string;
   bereitsGezahlt: string;
   zahlbetrag: string;
+  /**
+   * Die Endsumme. "Ueberweisungsbetrag" auf der vermessenen Vorlage.
+   *
+   * Wirkt nur bei der gewoehnlichen Rechnung; bei Gutschrift und Berichtigung
+   * bleibt der aus der Belegart abgeleitete Name stehen, damit die Art des
+   * Belegs auf dem Blatt erkennbar bleibt.
+   */
+  gesamtbetrag: string;
+  /** Die Abkuerzung in der Steuerzeile - "USt." oder "MwSt.". */
+  steuerkuerzel: string;
 
   // Ueberschriften
   zahlung: string;
@@ -88,6 +102,8 @@ export const STANDARD_BESCHRIFTUNGEN: Beschriftungen = {
   rundung: 'Rundung',
   bereitsGezahlt: 'abzgl. bereits gezahlt',
   zahlbetrag: 'Zahlbetrag',
+  gesamtbetrag: 'Rechnungsbetrag',
+  steuerkuerzel: 'USt.',
 
   zahlung: 'Zahlung',
 };

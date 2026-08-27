@@ -154,6 +154,9 @@ function folgeseitenanfang(bogen: Briefpapier, versatz: { x: number; y: number }
   return Number.isFinite(tiefstes) ? tiefstes - FOLGESEITE_LUFT : A4.height * 0.85;
 }
 
+/** Abstand zwischen dem Inhalt und der Fusszeile des Bogens. */
+const FUSSLUFT = 18;
+
 /** Abstand zwischen dem untersten Briefkopfteil und dem Inhalt der Folgeseite. */
 const FOLGESEITE_LUFT = 16;
 
@@ -273,7 +276,14 @@ export async function renderZugferdPdf(
     eigenerBriefbogen: Boolean(bogen),
     // Bringt der Bogen eine Fusszeile mit, entfaellt unsere - sonst stehen
     // zwei uebereinander.
-    ...(bogen && bogen.fussgrenze > 0 ? { eigeneFusszeile: false } : {}),
+    ...(bogen && bogen.fussgrenze > 0
+      ? {
+          eigeneFusszeile: false,
+          // Ohne eigene Fusszeile darf der Inhalt bis kurz ueber die des
+          // Bogens reichen - der Platz dazwischen gehoert niemandem.
+          inhaltUnten: bogen.fussgrenze + versatz.y + FUSSLUFT,
+        }
+      : {}),
     /*
      * Und das Anschriftenfeld beginnt dort, wo der Bogen es vorsieht: `grenze`
      * markiert genau die Kante unter seiner Rueckabsenderzeile. Ohne das lag
@@ -302,6 +312,13 @@ export async function renderZugferdPdf(
      */
     ...(bogen?.inhaltLinks !== undefined ? { inhaltLinks: bogen.inhaltLinks + versatz.x } : {}),
     ...(bogen ? { folgeseiteOben: folgeseitenanfang(bogen, versatz) } : {}),
+    /*
+     * Das Waehrungswort nur, wenn es zur Waehrung der Rechnung passt. "Euro"
+     * unter Betraegen in Franken waere schlimmer als der ISO-Kode.
+     */
+    ...(bogen?.waehrungswort && invoice.currency === 'EUR'
+      ? { waehrungswort: bogen.waehrungswort }
+      : {}),
     ...(options.beschriftungen ? { beschriftungen: options.beschriftungen } : {}),
     ...(options.kennzahlen ? { kennzahlen: options.kennzahlen } : {}),
     zahlungszielImBriefpapier: options.zahlungszielImBriefpapier,
