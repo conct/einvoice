@@ -183,7 +183,18 @@ export interface LayoutContext {
    */
   tabellenkopf?: boolean;
   /** Welche Kennzahlen gezeigt werden. Fehlt die Angabe, alle vorhandenen. */
+  /**
+   * Welche Kennzahlen gezeigt werden - **und in welcher Reihenfolge**.
+   *
+   * Die Vorlage setzt Nummer, Kundennummer, Datum; unsere Vorgabe ist Nummer,
+   * Datum, Kundennummer. Wer nur filtert und nicht umsortiert, uebernimmt das
+   * halbe Bild.
+   */
   kennzahlenfelder?: (keyof Beschriftungen)[];
+  /** Beschriftung und Wert nebeneinander statt uebereinander. */
+  kennzahlenInline?: boolean;
+  /** Datum ohne fuehrende Nullen - "12.8.2026" statt "12.08.2026". */
+  datumOhneNullen?: boolean;
   /** Nennt die Steuerzeile ihre Bemessungsgrundlage? */
   steuergrundlage?: boolean;
   zahlungsblock?: boolean;
@@ -464,17 +475,25 @@ function drawAddressAndMeta(cursor: Cursor, invoice: Invoice, ctx: LayoutContext
 
   // Kennzahlenblock rechts neben dem Anschriftenfeld
   const wort = beschriftungenMit(ctx.beschriftungen);
+
+  /*
+   * "12.8.2026" statt "12.08.2026", wenn die Vorlage es so haelt. Eine reine
+   * Anzeigefrage - im XML steht ohnehin das ISO-Datum.
+   */
+  const datum = (wert: string) =>
+    ctx.datumOhneNullen ? formatDate(wert).replace(/\b0(\d)\./g, '$1.') : formatDate(wert);
+
   const metaRows: Array<[string, string | undefined]> = [
     [wort.rechnungsnummer, invoice.number],
-    [wort.rechnungsdatum, formatDate(invoice.issueDate)],
-    [wort.leistungsdatum, invoice.deliveryDate ? formatDate(invoice.deliveryDate) : undefined],
+    [wort.rechnungsdatum, datum(invoice.issueDate)],
+    [wort.leistungsdatum, invoice.deliveryDate ? datum(invoice.deliveryDate) : undefined],
     [
       wort.leistungszeitraum,
       invoice.periodStart && invoice.periodEnd
-        ? `${formatDate(invoice.periodStart)} - ${formatDate(invoice.periodEnd)}`
+        ? `${datum(invoice.periodStart)} - ${datum(invoice.periodEnd)}`
         : undefined,
     ],
-    [wort.faelligAm, invoice.dueDate ? formatDate(invoice.dueDate) : undefined],
+    [wort.faelligAm, invoice.dueDate ? datum(invoice.dueDate) : undefined],
     [wort.kundennummer, invoice.buyer.identifier],
     [wort.leitwegId, invoice.buyerReference],
     [wort.bestellnummer, invoice.orderReference],
@@ -487,9 +506,12 @@ function drawAddressAndMeta(cursor: Cursor, invoice: Invoice, ctx: LayoutContext
    * Leitweg-ID und Bestellnummer an.
    */
   const erlaubt = ctx.kennzahlenfelder;
-  const gefuellt = metaRows
-    .filter((zeile, stelle) => !erlaubt || erlaubt.includes(METAFELDER[stelle]!))
-    .filter((zeile): zeile is [string, string] => Boolean(zeile[1]));
+  const geordnet = erlaubt
+    ? erlaubt
+        .map((feld) => metaRows[(METAFELDER as readonly string[]).indexOf(feld)])
+        .filter((zeile): zeile is [string, string | undefined] => Boolean(zeile))
+    : metaRows;
+  const gefuellt = geordnet.filter((zeile): zeile is [string, string] => Boolean(zeile[1]));
   const metaY = zeichneKennzahlen(page, gefuellt, ctx, addressTop, cursor.y);
 
   cursor.y = Math.min(y, metaY) - 22;
@@ -527,10 +549,35 @@ function zeichneKennzahlen(
 
     for (let anfang = 0; anfang < zeilen.length; anfang += QUERSPALTEN) {
       const reihe = zeilen.slice(anfang, anfang + QUERSPALTEN);
-      const breite = (satzRechts(ctx) - inhaltLinks(ctx)) / QUERSPALTEN;
+
+      /*
+       * Durch die Zahl der Angaben teilen, nicht immer durch vier. Bei drei
+       * Kennzahlen blieb sonst eine Spalte leer und die uebrigen zu schmal -
+       * gerendert stand da "Rechnungs-Nr. 202..." und "Rechnungsdatum: 1...".
+       * Bei mehr als vier greift der Umbruch, dann sind es wieder vier.
+       */
+      const spalten = Math.min(QUERSPALTEN, zeilen.length);
+      const breite = (satzRechts(ctx) - inhaltLinks(ctx)) / spalten;
 
       for (const [nummer, [label, value]] of reihe.entries()) {
         const x = inhaltLinks(ctx) + nummer * breite;
+
+        if (ctx.kennzahlenInline) {
+          /*
+           * "Rechnungs-Nr. 2026/7910" in einer Zeile - so setzt es die
+           * Vorlage, als ein Stueck. Beschriftung und Wert teilen dabei ihre
+           * Auszeichnung; sie gehoeren zusammen und lesen sich sonst wie zwei
+           * Angaben.
+           */
+          const paar = `${label} ${value}`;
+          drawText(page, kuerzeAufBreite(paar, ctx.fonts.bold, 8.5, breite - 6), x, oben, {
+            font: ctx.fonts.bold,
+            size: 8.5,
+            color: ctx.theme.text,
+          });
+          continue;
+        }
+
         drawText(page, kuerzeAufBreite(label, ctx.fonts.regular, 8, breite - 6), x, oben, {
           font: ctx.fonts.regular,
           size: 8,

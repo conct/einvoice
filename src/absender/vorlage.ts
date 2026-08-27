@@ -48,8 +48,27 @@ export interface Vorlagenvorschlag {
    * mehr braucht es dort nicht.
    */
   tabellenkopf: boolean;
-  /** Welche Kennzahlen die Vorlage nennt - meist weniger als wir kennen. */
+  /**
+   * Welche Kennzahlen die Vorlage nennt - meist weniger als wir kennen, und
+   * in **ihrer** Reihenfolge: Die vermessene Vorlage setzt Nummer, Kundennummer,
+   * Datum; wir setzen Nummer, Datum, Kundennummer.
+   */
   kennzahlenfelder: (keyof Beschriftungen)[];
+  /**
+   * Stehen Beschriftung und Wert nebeneinander?
+   *
+   * Die Vorlage setzt "Rechnungs-Nr. 2026/7910" als **ein** Stueck; wir setzen
+   * die Beschriftung ueber den Wert. Erkannt daran, ob hinter der gefundenen
+   * Beschriftung im selben Stueck noch etwas steht.
+   */
+  kennzahlenInline?: boolean;
+  /**
+   * Wie die Vorlage Datumsangaben schreibt.
+   *
+   * "12.8.2026" ohne fuehrende Nullen gegen "12.08.2026". Eine Anzeigefrage;
+   * im XML steht ohnehin das ISO-Datum.
+   */
+  datumOhneNullen?: boolean;
   /**
    * Nennt die Steuerzeile ihre Bemessungsgrundlage?
    *
@@ -132,6 +151,9 @@ export function schlageVorlageVor(seite: Textseite, seitenhoehe: number): Vorlag
 
   /** Je Zeile: wie viele Kennzahlenwoerter darin stehen. */
   const querzaehler = new Map<number, number>();
+  /** Wo die Beschriftung stand - fuer die Reihenfolge der Vorlage. */
+  const stellen = new Map<keyof Beschriftungen, number>();
+  let nebeneinander = 0;
 
   for (const zeile of seite.zeilen) {
     for (const stueck of zeile.stuecke) {
@@ -150,6 +172,12 @@ export function schlageVorlageVor(seite: Textseite, seitenhoehe: number): Vorlag
         if (!istBrauchbareBeschriftung(wort)) continue;
 
         beschriftungen[feld] = wort;
+        stellen.set(feld, stueck.x);
+        // Steht hinter der Beschriftung im selben Stueck noch etwas, setzt die
+        // Vorlage Wert und Beschriftung nebeneinander.
+        if (KENNZAHLENFELDER.has(feld) && inhalt.slice(wort.length).trim().length > 0) {
+          nebeneinander += 1;
+        }
         belege.add(zeile.text);
       }
     }
@@ -182,11 +210,37 @@ export function schlageVorlageVor(seite: Textseite, seitenhoehe: number): Vorlag
   return {
     beschriftungen,
     tabellenkopf: kopffelder.some((feld) => beschriftungen[feld]),
-    kennzahlenfelder: [...KENNZAHLENFELDER].filter((feld) => beschriftungen[feld]),
+    kennzahlenfelder: [...KENNZAHLENFELDER]
+      .filter((feld) => beschriftungen[feld])
+      .sort((eins, zwei) => (stellen.get(eins) ?? 0) - (stellen.get(zwei) ?? 0)),
+    ...(nebeneinander > 0 ? { kennzahlenInline: true } : {}),
+    ...erkenneDatumsform(seite),
     ...erkenneSteuergrundlage(seite),
     ...(erkenneStellung(querzaehler, seitenhoehe) ?? {}),
     belege: [...belege],
   };
+}
+
+/**
+ * Schreibt die Vorlage Datumsangaben ohne fuehrende Nullen?
+ *
+ * "12.8.2026" gegen "12.08.2026". Gesucht wird ein Datum mit vierstelligem
+ * Jahr; ist Tag oder Monat einstellig geschrieben, laesst die Vorlage die
+ * Nullen weg. Ein Datum wie "05.10.2026" beantwortet die Frage nicht - beide
+ * Schreibweisen sehen dort gleich aus -, deshalb wird weitergesucht.
+ */
+function erkenneDatumsform(seite: Textseite): { datumOhneNullen?: boolean } {
+  for (const zeile of seite.zeilen) {
+    const treffer = /\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b/.exec(zeile.text);
+    if (!treffer) continue;
+
+    const tag = treffer[1] ?? '';
+    const monat = treffer[2] ?? '';
+    if (Number(tag) < 10 || Number(monat) < 10) {
+      return { datumOhneNullen: tag.length === 1 || monat.length === 1 };
+    }
+  }
+  return {};
 }
 
 /**

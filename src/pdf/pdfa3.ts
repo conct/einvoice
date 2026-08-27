@@ -112,6 +112,10 @@ export interface RenderOptions {
    */
   tabellenkopf?: boolean;
   kennzahlenfelder?: (keyof Beschriftungen)[];
+  /** Beschriftung und Wert nebeneinander, wie es die Vorlage haelt. */
+  kennzahlenInline?: boolean;
+  /** Datum ohne fuehrende Nullen. */
+  datumOhneNullen?: boolean;
   steuergrundlage?: boolean;
   zahlungsblock?: boolean;
   hinweise?: boolean;
@@ -336,6 +340,10 @@ export async function renderZugferdPdf(
     ...(options.kennzahlen ? { kennzahlen: options.kennzahlen } : {}),
     ...(options.tabellenkopf !== undefined ? { tabellenkopf: options.tabellenkopf } : {}),
     ...(options.kennzahlenfelder ? { kennzahlenfelder: options.kennzahlenfelder } : {}),
+    ...(options.kennzahlenInline !== undefined
+      ? { kennzahlenInline: options.kennzahlenInline }
+      : {}),
+    ...(options.datumOhneNullen !== undefined ? { datumOhneNullen: options.datumOhneNullen } : {}),
     ...(options.steuergrundlage !== undefined ? { steuergrundlage: options.steuergrundlage } : {}),
     ...(options.hinweise !== undefined ? { hinweise: options.hinweise } : {}),
     /*
