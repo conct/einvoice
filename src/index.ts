@@ -196,6 +196,7 @@ export {
 export { laufbreite, liefereBreiten, type Breiten } from './parse/pdf-breiten';
 export {
   findeZahlungsklausel,
+  bankverbindungImBogen,
   zahlungsklauselImBogen,
   zeilenImBogen,
   type Zahlungsklausel,

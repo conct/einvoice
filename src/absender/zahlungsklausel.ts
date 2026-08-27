@@ -136,3 +136,31 @@ const WORTLUECKE = 0.2;
 export function zahlungsklauselImBogen(papier: Briefpapier): Zahlungsklausel | undefined {
   return findeZahlungsklausel(zeilenImBogen(papier));
 }
+
+/**
+ * Steht die Bankverbindung schon im Briefbogen?
+ *
+ * Dann braucht die Rechnung keinen eigenen Zahlungsblock - die vermessene
+ * Vorlage hat keinen: Ihre IBAN steht im Briefkopf, und der Fuss verweist mit
+ * "auf unser oben stehendes Bankkonto" darauf.
+ *
+ * ## Warum nicht die Pruefsumme entscheidet
+ *
+ * Zuerst wurde eine IBAN verlangt, die Mod 97 besteht. Das schlug fehl, und
+ * zwar aus dem richtigen Grund: Die Teilmengenschrift der Vorlage uebersetzt
+ * einen Glyphen nicht zurueck, der IBAN fehlt beim Auslesen eine Ziffer, und
+ * eine geprueft ungueltige IBAN anzubieten waere falsch.
+ *
+ * Nur ist das hier die falsche Frage. Es geht nicht darum, die Nummer zu
+ * **benutzen**, sondern darum, ob sie auf dem Blatt schon **steht** - und sie
+ * steht dort, vollstaendig und richtig, weil der Bogen mit den Glyphen der
+ * Vorlage gesetzt wird. Was wir nicht entziffern koennen, kann der Empfaenger
+ * trotzdem lesen.
+ *
+ * Deshalb genuegt die Beschriftung. Verlangt werden beide - IBAN und BIC -,
+ * damit eine blosse Erwaehnung im Fliesstext nicht ausreicht.
+ */
+export function bankverbindungImBogen(papier: Briefpapier): boolean {
+  const text = zeilenImBogen(papier).join(' ');
+  return /\bIBAN\b/i.test(text) && /\b(?:BIC|SWIFT)\b/i.test(text);
+}

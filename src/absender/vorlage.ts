@@ -40,6 +40,24 @@ export interface Vorlagenvorschlag {
   beschriftungen: Partial<Beschriftungen>;
   /** Wo die Vorlage ihren Kennzahlenblock hat, falls erkennbar. */
   kennzahlen?: Kennzahlenstellung;
+  /**
+   * Setzt die Vorlage Spaltenkoepfe ueber ihre Positionen?
+   *
+   * Erkannt daran, ob eines der Kopfwoerter ueberhaupt vorkommt. Die
+   * vermessene Vorlage hat keine - sie nennt eine Position und ihren Preis,
+   * mehr braucht es dort nicht.
+   */
+  tabellenkopf: boolean;
+  /** Welche Kennzahlen die Vorlage nennt - meist weniger als wir kennen. */
+  kennzahlenfelder: (keyof Beschriftungen)[];
+  /**
+   * Nennt die Steuerzeile ihre Bemessungsgrundlage?
+   *
+   * "zzgl. 19 % MwSt. auf 10.381,50" gegen "zzgl. 19 % MwSt.". Undefiniert,
+   * wenn die Vorlage gar keine Steuerzeile hat - dann bleibt es bei unserer
+   * Vorgabe, statt aus dem Nichts zu schliessen.
+   */
+  steuergrundlage?: boolean;
   /** Die Zeilen, aus denen geschlossen wurde - zum Nachsehen. */
   belege: string[];
 }
@@ -153,11 +171,40 @@ export function schlageVorlageVor(seite: Textseite, seitenhoehe: number): Vorlag
     if (inZeile > 0) querzaehler.set(zeile.y, inZeile);
   }
 
+  const kopffelder: (keyof Beschriftungen)[] = [
+    'pos',
+    'bezeichnung',
+    'menge',
+    'einzelpreis',
+    'betrag',
+  ];
+
   return {
     beschriftungen,
+    tabellenkopf: kopffelder.some((feld) => beschriftungen[feld]),
+    kennzahlenfelder: [...KENNZAHLENFELDER].filter((feld) => beschriftungen[feld]),
+    ...erkenneSteuergrundlage(seite),
     ...(erkenneStellung(querzaehler, seitenhoehe) ?? {}),
     belege: [...belege],
   };
+}
+
+/**
+ * Nennt die Steuerzeile der Vorlage ihre Bemessungsgrundlage?
+ *
+ * Gesucht wird eine Zeile mit Steuersatz. Steht dahinter ein Betrag mit
+ * "auf" oder "von", nennt sie die Grundlage; sonst nicht. Gibt es gar keine
+ * solche Zeile, bleibt die Frage offen - eine Vorlage ohne Steuerausweis
+ * sagt nichts darueber, wie wir einen setzen sollen.
+ */
+function erkenneSteuergrundlage(seite: Textseite): { steuergrundlage?: boolean } {
+  for (const zeile of seite.zeilen) {
+    if (!/\d+([.,]\d+)?\s*%\s*(?:MwSt|USt)/i.test(zeile.text)) continue;
+    return {
+      steuergrundlage: /(?:MwSt|USt)\.?\s*(?:auf|von)\s+[\d.]+,\d{2}/i.test(zeile.text),
+    };
+  }
+  return {};
 }
 
 /** Die Felder, deren Anordnung die Stellung des Blocks verraet. */

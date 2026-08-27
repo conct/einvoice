@@ -168,6 +168,26 @@ export interface LayoutContext {
    * keine Gestaltung, sondern die Angabe, um welche Art Beleg es sich handelt.
    */
   ohneTitel?: boolean;
+  /**
+   * Bloecke und Angaben, die eine Vorlage nicht braucht.
+   *
+   * Die vermessene Fremdrechnung hat keine Spaltenkoepfe, nennt drei
+   * Kennzahlen statt sieben, schreibt "zzgl. 19 % MwSt." ohne die
+   * Bemessungsgrundlage und hat weder Zahlungsblock noch Hinweistext - ihre
+   * Bankverbindung steht im Briefkopf.
+   *
+   * Wegzulassen ist dabei nie eine Frage der Gestaltung allein: Was hier
+   * ausgeschaltet wird, steht weiterhin im XML. Nur Pflichtangaben, die
+   * nirgends sonst auf dem Blatt stehen, duerfen nicht verschwinden - deshalb
+   * bleibt der Zahlungsblock, wenn die Bankverbindung nicht im Bogen steht.
+   */
+  tabellenkopf?: boolean;
+  /** Welche Kennzahlen gezeigt werden. Fehlt die Angabe, alle vorhandenen. */
+  kennzahlenfelder?: (keyof Beschriftungen)[];
+  /** Nennt die Steuerzeile ihre Bemessungsgrundlage? */
+  steuergrundlage?: boolean;
+  zahlungsblock?: boolean;
+  hinweise?: boolean;
 }
 
 /** Der linke Rand des Satzspiegels - vom Bogen, sonst die Vorgabe. */
@@ -191,6 +211,25 @@ export type Kennzahlenstellung =
   | 'ueber-anschrift'
   /** Unter dem Anschriftenfeld, quer in einer Zeile. */
   | 'unter-anschrift';
+
+/**
+ * Die Kennzahlen in der Reihenfolge, in der sie gesetzt werden.
+ *
+ * Steht hier, damit `kennzahlenfelder` sich darauf beziehen kann - eine Liste
+ * von Namen ist verstaendlicher als eine von Stellen, und sie bleibt richtig,
+ * wenn jemand die Reihenfolge aendert.
+ */
+const METAFELDER = [
+  'rechnungsnummer',
+  'rechnungsdatum',
+  'leistungsdatum',
+  'leistungszeitraum',
+  'faelligAm',
+  'kundennummer',
+  'leitwegId',
+  'bestellnummer',
+  'projekt',
+] as const satisfies readonly (keyof Beschriftungen)[];
 
 /** Die Hoehe einer Zeile im Kennzahlenblock. */
 const KENNZAHLENZEILE = 12;
@@ -333,8 +372,8 @@ export function drawInvoice(
   drawLineTable(cursor, invoice, totals, context, ensure, nextPage);
   drawTotals(cursor, invoice, totals, context, ensure);
   drawVatBreakdown(cursor, invoice, totals, context, ensure);
-  drawPaymentBlock(cursor, invoice, totals, context, ensure);
-  drawNotes(cursor, invoice, context, ensure);
+  if (context.zahlungsblock !== false) drawPaymentBlock(cursor, invoice, totals, context, ensure);
+  if (context.hinweise !== false) drawNotes(cursor, invoice, context, ensure);
 
   pages.forEach((page, index) => drawFooter(page, index, pages.length, invoice, context));
   return pages;
@@ -442,7 +481,15 @@ function drawAddressAndMeta(cursor: Cursor, invoice: Invoice, ctx: LayoutContext
     [wort.projekt, invoice.projectReference],
   ];
 
-  const gefuellt = metaRows.filter((zeile): zeile is [string, string] => Boolean(zeile[1]));
+  /*
+   * Nur die Kennzahlen, die die Vorlage kennt. Alles Uebrige steht weiterhin
+   * im XML - dort liest es der Empfaenger maschinell, und darauf kommt es bei
+   * Leitweg-ID und Bestellnummer an.
+   */
+  const erlaubt = ctx.kennzahlenfelder;
+  const gefuellt = metaRows
+    .filter((zeile, stelle) => !erlaubt || erlaubt.includes(METAFELDER[stelle]!))
+    .filter((zeile): zeile is [string, string] => Boolean(zeile[1]));
   const metaY = zeichneKennzahlen(page, gefuellt, ctx, addressTop, cursor.y);
 
   cursor.y = Math.min(y, metaY) - 22;
@@ -603,6 +650,13 @@ function columnLayout(
 }
 
 function drawTableHead(cursor: Cursor, ctx: LayoutContext): void {
+  // Ohne Kopfzeile bleibt nur der Abstand - die Vorlage trennt ihre
+  // Positionen vom Vortext allein dadurch.
+  if (ctx.tabellenkopf === false) {
+    cursor.y -= 6;
+    return;
+  }
+
   const columns = columnLayout(beschriftungenMit(ctx.beschriftungen), ctx);
   const { page } = cursor;
   const schlicht = ctx.schlichteTabelle === true;
@@ -777,7 +831,8 @@ function drawTotals(
   for (const tax of totals.vatBreakdown) {
     const label =
       tax.category === 'S'
-        ? `zzgl. ${formatQuantity(tax.rate)} % ${wort.steuerkuerzel} auf ${formatAmount(tax.taxableAmount)}`
+        ? `zzgl. ${formatQuantity(tax.rate)} % ${wort.steuerkuerzel}` +
+          (ctx.steuergrundlage === false ? '' : ` auf ${formatAmount(tax.taxableAmount)}`)
         : `${vatCategoryLabel(tax.category)} auf ${formatAmount(tax.taxableAmount)}`;
     rows.push([label, formatAmount(tax.taxAmount, waehrung), false]);
   }

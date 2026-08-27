@@ -21,6 +21,66 @@ const seiteAus = (zeilen: Textstueck[][]): Textseite => ({
   })),
 });
 
+describe('was die Vorlage nicht braucht', () => {
+  it('meldet fehlende Spaltenkoepfe', () => {
+    // Die vermessene Vorlage nennt eine Position und ihren Preis - mehr
+    // braucht es dort nicht, also auch keine Kopfzeile.
+    const ohne = schlageVorlageVor(
+      seiteAus([
+        [stueck(215, 375, 'Plakate > Elternabend #Medien'), stueck(528, 375, '65,00 Euro')],
+      ]),
+      A4_HOEHE,
+    );
+    expect(ohne.tabellenkopf).toBe(false);
+
+    const mit = schlageVorlageVor(
+      seiteAus([
+        [stueck(57, 467, 'Pos.'), stueck(90, 467, 'Bezeichnung'), stueck(400, 467, 'Menge')],
+      ]),
+      A4_HOEHE,
+    );
+    expect(mit.tabellenkopf).toBe(true);
+  });
+
+  it('nennt nur die Kennzahlen, die die Vorlage fuehrt', () => {
+    const vorschlag = schlageVorlageVor(
+      seiteAus([
+        [
+          stueck(181, 539, 'Rechnungs-Nr. 2026/7910'),
+          stueck(337, 539, 'Kunden-Nr. 2008'),
+          stueck(456, 539, 'Rechnungsdatum: 12.8.2026'),
+        ],
+      ]),
+      A4_HOEHE,
+    );
+
+    expect([...vorschlag.kennzahlenfelder].sort()).toEqual([
+      'kundennummer',
+      'rechnungsdatum',
+      'rechnungsnummer',
+    ]);
+    // Leitweg-ID und Bestellnummer stehen weiterhin im XML, nur nicht auf dem
+    // Blatt - dort liest sie der Empfaenger maschinell.
+    expect(vorschlag.kennzahlenfelder).not.toContain('leitwegId');
+  });
+
+  it('erkennt, ob die Steuerzeile ihre Grundlage nennt', () => {
+    const ohne = schlageVorlageVor(seiteAus([[stueck(355, 291, 'zzgl. 19 % MwSt.')]]), A4_HOEHE);
+    expect(ohne.steuergrundlage).toBe(false);
+
+    const mit = schlageVorlageVor(
+      seiteAus([[stueck(355, 291, 'zzgl. 19 % USt. auf 10.381,50')]]),
+      A4_HOEHE,
+    );
+    expect(mit.steuergrundlage).toBe(true);
+
+    // Ohne Steuerzeile bleibt die Frage offen - eine Vorlage ohne
+    // Steuerausweis sagt nichts darueber, wie wir einen setzen sollen.
+    const stumm = schlageVorlageVor(seiteAus([[stueck(181, 483, 'Sehr geehrte Damen')]]), A4_HOEHE);
+    expect(stumm.steuergrundlage).toBeUndefined();
+  });
+});
+
 describe('schlageVorlageVor', () => {
   it('liest die Wortwahl einer gestalteten Fremdrechnung', () => {
     // Genau so steht es auf der Vorlage - eine Zeile, drei Angaben.

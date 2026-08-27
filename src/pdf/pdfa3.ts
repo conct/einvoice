@@ -17,6 +17,7 @@ import { formatAmount } from '../util/money';
 import type { Briefpapier } from '../parse/pdf-gestaltung';
 import { zeichneBriefpapier } from './briefpapier';
 import type { Beschriftungen } from './beschriftungen';
+import { bankverbindungImBogen } from '../absender/zahlungsklausel';
 import { themaMitAkzent } from './gestaltung';
 import { A4, DEFAULT_THEME, drawInvoice, type Kennzahlenstellung, type Theme } from './layout';
 import { bereiteVorlagenschrift } from './vorlagenschrift';
@@ -102,6 +103,18 @@ export interface RenderOptions {
   beschriftungen?: Partial<Beschriftungen>;
   /** Wo der Kennzahlenblock steht - siehe `Kennzahlenstellung`. */
   kennzahlen?: Kennzahlenstellung;
+  /**
+   * Bloecke und Angaben, die eine Vorlage nicht braucht.
+   *
+   * Was hier ausgeschaltet wird, steht weiterhin im XML - maschinell gelesen
+   * fehlt nichts. Der Zahlungsblock macht davon eine Ausnahme: Er wird nur
+   * dann von selbst weggelassen, wenn die Bankverbindung im Briefbogen steht.
+   */
+  tabellenkopf?: boolean;
+  kennzahlenfelder?: (keyof Beschriftungen)[];
+  steuergrundlage?: boolean;
+  zahlungsblock?: boolean;
+  hinweise?: boolean;
   /** Fertiges CII-XML verwenden, statt es neu zu erzeugen */
   xml?: string;
   totals?: InvoiceTotals;
@@ -321,6 +334,17 @@ export async function renderZugferdPdf(
       : {}),
     ...(options.beschriftungen ? { beschriftungen: options.beschriftungen } : {}),
     ...(options.kennzahlen ? { kennzahlen: options.kennzahlen } : {}),
+    ...(options.tabellenkopf !== undefined ? { tabellenkopf: options.tabellenkopf } : {}),
+    ...(options.kennzahlenfelder ? { kennzahlenfelder: options.kennzahlenfelder } : {}),
+    ...(options.steuergrundlage !== undefined ? { steuergrundlage: options.steuergrundlage } : {}),
+    ...(options.hinweise !== undefined ? { hinweise: options.hinweise } : {}),
+    /*
+     * Der Zahlungsblock entfaellt, wenn die Bankverbindung schon im Bogen
+     * steht - sonst nicht. Er ist der einzige dieser Bloecke, dessen Inhalt
+     * nirgends sonst auf dem Blatt stehen koennte, und eine Rechnung ohne
+     * Kontoangabe waere fuer den Empfaenger nicht zu bezahlen.
+     */
+    zahlungsblock: options.zahlungsblock ?? (bogen ? !bankverbindungImBogen(bogen) : true),
     zahlungszielImBriefpapier: options.zahlungszielImBriefpapier,
   });
   pruefung.wirfBeiLuecken();
