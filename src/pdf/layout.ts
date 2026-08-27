@@ -820,7 +820,6 @@ function drawTotals(
         ? 16
         : 13;
 
-  ensure(rows.reduce((summe, [, , emphasised]) => summe + zeilenhoehe(emphasised), 0) + 24);
   /*
    * Der Summenblock haengt am **rechten** Rand, nicht an einem festen Abstand
    * von links.
@@ -856,6 +855,37 @@ function drawTotals(
    */
   const betragslinks = satzRechts(ctx) - BETRAGSSPALTE;
 
+  /*
+   * Erst setzen, dann Platz anmelden.
+   *
+   * Wie hoch der Block wird, haengt davon ab, ob eine Beschriftung umbricht -
+   * und das steht erst fest, wenn Schrift, Groesse und verfuegbare Breite
+   * bekannt sind. Mit einer geschaetzten Reserve zu rechnen ging schief: Sie
+   * war einmal zu klein und einmal zu gross, und beim zweiten Mal rutschte
+   * der Block auf die naechste Seite, obwohl er gepasst haette.
+   */
+  const gesetzt = rows.map(([label, value, emphasised]) => {
+    const font = emphasised ? ctx.fonts.bold : ctx.fonts.regular;
+    const size = emphasised ? 10 : 8.5;
+    const rechteKante = schlicht ? betragslinks - 10 : satzRechts(ctx);
+    const platz = schlicht
+      ? rechteKante - boxLeft
+      : satzRechts(ctx) - font.widthOfTextAtSize(value, size) - 8 - boxLeft;
+    const zeilen = wrapText(label, font, size, Math.max(40, platz));
+
+    return {
+      value,
+      emphasised,
+      font,
+      size,
+      rechteKante,
+      zeilen,
+      hoehe: zeilenhoehe(emphasised) + (zeilen.length - 1) * (size + 2),
+    };
+  });
+
+  ensure(gesetzt.reduce((summe, zeile) => summe + zeile.hoehe, 0) + 24);
+
   if (schlicht) {
     cursor.page.drawLine({
       start: { x: boxLeft, y: cursor.y + 13 },
@@ -865,10 +895,7 @@ function drawTotals(
     });
   }
 
-  for (const [label, value, emphasised] of rows) {
-    const font = emphasised ? ctx.fonts.bold : ctx.fonts.regular;
-    const size = emphasised ? 10 : 8.5;
-
+  for (const { value, emphasised, font, size, rechteKante, zeilen, hoehe } of gesetzt) {
     if (emphasised && !schlicht) {
       cursor.page.drawLine({
         start: { x: boxLeft, y: cursor.y + 11 },
@@ -879,42 +906,32 @@ function drawTotals(
     }
 
     /*
-     * Die Beschriftung kann Freitext enthalten - der Grund eines Abschlags
-     * steht so in der Rechnung, wie der Aussteller ihn geschrieben hat. Ohne
-     * Grenze laeuft sie ueber den Betrag und ueber den rechten Rand hinaus.
+     * Umbrechen statt kuerzen: Der Grund eines Abschlags ist eine
+     * Pflichtangabe - BT-97 fuer den Abschlag, BT-104 fuer den Zuschlag. Ihn
+     * mit drei Punkten abzuschneiden ist Inhaltsverlust, nicht Gestaltung.
      */
-    const rechteKante = schlicht ? betragslinks - 10 : satzRechts(ctx);
-    const platz = schlicht
-      ? rechteKante - boxLeft
-      : satzRechts(ctx) - font.widthOfTextAtSize(value, size) - 8 - boxLeft;
-    const gekuerzt = kuerzeAufBreite(label, font, size, platz);
-
-    if (schlicht) {
-      drawRight(cursor.page, gekuerzt, rechteKante, cursor.y, {
-        font,
-        size,
-        color: emphasised ? ctx.theme.text : ctx.theme.muted,
-      });
-    } else {
-      drawText(cursor.page, gekuerzt, boxLeft, cursor.y, {
-        font,
-        size,
-        color: emphasised ? ctx.theme.text : ctx.theme.muted,
-      });
+    const farbe = emphasised ? ctx.theme.text : ctx.theme.muted;
+    for (const [nummer, teil] of zeilen.entries()) {
+      const y = cursor.y - nummer * (size + 2);
+      if (schlicht) {
+        drawRight(cursor.page, teil, rechteKante, y, { font, size, color: farbe });
+      } else {
+        drawText(cursor.page, teil, boxLeft, y, { font, size, color: farbe });
+      }
     }
 
     drawRight(cursor.page, value, satzRechts(ctx), cursor.y, { font, size, color: ctx.theme.text });
 
     if (schlicht) {
       cursor.page.drawLine({
-        start: { x: betragslinks, y: cursor.y - 6 },
-        end: { x: satzRechts(ctx), y: cursor.y - 6 },
+        start: { x: betragslinks, y: cursor.y - hoehe + 12 },
+        end: { x: satzRechts(ctx), y: cursor.y - hoehe + 12 },
         thickness: 0.4,
         color: ctx.theme.hairline,
       });
     }
 
-    cursor.y -= zeilenhoehe(emphasised);
+    cursor.y -= hoehe;
   }
   cursor.y -= 8;
 }
