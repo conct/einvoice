@@ -211,16 +211,42 @@ function anschriftAusZeilen(zeilen: string[], stelle: number): Anschrift | undef
  * Der Rueckabsender ueber dem Anschriftenfeld sieht so aus:
  * "Nordlicht Digitalwerk GmbH - Speicherstrasse 14 - 20457 Hamburg". Er wird
  * an den Trennern zerlegt und dann wie ein mehrzeiliger Block behandelt.
+ *
+ * Der Zeichensatz ist absichtlich breit: Eine gestaltete Rechnung benutzte den
+ * Aufzaehlungspunkt U+2022, mein Satz kannte nur den Mittelpunkt U+00B7 - und
+ * damit blieb die Zeile ungeteilt, ohne Namen, ohne Strasse. Die Uebernahme
+ * scheiterte an einem Zeichen, das dem Auge gleich aussieht.
  */
+const TRENNER = /\s+[-–—·•∙|/]\s+/;
+
 function anschriftAusEinerZeile(zeile: string): Anschrift | undefined {
   const teile = zeile
-    .split(/\s+[-–·|]\s+/)
+    .split(TRENNER)
     .map((teil) => teil.trim())
     .filter(Boolean);
   if (teile.length < 2) return undefined;
 
   const gebaut = anschriftAusZeilen(teile, teile.length - 1);
-  return gebaut ? { beleg: [zeile], felder: gebaut.felder } : undefined;
+  if (!gebaut) return undefined;
+
+  /*
+   * In einer Zeile steht der Name oft in mehreren Teilen: "SCHÖNE | SCHÖNE •
+   * Büro für Gestaltung • Schmiedestr. 1 • 01796 Pirna". Die mehrzeilige
+   * Regel nimmt nur den Teil ueber der Strasse und lieferte damit "Büro für
+   * Gestaltung" - den Zusatz statt der Firma. Hier gehoert alles vor der
+   * Strasse zum Namen.
+   */
+  const bisStrasse = teile.findIndex((teil) => STRASSE.test(teil));
+  const name = bisStrasse > 0 ? teile.slice(0, bisStrasse).join(' ') : undefined;
+
+  const felder = name
+    ? [
+        ...gebaut.felder.filter((fund) => fund.feld !== 'name'),
+        { feld: 'name' as const, wert: name, sicherheit: 'geraten' as const, beleg: zeile },
+      ]
+    : gebaut.felder;
+
+  return { beleg: [zeile], felder };
 }
 
 // --- Ganzes Dokument --------------------------------------------------------

@@ -1,4 +1,4 @@
-import type { Briefpapier } from '../parse/pdf-gestaltung';
+import type { Beschriftung, Briefpapier } from '../parse/pdf-gestaltung';
 
 /**
  * Steht das Zahlungsziel schon fest im Briefpapier?
@@ -88,26 +88,49 @@ export function findeZahlungsklausel(zeilen: string[]): Zahlungsklausel | undefi
  * keinem davon zu finden. Dasselbe gilt fuer eine Anschrift.
  */
 export function zeilenImBogen(papier: Briefpapier): string[] {
-  const nachHoehe = new Map<number, { x: number; text: string }[]>();
+  const nachHoehe = new Map<number, Beschriftung[]>();
   for (const stueck of papier.texte) {
     const schluessel = Math.round(stueck.y);
-    const bisher = nachHoehe.get(schluessel) ?? [];
-    bisher.push({ x: stueck.x, text: stueck.text });
-    nachHoehe.set(schluessel, bisher);
+    nachHoehe.set(schluessel, [...(nachHoehe.get(schluessel) ?? []), stueck]);
   }
 
   return [...nachHoehe.entries()]
-    .sort((a, b) => b[0] - a[0])
-    .map(([, stuecke]) =>
-      stuecke
-        .sort((a, b) => a.x - b.x)
-        .map((stueck) => stueck.text)
-        .join('')
-        .replace(/\s+/g, ' ')
-        .trim(),
-    )
+    .sort((eins, zwei) => zwei[0] - eins[0])
+    .map(([, stuecke]) => zeileAus(stuecke))
     .filter(Boolean);
 }
+
+/**
+ * Setzt die Stuecke einer Zeile zusammen - mit Abstand, wo einer ist.
+ *
+ * Ohne diese Unterscheidung entstand "Schmiedestraße 1Inhaber Robert Michael
+ * Schöne" und "Tel.0501 528051BICCOBADEFFXXX": Der Briefkopf steht in zwei
+ * Spalten, und stumpf aneinandergehaengt verschmelzen sie zu Unwoertern. Ein
+ * Firmenname liess sich darin nicht mehr finden, und die Uebernahme scheiterte
+ * mit "keine Anschrift gefunden".
+ *
+ * Moeglich wird es, weil jedes Stueck seine gesetzte Breite kennt: Der Abstand
+ * ist der Anfang des naechsten minus das Ende des vorigen.
+ */
+function zeileAus(stuecke: Beschriftung[]): string {
+  const sortiert = [...stuecke].sort((eins, zwei) => eins.x - zwei.x);
+
+  let text = '';
+  let ende: number | undefined;
+  for (const stueck of sortiert) {
+    if (!stueck.text.trim()) continue;
+    if (text && ende !== undefined && stueck.x - ende > Math.max(stueck.groesse, 1) * WORTLUECKE) {
+      text += ' ';
+    }
+    text += stueck.text;
+    ende = stueck.x + stueck.breite;
+  }
+
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+/** Ab welchem Anteil der Schriftgroesse eine Luecke als Wortabstand gilt. */
+const WORTLUECKE = 0.2;
 
 /** Dasselbe fuer ein ausgelesenes Briefpapier. */
 export function zahlungsklauselImBogen(papier: Briefpapier): Zahlungsklausel | undefined {
