@@ -167,6 +167,7 @@ export {
   alsHex,
   findeFussgrenze,
   findeGrenze,
+  findeStrichstaerken,
   liesBriefpapier,
   type Beschriftung,
   type Briefpapier,

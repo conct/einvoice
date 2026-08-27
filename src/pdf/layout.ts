@@ -201,6 +201,19 @@ export interface LayoutContext {
    * dem Blatt deutlich zu sehen.
    */
   kennzahlenFett?: (keyof Beschriftungen)[];
+  /**
+   * Strichstaerken im Summenblock - fein fuer die gewoehnlichen Zeilen, stark
+   * unter der Endsumme. Die Vorlage zieht dort 1,00 pt gegen 0,25 pt.
+   */
+  striche?: { fein: number; stark: number };
+  /**
+   * Positionsnummern zeigen?
+   *
+   * Die vermessene Vorlage nummeriert nicht - sie hat eine Position, und eine
+   * Ziffer davor traegt nichts bei. Abgeschaltet entfaellt die Spalte ganz,
+   * nicht nur ihr Inhalt: Eine leere Spalte waere schlechter als keine.
+   */
+  positionsnummern?: boolean;
   /** Datum ohne fuehrende Nullen - "12.8.2026" statt "12.08.2026". */
   datumOhneNullen?: boolean;
   /** Nennt die Steuerzeile ihre Bemessungsgrundlage? */
@@ -696,7 +709,12 @@ function columnLayout(
   width: number;
   align: 'left' | 'right';
 }> {
-  const fixed = COLUMNS.reduce((acc, column) => acc + column.width, 0);
+  // Ohne Nummerierung faellt die Spalte weg, nicht nur ihr Inhalt - eine
+  // leere Spalte waere schlechter als keine.
+  const spalten = COLUMNS.filter(
+    (column) => ctx.positionsnummern !== false || column.key !== 'pos',
+  );
+  const fixed = spalten.reduce((acc, column) => acc + column.width, 0);
   const vorhanden = satzRechts(ctx) - inhaltLinks(ctx);
 
   /*
@@ -711,7 +729,7 @@ function columnLayout(
 
   const flexible = vorhanden - fixed * faktor;
   let x = inhaltLinks(ctx);
-  return COLUMNS.map((column) => {
+  return spalten.map((column) => {
     const width = column.width === 0 ? flexible : column.width * faktor;
     const entry = {
       key: column.key,
@@ -1017,11 +1035,14 @@ function drawTotals(
 
   ensure(gesetzt.reduce((summe, zeile) => summe + zeile.hoehe, 0) + 24);
 
+  const fein = ctx.striche?.fein ?? 0.4;
+  const stark = ctx.striche?.stark ?? 0.8;
+
   if (schlicht) {
     cursor.page.drawLine({
       start: { x: boxLeft, y: cursor.y + 13 },
       end: { x: satzRechts(ctx), y: cursor.y + 13 },
-      thickness: 0.4,
+      thickness: fein,
       color: ctx.theme.hairline,
     });
   }
@@ -1054,11 +1075,13 @@ function drawTotals(
     drawRight(cursor.page, value, satzRechts(ctx), cursor.y, { font, size, color: ctx.theme.text });
 
     if (schlicht) {
+      // Unter der Endsumme dicker - das ist die Auszeichnung, mit der die
+      // Vorlage sie vom Rest abhebt.
       cursor.page.drawLine({
         start: { x: betragslinks, y: cursor.y - hoehe + 12 },
         end: { x: satzRechts(ctx), y: cursor.y - hoehe + 12 },
-        thickness: 0.4,
-        color: ctx.theme.hairline,
+        thickness: emphasised ? stark : fein,
+        color: emphasised ? ctx.theme.text : ctx.theme.hairline,
       });
     }
 

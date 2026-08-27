@@ -116,6 +116,8 @@ export interface RenderOptions {
   kennzahlenInline?: boolean;
   /** Welche Kennzahlen fett gesetzt werden - die Vorlage betont nicht alle. */
   kennzahlenFett?: (keyof Beschriftungen)[];
+  /** Positionsnummern zeigen. Aus, wenn die Vorlage nicht nummeriert. */
+  positionsnummern?: boolean;
   /** Datum ohne fuehrende Nullen. */
   datumOhneNullen?: boolean;
   steuergrundlage?: boolean;
@@ -346,6 +348,14 @@ export async function renderZugferdPdf(
       ? { kennzahlenInline: options.kennzahlenInline }
       : {}),
     ...(options.kennzahlenFett ? { kennzahlenFett: options.kennzahlenFett } : {}),
+    ...(options.positionsnummern !== undefined
+      ? { positionsnummern: options.positionsnummern }
+      : {}),
+    /*
+     * Die Strichstaerken des Summenblocks kommen aus der Vorlage: Sie zieht
+     * 0,25 pt unter den gewoehnlichen Zeilen und 1,00 pt unter der Endsumme.
+     */
+    ...(bogen?.inhaltStriche ? { striche: bogen.inhaltStriche } : {}),
     ...(options.datumOhneNullen !== undefined ? { datumOhneNullen: options.datumOhneNullen } : {}),
     ...(options.steuergrundlage !== undefined ? { steuergrundlage: options.steuergrundlage } : {}),
     ...(options.hinweise !== undefined ? { hinweise: options.hinweise } : {}),

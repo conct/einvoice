@@ -224,6 +224,15 @@ export interface Briefpapier {
    * kein Fachbegriff, sondern Hausbrauch, und beides ist zulaessig.
    */
   waehrungswort?: string;
+  /**
+   * Die Strichstaerken im Rechnungsinhalt der Vorlage.
+   *
+   * Sie zieht nicht alle Linien gleich: 0,25 pt unter den gewoehnlichen
+   * Summenzeilen, **1,00 pt** unter dem Ueberweisungsbetrag. Der dicke Strich
+   * ist die Auszeichnung der Endsumme - wer alle gleich zieht, nimmt ihr die
+   * Betonung.
+   */
+  inhaltStriche?: { fein: number; stark: number };
 }
 
 // --- Farben -----------------------------------------------------------------
@@ -854,6 +863,7 @@ export async function liesBriefpapier(bytes: Uint8Array, seite = 0): Promise<Bri
     ...(findeSatzspiegel(briefkopfpfade, breite) ?? {}),
     ...findeInhaltskante(gelesen.seiten[seite]?.zeilen ?? [], grenze, fussgrenze),
     ...findeWaehrungswort(gelesen.seiten[seite]?.zeilen ?? [], grenze, fussgrenze),
+    ...findeStrichstaerken(inhaltspfade),
   };
 }
 
@@ -891,6 +901,32 @@ function findeInhaltskante(
   // Die erste ist das Anschriftenfeld; gesucht ist die naechste dahinter.
   const inhalt = kanten[1];
   return inhalt ? { inhaltLinks: inhalt.x } : {};
+}
+
+/**
+ * Welche Strichstaerken die Vorlage in ihrem Inhalt benutzt.
+ *
+ * Die haeufigste gilt als die gewoehnliche, die groesste als die betonte.
+ * Sind beide gleich, zieht die Vorlage alle Linien gleich - dann gibt es
+ * nichts zu uebernehmen, und es bleibt bei unseren Vorgaben.
+ */
+export function findeStrichstaerken(pfade: Pfad[]): {
+  inhaltStriche?: { fein: number; stark: number };
+} {
+  const staerken = pfade.filter((pfad) => pfad.strich).map((pfad) => pfad.staerke);
+  if (staerken.length < 2) return {};
+
+  const zaehler = new Map<number, number>();
+  for (const staerke of staerken) {
+    const fach = Math.round(staerke * 100) / 100;
+    zaehler.set(fach, (zaehler.get(fach) ?? 0) + 1);
+  }
+
+  const haeufigste = [...zaehler.entries()].sort((eins, zwei) => zwei[1] - eins[1])[0]?.[0];
+  const groesste = Math.max(...staerken);
+  if (haeufigste === undefined || groesste <= haeufigste) return {};
+
+  return { inhaltStriche: { fein: haeufigste, stark: groesste } };
 }
 
 /**

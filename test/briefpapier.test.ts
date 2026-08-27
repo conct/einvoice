@@ -4,7 +4,9 @@ import {
   alsHex,
   findeFussgrenze,
   findeGrenze,
+  findeStrichstaerken,
   type Briefpapier,
+  type Pfad,
 } from '../src/parse/pdf-gestaltung';
 import { alsSvg } from '../src/pdf/briefpapier';
 
@@ -110,6 +112,37 @@ describe('findeFussgrenze', () => {
 
   it('meldet nichts, wenn unten gar nichts steht', () => {
     expect(findeFussgrenze([{ y: 400, text: 'Mittendrin', hoehe: 10 }], HOEHE)).toBe(0);
+  });
+});
+
+describe('findeStrichstaerken', () => {
+  const strich = (staerke: number): Pfad => ({
+    d: 'M 0 0 L 10 0',
+    strich: { r: 0, g: 0, b: 0 },
+    staerke,
+    rahmen: { x1: 0, y1: 0, x2: 10, y2: 0 },
+  });
+
+  it('unterscheidet die feine von der betonten Linie', () => {
+    /*
+     * Die vermessene Vorlage zieht 0,25 pt unter den gewoehnlichen
+     * Summenzeilen und 1,00 pt unter dem Ueberweisungsbetrag. Der dicke
+     * Strich ist die Auszeichnung der Endsumme - wer alle gleich zieht, nimmt
+     * ihr die Betonung.
+     */
+    expect(findeStrichstaerken([strich(0.25), strich(0.25), strich(0.25), strich(1)])).toEqual({
+      inhaltStriche: { fein: 0.25, stark: 1 },
+    });
+  });
+
+  it('meldet nichts, wo alle Linien gleich sind', () => {
+    // Dann gibt es keine Auszeichnung zu uebernehmen, und es bleibt bei
+    // unseren Vorgaben - eine erfundene Betonung waere schlechter als keine.
+    expect(findeStrichstaerken([strich(0.4), strich(0.4)])).toEqual({});
+  });
+
+  it('urteilt nicht ueber eine einzige Linie', () => {
+    expect(findeStrichstaerken([strich(1)])).toEqual({});
   });
 });
 
