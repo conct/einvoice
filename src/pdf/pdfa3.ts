@@ -114,6 +114,8 @@ export interface RenderOptions {
   kennzahlenfelder?: (keyof Beschriftungen)[];
   /** Beschriftung und Wert nebeneinander, wie es die Vorlage haelt. */
   kennzahlenInline?: boolean;
+  /** Welche Kennzahlen fett gesetzt werden - die Vorlage betont nicht alle. */
+  kennzahlenFett?: (keyof Beschriftungen)[];
   /** Datum ohne fuehrende Nullen. */
   datumOhneNullen?: boolean;
   steuergrundlage?: boolean;
@@ -343,6 +345,7 @@ export async function renderZugferdPdf(
     ...(options.kennzahlenInline !== undefined
       ? { kennzahlenInline: options.kennzahlenInline }
       : {}),
+    ...(options.kennzahlenFett ? { kennzahlenFett: options.kennzahlenFett } : {}),
     ...(options.datumOhneNullen !== undefined ? { datumOhneNullen: options.datumOhneNullen } : {}),
     ...(options.steuergrundlage !== undefined ? { steuergrundlage: options.steuergrundlage } : {}),
     ...(options.hinweise !== undefined ? { hinweise: options.hinweise } : {}),

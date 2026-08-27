@@ -193,6 +193,14 @@ export interface LayoutContext {
   kennzahlenfelder?: (keyof Beschriftungen)[];
   /** Beschriftung und Wert nebeneinander statt uebereinander. */
   kennzahlenInline?: boolean;
+  /**
+   * Welche Kennzahlen fett gesetzt werden.
+   *
+   * Fehlt die Angabe, werden alle Werte betont - das war bisher der einzige
+   * Fall. Die Vorlage betont aber nur einen Teil, und der Unterschied ist auf
+   * dem Blatt deutlich zu sehen.
+   */
+  kennzahlenFett?: (keyof Beschriftungen)[];
   /** Datum ohne fuehrende Nullen - "12.8.2026" statt "12.08.2026". */
   datumOhneNullen?: boolean;
   /** Nennt die Steuerzeile ihre Bemessungsgrundlage? */
@@ -506,12 +514,13 @@ function drawAddressAndMeta(cursor: Cursor, invoice: Invoice, ctx: LayoutContext
    * Leitweg-ID und Bestellnummer an.
    */
   const erlaubt = ctx.kennzahlenfelder;
-  const geordnet = erlaubt
-    ? erlaubt
-        .map((feld) => metaRows[(METAFELDER as readonly string[]).indexOf(feld)])
-        .filter((zeile): zeile is [string, string | undefined] => Boolean(zeile))
-    : metaRows;
-  const gefuellt = geordnet.filter((zeile): zeile is [string, string] => Boolean(zeile[1]));
+  const reihenfolge = erlaubt ?? METAFELDER;
+  const gefuellt = reihenfolge
+    .map((feld) => {
+      const zeile = metaRows[(METAFELDER as readonly string[]).indexOf(feld)];
+      return zeile?.[1] ? { feld, label: zeile[0], wert: zeile[1] } : undefined;
+    })
+    .filter((eintrag): eintrag is Kennzahl => Boolean(eintrag));
   const metaY = zeichneKennzahlen(page, gefuellt, ctx, addressTop, cursor.y);
 
   cursor.y = Math.min(y, metaY) - 22;
@@ -523,13 +532,26 @@ function drawAddressAndMeta(cursor: Cursor, invoice: Invoice, ctx: LayoutContext
  * Gibt zurueck, wie tief er reicht - danach richtet sich, wo der Fliesstext
  * weitergeht.
  */
+interface Kennzahl {
+  feld: keyof Beschriftungen;
+  label: string;
+  wert: string;
+}
+
 function zeichneKennzahlen(
   page: PDFPage,
-  zeilen: Array<[string, string]>,
+  zeilen: Kennzahl[],
   ctx: LayoutContext,
   addressTop: number,
   cursorY: number,
 ): number {
+  /*
+   * Welche Angabe betont wird, sagt die Vorlage. Fehlt die Auskunft, werden
+   * alle Werte betont - so war es immer, und ohne Vorlage gibt es keinen
+   * Grund, eine Angabe vor der anderen hervorzuheben.
+   */
+  const istFett = (feld: keyof Beschriftungen) =>
+    ctx.kennzahlenFett ? ctx.kennzahlenFett.includes(feld) : true;
   if (zeilen.length === 0) return cursorY;
 
   const stellung = ctx.kennzahlen ?? 'neben-anschrift';
@@ -559,8 +581,9 @@ function zeichneKennzahlen(
       const spalten = Math.min(QUERSPALTEN, zeilen.length);
       const breite = (satzRechts(ctx) - inhaltLinks(ctx)) / spalten;
 
-      for (const [nummer, [label, value]] of reihe.entries()) {
+      for (const [nummer, { feld, label, wert }] of reihe.entries()) {
         const x = inhaltLinks(ctx) + nummer * breite;
+        const fett = istFett(feld);
 
         if (ctx.kennzahlenInline) {
           /*
@@ -569,11 +592,11 @@ function zeichneKennzahlen(
            * Auszeichnung; sie gehoeren zusammen und lesen sich sonst wie zwei
            * Angaben.
            */
-          const paar = `${label} ${value}`;
-          drawText(page, kuerzeAufBreite(paar, ctx.fonts.bold, 8.5, breite - 6), x, oben, {
-            font: ctx.fonts.bold,
+          const font = fett ? ctx.fonts.bold : ctx.fonts.regular;
+          drawText(page, kuerzeAufBreite(`${label} ${wert}`, font, 8.5, breite - 6), x, oben, {
+            font,
             size: 8.5,
-            color: ctx.theme.text,
+            color: fett ? ctx.theme.text : ctx.theme.muted,
           });
           continue;
         }
@@ -583,11 +606,17 @@ function zeichneKennzahlen(
           size: 8,
           color: ctx.theme.muted,
         });
-        drawText(page, kuerzeAufBreite(value, ctx.fonts.bold, 8.5, breite - 6), x, oben - 11, {
-          font: ctx.fonts.bold,
-          size: 8.5,
-          color: ctx.theme.text,
-        });
+        drawText(
+          page,
+          kuerzeAufBreite(wert, fett ? ctx.fonts.bold : ctx.fonts.regular, 8.5, breite - 6),
+          x,
+          oben - 11,
+          {
+            font: fett ? ctx.fonts.bold : ctx.fonts.regular,
+            size: 8.5,
+            color: ctx.theme.text,
+          },
+        );
       }
 
       oben -= 26;
@@ -608,14 +637,14 @@ function zeichneKennzahlen(
       ? Math.min(addressTop + 20 * MM, cursorY)
       : Math.min(addressTop + 6, cursorY);
 
-  for (const [label, value] of zeilen) {
+  for (const { feld, label, wert } of zeilen) {
     drawText(page, label, metaX, metaY, {
       font: ctx.fonts.regular,
       size: 8,
       color: ctx.theme.muted,
     });
-    drawRight(page, value, satzRechts(ctx), metaY, {
-      font: ctx.fonts.bold,
+    drawRight(page, wert, satzRechts(ctx), metaY, {
+      font: istFett(feld) ? ctx.fonts.bold : ctx.fonts.regular,
       size: 8.5,
       color: ctx.theme.text,
     });

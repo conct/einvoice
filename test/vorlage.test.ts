@@ -5,11 +5,12 @@ import type { Textseite, Textstueck } from '../src/parse/pdf-text';
 
 const A4_HOEHE = 841.89;
 
-const stueck = (x: number, y: number, text: string): Textstueck => ({
+const stueck = (x: number, y: number, text: string, fett = false): Textstueck => ({
   x,
   y,
   groesse: 9,
   breite: text.length * 4,
+  fett,
   text,
 });
 
@@ -19,6 +20,29 @@ const seiteAus = (zeilen: Textstueck[][]): Textseite => ({
     stuecke,
     text: stuecke.map((s) => s.text).join(' '),
   })),
+});
+
+describe('Auszeichnung', () => {
+  it('uebernimmt, welche Kennzahlen die Vorlage betont', () => {
+    /*
+     * Sie zeichnet nicht alle gleich aus: Nummer und Kundennummer halbfett,
+     * das Datum mager - alle drei in derselben Zeile. Wer das einebnet, setzt
+     * drei gleichrangige Angaben, wo die Vorlage zwei betont.
+     */
+    const vorschlag = schlageVorlageVor(
+      seiteAus([
+        [
+          stueck(181, 539, 'Rechnungs-Nr. 2026/7910', true),
+          stueck(337, 539, 'Kunden-Nr. 2008', true),
+          stueck(456, 539, 'Rechnungsdatum: 12.8.2026'),
+        ],
+      ]),
+      A4_HOEHE,
+    );
+
+    expect([...vorschlag.kennzahlenFett].sort()).toEqual(['kundennummer', 'rechnungsnummer']);
+    expect(vorschlag.kennzahlenFett).not.toContain('rechnungsdatum');
+  });
 });
 
 describe('was die Vorlage nicht braucht', () => {

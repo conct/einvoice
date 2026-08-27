@@ -38,6 +38,8 @@ export interface Textstueck {
   groesse: number;
   /** Wie breit das Stueck gesetzt ist - fuer die Frage, ob dahinter eine Luecke klafft. */
   breite: number;
+  /** Fett gesetzt? Abgelesen am Namen des Schriftschnitts. */
+  fett: boolean;
   text: string;
 }
 
@@ -109,7 +111,23 @@ interface Schrift {
   /** Zwei Bytes je Zeichen - bei Type0-Schriften der Normalfall. */
   breit: boolean;
   karte?: Map<number, string>;
+  /**
+   * Ist es ein fetter Schnitt?
+   *
+   * Abgelesen am Namen der Schrift - "SXOQHJ+National-Semibold" gegen
+   * "National-Light". Das ist kein sicherer Weg, aber der einzige ohne die
+   * Schrift selbst zu oeffnen, und Schnittnamen sind bemerkenswert
+   * einheitlich: Wer eine halbfette Schrift einbettet, nennt sie auch so.
+   *
+   * Gebraucht wird es, um die Auszeichnung einer Vorlage zu uebernehmen: Die
+   * vermessene setzt "Rechnungs-Nr. 2026/7910" halbfett und
+   * "Rechnungsdatum: 12.8.2026" mager - beides in derselben Zeile.
+   */
+  fett: boolean;
 }
+
+/** Schnittnamen, die auf eine fette Schrift deuten. */
+const FETTE_SCHNITTE = /bold|semibold|black|heavy|extrabold|demibold|medium/i;
 
 function lieferSchriften(doc: PDFDocument, seite: number): Map<string, Schrift> {
   const schriften = new Map<string, Schrift>();
@@ -127,8 +145,11 @@ function lieferSchriften(doc: PDFDocument, seite: number): Map<string, Schrift> 
     const roh = dict.lookup(PDFName.of('ToUnicode'));
     const strom = roh instanceof PDFRawStream ? roh : undefined;
 
+    const grundname = dict.lookupMaybe(PDFName.of('BaseFont'), PDFName)?.asString() ?? '';
+
     schriften.set(name.asString().replace(/^\//, ''), {
       breit: subtype === '/Type0',
+      fett: FETTE_SCHNITTE.test(grundname),
       ...(strom ? { karte: leseToUnicode(latin1(decodePDFRawStream(strom).decode())) } : {}),
     });
   }
@@ -449,7 +470,14 @@ export async function liesPdfText(bytes: Uint8Array): Promise<PdfText> {
     const zeige = (roh: number[], breite: number) => {
       const text = entschluessle(roh, schrift);
       if (text.trim()) {
-        stuecke.push({ x: tx, y: ty, groesse: schriftgroesse * (md || 1), breite, text });
+        stuecke.push({
+          x: tx,
+          y: ty,
+          groesse: schriftgroesse * (md || 1),
+          breite,
+          fett: schrift?.fett === true,
+          text,
+        });
       }
     };
 

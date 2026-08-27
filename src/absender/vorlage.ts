@@ -63,6 +63,15 @@ export interface Vorlagenvorschlag {
    */
   kennzahlenInline?: boolean;
   /**
+   * Welche Kennzahlen die Vorlage fett setzt.
+   *
+   * Sie zeichnet nicht alle gleich aus: "Rechnungs-Nr. 2026/7910" und
+   * "Kunden-Nr. 2008" stehen halbfett, "Rechnungsdatum: 12.8.2026" mager -
+   * alle drei in derselben Zeile. Wer das einebnet, setzt drei gleichrangige
+   * Angaben, wo die Vorlage zwei betont.
+   */
+  kennzahlenFett: (keyof Beschriftungen)[];
+  /**
    * Wie die Vorlage Datumsangaben schreibt.
    *
    * "12.8.2026" ohne fuehrende Nullen gegen "12.08.2026". Eine Anzeigefrage;
@@ -153,6 +162,7 @@ export function schlageVorlageVor(seite: Textseite, seitenhoehe: number): Vorlag
   const querzaehler = new Map<number, number>();
   /** Wo die Beschriftung stand - fuer die Reihenfolge der Vorlage. */
   const stellen = new Map<keyof Beschriftungen, number>();
+  const fett = new Set<keyof Beschriftungen>();
   let nebeneinander = 0;
 
   for (const zeile of seite.zeilen) {
@@ -173,6 +183,7 @@ export function schlageVorlageVor(seite: Textseite, seitenhoehe: number): Vorlag
 
         beschriftungen[feld] = wort;
         stellen.set(feld, stueck.x);
+        if (stueck.fett) fett.add(feld);
         // Steht hinter der Beschriftung im selben Stueck noch etwas, setzt die
         // Vorlage Wert und Beschriftung nebeneinander.
         if (KENNZAHLENFELDER.has(feld) && inhalt.slice(wort.length).trim().length > 0) {
@@ -214,6 +225,7 @@ export function schlageVorlageVor(seite: Textseite, seitenhoehe: number): Vorlag
       .filter((feld) => beschriftungen[feld])
       .sort((eins, zwei) => (stellen.get(eins) ?? 0) - (stellen.get(zwei) ?? 0)),
     ...(nebeneinander > 0 ? { kennzahlenInline: true } : {}),
+    kennzahlenFett: [...KENNZAHLENFELDER].filter((feld) => fett.has(feld)),
     ...erkenneDatumsform(seite),
     ...erkenneSteuergrundlage(seite),
     ...(erkenneStellung(querzaehler, seitenhoehe) ?? {}),
