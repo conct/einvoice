@@ -27,8 +27,20 @@ import { describe, expect, it } from 'vitest';
 
 const WURZEL = join(fileURLToPath(new URL('.', import.meta.url)), '..', 'src');
 
-/** Erlaubt sind Zeilenumbruch, Wagenruecklauf und Tabulator. */
-const ERLAUBT = new Set([0x09, 0x0a, 0x0d]);
+/**
+ * Erlaubt sind Zeilenumbruch und Tabulator - der Wagenruecklauf nur am
+ * Zeilenende.
+ *
+ * Dort ist er die erste Haelfte eines CRLF und sonst nichts. Mitten in einer
+ * Zeile ist er derselbe Fehler wie ein Rueckschritt: Genau so ist er beim
+ * Schreiben eines regulaeren Ausdrucks hineingeraten, wo die Zeichenfolge
+ * "\r" stehen sollte. Dieses Mal blieb der Ausdruck unbeendet und der
+ * Uebersetzer meldete es - er kann aber ebenso gut gueltig bleiben und
+ * einfach nie treffen, und dann schweigt alles.
+ *
+ * Vorher stand 0x0d in dieser Menge, und der Test sah genau darueber hinweg.
+ */
+const ERLAUBT = new Set([0x09, 0x0a]);
 
 function alleDateien(ordner: string): string[] {
   return readdirSync(ordner).flatMap((eintrag) => {
@@ -44,7 +56,9 @@ describe('Quelltext', () => {
 
     for (const pfad of alleDateien(WURZEL)) {
       const inhalt = readFileSync(pfad, 'utf8');
-      for (const [nummer, zeile] of inhalt.split('\n').entries()) {
+      for (const [nummer, roh] of inhalt.split('\n').entries()) {
+        // Ein abschliessender Wagenruecklauf ist das Zeilenende, kein Fund.
+        const zeile = roh.endsWith('\r') ? roh.slice(0, -1) : roh;
         const schlimm = [...zeile].filter(
           (zeichen) => zeichen.charCodeAt(0) < 32 && !ERLAUBT.has(zeichen.charCodeAt(0)),
         );

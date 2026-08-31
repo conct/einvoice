@@ -5,6 +5,8 @@ import {
   findeFussgrenze,
   findeGrenze,
   findeStrichstaerken,
+  findeTextfarbe as textfarbeAus,
+  messeRaster,
   type Briefpapier,
   type Pfad,
 } from '../src/parse/pdf-gestaltung';
@@ -130,8 +132,12 @@ describe('findeStrichstaerken', () => {
      * Strich ist die Auszeichnung der Endsumme - wer alle gleich zieht, nimmt
      * ihr die Betonung.
      */
+    /*
+     * Die Farbe kommt mit: Unsere Haarlinie ist ein helles Grau, die Vorlage
+     * zieht voll deckend. Auf ihrem Bogen stand unsere Linie kaum sichtbar.
+     */
     expect(findeStrichstaerken([strich(0.25), strich(0.25), strich(0.25), strich(1)])).toEqual({
-      inhaltStriche: { fein: 0.25, stark: 1 },
+      inhaltStriche: { fein: 0.25, stark: 1, farbe: { r: 0, g: 0, b: 0 } },
     });
   });
 
@@ -206,5 +212,62 @@ describe('alsSvg', () => {
 
     expect(svg).toContain('Plakate &gt; Eltern');
     expect(svg).not.toContain('Plakate > Eltern');
+  });
+});
+
+describe('messeRaster', () => {
+  const zeilen = (...hoehen: number[]) => hoehen.map((y) => ({ y, stuecke: [{}] }));
+
+  it('liest Zeilen- und Blockabstand aus den Grundlinien', () => {
+    /*
+     * Die Hoehen der vermessenen Vorlage. Ihre Abstaende sind 56, 24, 36, 12,
+     * 36, 12, 48, 24, 24 - lauter Vielfache von zwoelf. Zwoelf ist die Zeile
+     * (kleinster mehrfacher Abstand), vierundzwanzig der Block.
+     */
+    expect(
+      messeRaster(zeilen(539, 483, 459, 423, 411, 375, 363, 315, 291, 267), 700, 100),
+    ).toEqual({ zeile: 12, absatz: 24 });
+  });
+
+  it('schweigt, wo kein Raster zu erkennen ist', () => {
+    // Lauter verschiedene Abstaende: 30, 17, 23. Keiner kommt zweimal vor,
+    // also gibt es nichts abzulesen - und dann wird nichts behauptet.
+    expect(messeRaster(zeilen(500, 470, 453, 430), 700, 100)).toEqual({});
+  });
+
+  it('nimmt nur Zeilen zwischen Anschriftenfeld und Fusszeile', () => {
+    /*
+     * Der Briefkopf hat sein eigenes Mass - bei der vermessenen Vorlage
+     * zehneinhalb Punkt. Zaehlte er mit, waere das der kleinste mehrfache
+     * Abstand, und der ganze Rumpf stuende auf dem Raster des Briefkopfes.
+     */
+    const mitKopf = zeilen(812, 801, 790, 500, 488, 476, 50, 39);
+    expect(messeRaster(mitKopf, 600, 100)).toEqual({ zeile: 12 });
+  });
+
+  it('nimmt als Blockabstand nur ein Vielfaches der Zeile', () => {
+    // 12 und 30: 30 ist kein Vielfaches von 12, also kein Raster, sondern
+    // Zufall - darauf soll sich der Satz nicht stuetzen.
+    expect(messeRaster(zeilen(500, 488, 476, 446, 416), 700, 100)).toEqual({ zeile: 12 });
+  });
+});
+
+describe('findeTextfarbe', () => {
+  it('nimmt den dunkelsten Ton, nicht den haeufigsten', () => {
+    /*
+     * Eine Vorlage mit grauem Kleingedrucktem soll ihren Fliesstext nicht
+     * danach richten. Und weisser Text aus einem farbigen Firmenzeichen ist
+     * gar kein Textton, sondern eine Auszeichnung auf farbigem Grund - er
+     * bleibt aussen vor.
+     */
+    const lauf = (r: number, g: number, b: number) =>
+      ({ farbe: { r, g, b } }) as unknown as Parameters<typeof findeStrichstaerken>[0][number];
+    const laeufe = [lauf(1, 1, 1), lauf(0.6, 0.6, 0.6), lauf(0, 0, 0), lauf(0.6, 0.6, 0.6)];
+    expect(textfarbeAus(laeufe as never)).toEqual({ textfarbe: { r: 0, g: 0, b: 0 } });
+  });
+
+  it('schweigt, wo nur helle Toene vorkommen', () => {
+    const lauf = (r: number, g: number, b: number) => ({ farbe: { r, g, b } });
+    expect(textfarbeAus([lauf(1, 1, 1), lauf(0.9, 0.9, 0.9)] as never)).toEqual({});
   });
 });

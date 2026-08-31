@@ -7,6 +7,7 @@ import { computeTotals, lineNetAmount } from '../src/model/totals';
 import { parseInvoiceXml } from '../src/parse/xml';
 import { readEInvoice } from '../src/parse/receive';
 import { renderZugferdPdf } from '../src/pdf/pdfa3';
+import { liesPdfText } from '../src/parse/pdf-text';
 import { validateInvoice } from '../src/model/validate';
 import { parseInvoice } from '../src/model/invoice';
 import { round, sum } from '../src/util/money';
@@ -233,5 +234,100 @@ describe('PDF/A-3 mit eingebettetem XML', () => {
     const received = await readEInvoice(new TextEncoder().encode(xml), 'rechnung.xml');
     expect(received.kind).toBe('xml');
     expect(received.invoice.number).toBe('RE-2026-0042');
+  });
+});
+
+describe('Spalten, die nichts sagen', () => {
+  /*
+   * Menge und Einzelpreis wiederholen bei einer Position von einem Stueck nur
+   * die Zeilensumme - "1 Stk. 65,00 ... 65,00". Und laufen alle Positionen
+   * unter demselben Steuersatz, steht der im Summenblock. Die vermessene
+   * Vorlage setzt aus genau diesen Gruenden keine dieser drei Spalten.
+   */
+  it('laesst Menge, Einzelpreis und Steuersatz weg, wo sie nichts hinzufuegen', async () => {
+    const rechnung = parseInvoice({
+      ...minimalInvoice(),
+      lines: [
+        {
+          id: '1',
+          name: 'Gestaltungsarbeiten',
+          quantity: 1,
+          unitCode: 'C62',
+          unitPrice: 65,
+          vat: { category: 'S', rate: 19 },
+        },
+      ],
+    });
+    const { pdf } = await renderZugferdPdf(rechnung, { assets: await assets(), now: FIXED_NOW });
+    const text = (await liesPdfText(pdf)).text;
+
+    expect(text).not.toContain('Einzelpreis');
+    expect(text).not.toContain('Stk.');
+    // Der Satz bleibt auf dem Blatt - nur eben im Summenblock.
+    expect(text).toContain('19 %');
+    expect(text).toContain('Bezeichnung');
+  });
+
+  it('behaelt sie, sobald sie etwas sagen', async () => {
+    const rechnung = parseInvoice({
+      ...minimalInvoice(),
+      lines: [
+        {
+          id: '1',
+          name: 'Beratung',
+          quantity: 4,
+          unitCode: 'HUR',
+          unitPrice: 95,
+          vat: { category: 'S', rate: 19 },
+        },
+        {
+          id: '2',
+          name: 'Fachbuch',
+          quantity: 1,
+          unitCode: 'C62',
+          unitPrice: 40,
+          vat: { category: 'S', rate: 7 },
+        },
+      ],
+    });
+    const { pdf } = await renderZugferdPdf(rechnung, { assets: await assets(), now: FIXED_NOW });
+    const text = (await liesPdfText(pdf)).text;
+
+    expect(text).toContain('Einzelpreis');
+    expect(text).toContain('Menge');
+    // Bei gemischten Saetzen ist die Spalte die einzige Stelle, an der steht,
+    // welche Position welchem Satz unterliegt.
+    expect(text).toContain('USt.');
+  });
+});
+
+describe('Anschreiben', () => {
+  it('setzt Anrede und Einleitung ueber die Positionen und ins XML', async () => {
+    const rechnung = parseInvoice({
+      ...minimalInvoice(),
+      intro: 'Sehr geehrter Herr Ranacher,\n\nwir bedanken uns für Ihren Auftrag.',
+    });
+    const { pdf, xml } = await renderZugferdPdf(rechnung, {
+      assets: await assets(),
+      now: FIXED_NOW,
+    });
+    const gelesen = await liesPdfText(pdf);
+
+    expect(gelesen.text).toContain('Sehr geehrter Herr Ranacher,');
+    expect(gelesen.text).toContain('wir bedanken uns für Ihren Auftrag.');
+
+    /*
+     * Gedrucktes Blatt und Datensatz sind nach ZUGFeRD gleichrangig. Text,
+     * der nur auf einem von beiden steht, ist eine Abweichung - auch wenn er
+     * nur hoeflich ist.
+     */
+    expect(xml).toContain('Sehr geehrter Herr Ranacher,');
+    expect(xml).toContain('<ram:SubjectCode>AAI</ram:SubjectCode>');
+
+    // Und ueber den Positionen, nicht darunter.
+    const seite = gelesen.seiten[0]!;
+    const hoeheVon = (was: string) =>
+      seite.zeilen.find((zeile) => zeile.text.includes(was))?.y ?? Number.NaN;
+    expect(hoeheVon('Sehr geehrter')).toBeGreaterThan(hoeheVon('Bezeichnung'));
   });
 });

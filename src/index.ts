@@ -213,7 +213,35 @@ export {
   type Beschriftungen,
 } from './pdf/beschriftungen';
 export type { Kennzahlenstellung } from './pdf/layout';
-export { schlageVorlageVor, type Vorlagenvorschlag } from './absender/vorlage';
+export { anschriftenAus } from './absender/anschrift';
+export { schriftbogenAus } from './pdf/schriftbogen';
+export {
+  alsBogendatei,
+  liesBogendatei,
+  bogenmangelText,
+  BOGENDATEI_ART,
+  BOGENDATEI_FASSUNG,
+  type Bogendatei,
+  type Bogenbefund,
+  type Bogenmangel,
+  type Bogenquelle,
+} from './absender/bogendatei';
+export {
+  familienkern,
+  pruefeSchrift,
+  pruefeSchriftpaar,
+  schriftmangelText,
+  MAX_SCHRIFT_BYTES,
+  RECHNUNGSZEICHEN,
+  type Schriftbefund,
+  type Schriftmangel,
+} from './pdf/eigenschrift';
+export {
+  schlageVorlageVor,
+  schalterAusVorschlag,
+  type Vorlagenvorschlag,
+  type Vorlagenschalter,
+} from './absender/vorlage';
 export {
   belegteFlaechen,
   pruefeAlleStellungen,

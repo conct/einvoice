@@ -1,4 +1,20 @@
-import { rgb, type PDFFont, type PDFImage, type PDFPage, type RGB } from 'pdf-lib';
+import {
+  beginText,
+  endText,
+  popGraphicsState,
+  pushGraphicsState,
+  rgb,
+  setFillingColor,
+  setFontAndSize,
+  setTextMatrix,
+  PDFOperator,
+  PDFOperatorNames,
+  type PDFFont,
+  type PDFImage,
+  type PDFPage,
+  type RGB,
+} from 'pdf-lib';
+import { gekernteBreite, zeichneGekernt } from './kerning';
 import type { Invoice, Party } from '../model/invoice';
 import type { InvoiceTotals } from '../model/totals';
 import { formatAmount, formatQuantity } from '../util/money';
@@ -30,6 +46,8 @@ export const DEFAULT_THEME: Theme = {
 export interface LayoutFonts {
   regular: PDFFont;
   bold: PDFFont;
+  /** Ein dritter Schnitt zwischen mager und fett, falls hinterlegt. */
+  kraeftig?: PDFFont;
 }
 
 export interface LayoutContext {
@@ -205,7 +223,12 @@ export interface LayoutContext {
    * Strichstaerken im Summenblock - fein fuer die gewoehnlichen Zeilen, stark
    * unter der Endsumme. Die Vorlage zieht dort 1,00 pt gegen 0,25 pt.
    */
-  striche?: { fein: number; stark: number };
+  striche?: {
+    fein: number;
+    stark: number;
+    abstand?: number;
+    farbe?: { r: number; g: number; b: number };
+  };
   /**
    * Positionsnummern zeigen?
    *
@@ -214,6 +237,99 @@ export interface LayoutContext {
    * nicht nur ihr Inhalt: Eine leere Spalte waere schlechter als keine.
    */
   positionsnummern?: boolean;
+  /**
+   * Breite der ersten Spalte, wenn die Vorlage eine andere vorgibt.
+   *
+   * Bei ihr ist sie leer und dient allein dem Einzug. Sie deshalb zu
+   * streichen war ein Fehler: Dann ruecken die Positionen an den Satzrand,
+   * waehrend Anschreiben und Summenblock stehen bleiben, und nichts fluchtet.
+   */
+  positionsEinzug?: number;
+  /**
+   * Den Namen einer Position auszeichnen?
+   *
+   * Unser Entwurf setzt ihn fett, seine Beschreibung kleiner und grau, seinen
+   * Betrag fett. Die vermessene Vorlage setzt alles gleich und trennt allein
+   * durch eine Leerzeile. Ein Schalter fuer alle drei: Sie sind ein Mittel,
+   * und halb angewandt saehe es nach Versehen aus.
+   */
+  positionsauszeichnung?: boolean;
+  /**
+   * Den Betrag auf die letzte Zeile der Position setzen statt auf die erste.
+   *
+   * So haelt es die vermessene Vorlage. Bei einzeiligen Positionen ist es
+   * dasselbe; bei vierzeiligen steht der Betrag sonst drei Zeilen zu hoch.
+   */
+  betragUnten?: boolean;
+  /**
+   * Menge und Einzelpreis zeigen.
+   *
+   * Aus, wenn beide Spalten nichts sagen: jede Position genau ein Stueck,
+   * und der Einzelpreis deshalb Zeichen fuer Zeichen die Zeilensumme.
+   * "1 Stk. 65,00 ... 65,00" ist keine Angabe, sondern dieselbe dreimal.
+   */
+  mengenspalten?: boolean;
+  /**
+   * Die Steuerspalte zeigen.
+   *
+   * Aus, wenn alle Positionen unter demselben Satz laufen - dann steht er
+   * ohnehin im Summenblock ("zzgl. 19 % MwSt."), und in der Spalte
+   * wiederholte er sich Zeile fuer Zeile. Bei gemischten Saetzen bleibt sie:
+   * Dort ist sie die einzige Stelle, an der steht, welche Position welchem
+   * Satz unterliegt.
+   */
+  steuerspalte?: boolean;
+  /**
+   * Das senkrechte Raster des Rumpfes, wie es die Vorlage haelt.
+   *
+   * Ohne diese drei Angaben stehen Schriftgroesse und Zeilenabstand auf
+   * festen Zahlen - und dann laeuft unser Satz mit jeder Zeile weiter aus der
+   * Flucht der Vorlage. Nachgemessen an der uebernommenen Rechnung: waagerecht
+   * stand alles auf dem Punkt, senkrecht lag die Kennzahlenzeile 9 Punkt
+   * daneben und der Summenblock 55.
+   *
+   * Fehlen sie, bleibt es bei unseren Vorgaben - unveraendert und Zeichen fuer
+   * Zeichen wie bisher.
+   */
+  inhaltGroesse?: number;
+  inhaltZeile?: number;
+  inhaltAbsatz?: number;
+  /**
+   * Zwei senkrechte Anker aus der Vorlage, bereits auf unsere Seite gerechnet.
+   *
+   * `kennzahlenOben` ist die Grundlinie der Kennzahlenzeile, `textOben` die
+   * des Anschreibens. Zwischen beiden liegt bei der vermessenen Vorlage kein
+   * Vielfaches ihres Rasters, sondern schlicht die Stelle, an der ihr
+   * Gestalter den Brief beginnen liess - herleiten laesst sich so etwas
+   * nicht, nur ablesen.
+   *
+   * Alles darunter folgt dem Raster und braucht keinen weiteren Anker.
+   */
+  kennzahlenOben?: number;
+  textOben?: number;
+  /**
+   * Die linken Kanten der Kennzahlenspalten, bereits auf unsere Seite
+   * gerechnet.
+   *
+   * Gleiche Drittel waren zu wenig: Die Vorlage gibt ihrer ersten Spalte 156
+   * Punkt und der zweiten 118, und in 130 passt "Rechnungs-Nr. 2026/7910"
+   * nicht.
+   */
+  kennzahlenSpalten?: Partial<Record<keyof Beschriftungen, number>>;
+  /**
+   * Die Fluchtlinie, an der die Summenbeschriftungen enden.
+   *
+   * Aus der Breite der Betragsspalte abgeleitet lag sie 31 Punkt zu weit
+   * rechts, und die Beschriftungen standen unter den Betraegen der
+   * Positionen statt links daneben.
+   */
+  summenlabelRechts?: number;
+  /**
+   * Die Summenbeschriftungen im kraeftigen Schnitt setzen.
+   *
+   * Nur wirksam, wenn einer hinterlegt ist - sonst bleibt es beim mageren.
+   */
+  summenlabelKraeftig?: boolean;
   /** Datum ohne fuehrende Nullen - "12.8.2026" statt "12.08.2026". */
   datumOhneNullen?: boolean;
   /** Nennt die Steuerzeile ihre Bemessungsgrundlage? */
@@ -235,6 +351,17 @@ const satzRechts = (ctx: LayoutContext): number => ctx.satzspiegel?.rechts ?? PA
  * faellt sie mit dem Satzspiegel zusammen.
  */
 const inhaltLinks = (ctx: LayoutContext): number => ctx.inhaltLinks ?? satzLinks(ctx);
+
+/*
+ * Die Grundmasse des Rumpfes.
+ *
+ * Die Vorgaben sind genau die Zahlen, die vorher fest im Satz standen: neun
+ * Punkt Schrift auf elf Punkt Zeile. Wer keine Vorlage uebernimmt, bekommt
+ * deshalb dasselbe Blatt wie zuvor.
+ */
+const grundgroesse = (ctx: LayoutContext): number => ctx.inhaltGroesse ?? 9;
+const grundzeile = (ctx: LayoutContext): number => ctx.inhaltZeile ?? 11;
+const grundabsatz = (ctx: LayoutContext): number => ctx.inhaltAbsatz ?? grundzeile(ctx);
 
 export type Kennzahlenstellung =
   /** Rechts neben dem Anschriftenfeld, untereinander. Die Vorgabe. */
@@ -331,8 +458,21 @@ const PAGE = {
 } as const;
 
 /** Spaltenraster der Positionstabelle, Anteile der verfuegbaren Breite */
+/**
+ * Wie weit eine Zeile ihre Spalte ueberschreiten darf, ohne verkleinert oder
+ * gekuerzt zu werden.
+ *
+ * Ein Zwanzigstel Punkt - achtzehn Tausendstel Millimeter. Groesser als die
+ * Rundung, mit der wir gemessene Spaltenkanten in die Briefbogendatei
+ * schreiben, und kleiner als alles, was ein Drucker aufloest.
+ */
+const PASSUNGSSPIEL = 0.05;
+
+/** Breite der Nummernspalte, wenn die Vorlage keine eigene vorgibt. */
+const POS_BREITE = 26;
+
 const COLUMNS = [
-  { key: 'pos', beschriftung: 'pos' as const, width: 26, align: 'left' as const },
+  { key: 'pos', beschriftung: 'pos' as const, width: POS_BREITE, align: 'left' as const },
   { key: 'name', beschriftung: 'bezeichnung' as const, width: 0, align: 'left' as const },
   { key: 'qty', beschriftung: 'menge' as const, width: 58, align: 'right' as const },
   { key: 'price', beschriftung: 'einzelpreis' as const, width: 72, align: 'right' as const },
@@ -401,6 +541,17 @@ export function drawInvoice(
   if (!context.eigenerBriefbogen) drawLetterhead(cursor, invoice, context);
   drawAddressAndMeta(cursor, invoice, context);
   drawTitle(cursor, invoice, context);
+  /*
+   * Wo die Vorlage ihren Brief beginnen laesst.
+   *
+   * Nur nach unten: Waere der Anker hoeher als der Stand nach Anschrift und
+   * Kennzahlen, schriebe der Brief in eines von beiden hinein. Ein
+   * uebernommenes Mass darf den Satz ausrichten, nicht ueberfahren.
+   */
+  if (context.textOben !== undefined && context.textOben < cursor.y) {
+    cursor.y = context.textOben;
+  }
+  drawIntro(cursor, invoice, context, ensure);
   drawLineTable(cursor, invoice, totals, context, ensure, nextPage);
   drawTotals(cursor, invoice, totals, context, ensure);
   drawVatBreakdown(cursor, invoice, totals, context, ensure);
@@ -484,6 +635,13 @@ function drawAddressAndMeta(cursor: Cursor, invoice: Invoice, ctx: LayoutContext
     });
   }
 
+  /*
+   * Das Anschriftenfeld folgt dem Raster der Vorlage, wenn es eines gibt.
+   * Unsere 12,5 Punkt sind ein Viertelpunkt zu viel je Zeile - ueber vier
+   * Zeilen sind das zweieinhalb, und die vierte stand sichtbar daneben. Die
+   * Groesse bleibt bei zehn: Sie ist eine Frage der Lesbarkeit im
+   * Umschlagfenster, nicht des Geschmacks.
+   */
   let y = addressTop;
   for (const line of addressLines(invoice.buyer)) {
     drawText(page, line, satzLinks(ctx), y, {
@@ -491,7 +649,7 @@ function drawAddressAndMeta(cursor: Cursor, invoice: Invoice, ctx: LayoutContext
       size: 10,
       color: ctx.theme.text,
     });
-    y -= 12.5;
+    y -= ctx.inhaltZeile ?? 12.5;
   }
 
   // Kennzahlenblock rechts neben dem Anschriftenfeld
@@ -580,7 +738,9 @@ function zeichneKennzahlen(
      * Eine Rechnungsnummer, die nicht vollstaendig auf der Rechnung steht, ist
      * schlimmer als eine zweite Zeile.
      */
-    let oben = addressTop - 45 * MM;
+    // Wo die Vorlage ihren Block hat, sonst 45 Millimeter unter dem
+    // Anschriftenfeld - unser Mass, seit es kein anderes gab.
+    let oben = ctx.kennzahlenOben ?? addressTop - 45 * MM;
 
     for (let anfang = 0; anfang < zeilen.length; anfang += QUERSPALTEN) {
       const reihe = zeilen.slice(anfang, anfang + QUERSPALTEN);
@@ -592,10 +752,48 @@ function zeichneKennzahlen(
        * Bei mehr als vier greift der Umbruch, dann sind es wieder vier.
        */
       const spalten = Math.min(QUERSPALTEN, zeilen.length);
-      const breite = (satzRechts(ctx) - inhaltLinks(ctx)) / spalten;
+      const gleichmass = (satzRechts(ctx) - inhaltLinks(ctx)) / spalten;
+
+      /*
+       * Die Kanten der Vorlage, soweit sie fuer **alle** Angaben dieser Reihe
+       * vorliegen. Teilweise zu uebernehmen waere das Schlechteste von beidem:
+       * ein paar Spalten an ihrer Stelle, die uebrigen im Gleichmass, und
+       * dazwischen Ueberschneidungen.
+       */
+      const kanten = reihe.map(({ feld }) => ctx.kennzahlenSpalten?.[feld]);
+      const ausVorlage = kanten.every((kante): kante is number => kante !== undefined)
+        ? (kanten as number[])
+        : undefined;
+
+      const kante = (nummer: number) =>
+        ausVorlage ? ausVorlage[nummer]! : inhaltLinks(ctx) + nummer * gleichmass;
+      const platzFuer = (nummer: number) => {
+        const x = kante(nummer);
+        const bis = ausVorlage ? (ausVorlage[nummer + 1] ?? satzRechts(ctx)) : x + gleichmass;
+        // Die letzte Spalte darf bis an den Satzrand - rechts von ihr steht
+        // nichts, das ihr im Weg waere.
+        return bis - x - (nummer === reihe.length - 1 ? 0 : 6);
+      };
+
+      /*
+       * **Eine** Groesse fuer die ganze Reihe, naemlich die kleinste, die
+       * ueberall reicht.
+       *
+       * Je Feld einzeln angepasst stand "Rechnungs-Nr." in zehn Punkt neben
+       * einem "Rechnungsdatum:" in 8,6 - drei gleichrangige Angaben in drei
+       * Groessen. Das sieht nicht nach Anpassung aus, sondern nach Versehen.
+       */
+      const reihengroesse = reihe.reduce((klein, { feld, label, wert }, nummer) => {
+        const schrift = istFett(feld) ? ctx.fonts.bold : ctx.fonts.regular;
+        return Math.min(
+          klein,
+          passeGroesseEin(`${label} ${wert}`, schrift, klein, platzFuer(nummer)),
+        );
+      }, ctx.inhaltGroesse ?? 8.5);
 
       for (const [nummer, { feld, label, wert }] of reihe.entries()) {
-        const x = inhaltLinks(ctx) + nummer * breite;
+        const x = kante(nummer);
+        const breite = platzFuer(nummer);
         const fett = istFett(feld);
 
         if (ctx.kennzahlenInline) {
@@ -606,22 +804,31 @@ function zeichneKennzahlen(
            * Angaben.
            */
           const font = fett ? ctx.fonts.bold : ctx.fonts.regular;
-          drawText(page, kuerzeAufBreite(`${label} ${wert}`, font, 8.5, breite - 6), x, oben, {
+          // Auf der Grundgroesse der Vorlage - sie setzt ihre Kennzahlen so
+          // gross wie ihren Fliesstext, nicht kleiner.
+          const inhalt = `${label} ${wert}`;
+          drawText(page, kuerzeAufBreite(inhalt, font, reihengroesse, breite), x, oben, {
             font,
-            size: 8.5,
-            color: fett ? ctx.theme.text : ctx.theme.muted,
+            size: reihengroesse,
+            /*
+             * Schwarz auch ohne Auszeichnung, wenn die Vorlage schlicht ist -
+             * aus demselben Grund wie im Summenblock: Sie setzt "Rechnungs-
+             * datum: 12.8.2026" mager, aber in reinem Schwarz. Grau daneben
+             * las sich, als sei das Datum eine Nebenangabe.
+             */
+            color: fett || ctx.schlichteTabelle ? ctx.theme.text : ctx.theme.muted,
           });
           continue;
         }
 
-        drawText(page, kuerzeAufBreite(label, ctx.fonts.regular, 8, breite - 6), x, oben, {
+        drawText(page, kuerzeAufBreite(label, ctx.fonts.regular, 8, breite), x, oben, {
           font: ctx.fonts.regular,
           size: 8,
           color: ctx.theme.muted,
         });
         drawText(
           page,
-          kuerzeAufBreite(wert, fett ? ctx.fonts.bold : ctx.fonts.regular, 8.5, breite - 6),
+          kuerzeAufBreite(wert, fett ? ctx.fonts.bold : ctx.fonts.regular, 8.5, breite),
           x,
           oben - 11,
           {
@@ -673,7 +880,9 @@ function drawTitle(cursor: Cursor, invoice: Invoice, ctx: LayoutContext): void {
   // 380 ist die gewoehnliche Rechnung. Bei allem anderen bleibt die
   // Bezeichnung stehen, auch wenn die Vorlage keine setzt.
   if (ctx.ohneTitel === true && invoice.typeCode === '380') {
-    cursor.y -= 6;
+    // Steht das Raster der Vorlage fest, misst es die Abstaende - dann gibt es
+    // hier nichts zuzugeben, sonst zaehlte derselbe Zwischenraum zweimal.
+    if (ctx.inhaltZeile === undefined) cursor.y -= 6;
     return;
   }
 
@@ -699,6 +908,58 @@ function drawTitle(cursor: Cursor, invoice: Invoice, ctx: LayoutContext): void {
   cursor.y -= 10;
 }
 
+/**
+ * Anrede und Anschreiben ueber den Positionen.
+ *
+ * Gesetzt wie Fliesstext, nicht wie eine Bemerkung: in der Groesse des
+ * uebrigen Textes und in seiner Farbe. Die vermessene Vorlage setzt hier
+ * dieselbe Schrift wie in ihrer Fusszeile und im Positionsblock - es ist der
+ * Brief, in den die Rechnung eingelegt ist, und kein Kleingedrucktes.
+ *
+ * Leerzeilen der Eingabe bleiben Leerzeilen. Die Vorlage trennt Anrede und
+ * Anschreiben genau so, und wer den Abstand anders will, schreibt es anders.
+ */
+function drawIntro(
+  cursor: Cursor,
+  invoice: Invoice,
+  ctx: LayoutContext,
+  ensure: (needed: number) => void,
+): void {
+  if (!invoice.intro) return;
+
+  const breite = satzRechts(ctx) - inhaltLinks(ctx);
+  const groesse = grundgroesse(ctx);
+  const hoehe = grundzeile(ctx);
+  // Gesetzte Umbrueche bleiben Umbrueche - darum kuemmert sich `wrapText`.
+  const zeilen = wrapText(invoice.intro, ctx.fonts.regular, groesse, breite);
+
+  // Vollstaendig messen, bevor Platz verlangt wird: Eine Schaetzung war hier
+  // schon zweimal daneben, einmal zu klein und einmal zu gross.
+  ensure(zeilen.length * hoehe + grundabsatz(ctx));
+
+  for (const zeile of zeilen) {
+    if (zeile.length > 0) {
+      drawText(cursor.page, zeile, inhaltLinks(ctx), cursor.y, {
+        font: ctx.fonts.regular,
+        size: groesse,
+        color: ctx.theme.text,
+      });
+    }
+    cursor.y -= hoehe;
+  }
+  /*
+   * Nach dem letzten Zeilenvorschub fehlt zum Blockabstand nur noch der Rest.
+   * Ihn ganz zu addieren risse eine Zeile zu viel auf - die Vorlage setzt
+   * zwischen Anschreiben und erster Position genau einen Blockabstand.
+   */
+  /*
+   * Bis zur ersten Position ein Blockabstand plus eine Zeile - das Mass, mit
+   * dem die Vorlage auch Positionsnamen und Beschreibung trennt. Die
+   * Schleife hat den letzten Vorschub schon gezogen, es fehlt der Rest.
+   */
+  cursor.y -= grundabsatz(ctx);
+}
+
 function columnLayout(
   wort: Beschriftungen,
   ctx: LayoutContext,
@@ -709,11 +970,40 @@ function columnLayout(
   width: number;
   align: 'left' | 'right';
 }> {
-  // Ohne Nummerierung faellt die Spalte weg, nicht nur ihr Inhalt - eine
-  // leere Spalte waere schlechter als keine.
-  const spalten = COLUMNS.filter(
-    (column) => ctx.positionsnummern !== false || column.key !== 'pos',
-  );
+  /*
+   * Die erste Spalte bleibt stehen, auch wenn nichts darin steht.
+   *
+   * Sie haelt den Einzug, und der gehoert zum Raster der Vorlage, nicht zu
+   * ihrem Inhalt: Auf der vermessenen Vorlage liegt der Fliesstext bei 181,4
+   * und die Positionen bei 215,4, ohne dass zwischen beiden je etwas
+   * gedruckt wuerde. Wer die Spalte streicht, weil sie leer aussieht,
+   * schiebt die Positionen unter das Anschreiben und aus der Flucht.
+   *
+   * Weg faellt sie nur, wenn die Vorlage gar keinen Einzug hat - dann ist
+   * die Nullbreite gemeint und nicht die Sammelspalte, fuer die COLUMNS die
+   * Null sonst reserviert.
+   */
+  /*
+   * Der gemessene Einzug ist der Abstand bis zum **Text**, die Spaltenbreite
+   * der bis zur Zellenkante. Ohne den Abzug landete die Bezeichnung um die
+   * Zellenluft zu weit rechts - und zwar auf jedem Blatt gleich falsch.
+   */
+  const einzug =
+    ctx.positionsEinzug !== undefined
+      ? Math.max(0, ctx.positionsEinzug - ZELLENLUFT)
+      : ctx.positionsnummern === false
+        ? 0
+        : POS_BREITE;
+
+  const stumm = new Set<string>();
+  if (ctx.mengenspalten === false) stumm.add('qty').add('price');
+  if (ctx.steuerspalte === false) stumm.add('vat');
+
+  const spalten = COLUMNS.flatMap((column) => {
+    if (stumm.has(column.key)) return [];
+    if (column.key !== 'pos') return [column];
+    return einzug > 0 ? [{ ...column, width: einzug }] : [];
+  });
   const fixed = spalten.reduce((acc, column) => acc + column.width, 0);
   const vorhanden = satzRechts(ctx) - inhaltLinks(ctx);
 
@@ -747,7 +1037,7 @@ function drawTableHead(cursor: Cursor, ctx: LayoutContext): void {
   // Ohne Kopfzeile bleibt nur der Abstand - die Vorlage trennt ihre
   // Positionen vom Vortext allein dadurch.
   if (ctx.tabellenkopf === false) {
-    cursor.y -= 6;
+    if (ctx.inhaltZeile === undefined) cursor.y -= 6;
     return;
   }
 
@@ -774,6 +1064,8 @@ function drawTableHead(cursor: Cursor, ctx: LayoutContext): void {
   }
 
   for (const column of columns) {
+    // Ueber der leeren Einzugsspalte steht auch kein Wort.
+    if (column.key === 'pos' && ctx.positionsnummern === false) continue;
     const options = {
       font: ctx.fonts.bold,
       size: 8,
@@ -800,11 +1092,32 @@ function drawLineTable(
   const nameColumn = columns.find((c) => c.key === 'name');
   drawTableHead(cursor, ctx);
 
+  /*
+   * Zeichnet die Vorlage ihre Positionen aus?
+   *
+   * Wenn nicht, faellt alles drei zugleich weg: der fette Name, die kleinere
+   * graue Beschreibung, der fette Betrag. Die vermessene Vorlage setzt Name
+   * und Beschreibung in derselben Schrift, Groesse und Farbe und trennt sie
+   * durch eine Leerzeile - drei gleichrangige Zeilen, kein Titel mit Beiwerk.
+   */
+  const auszeichnung = ctx.positionsauszeichnung !== false;
+  const nameSchrift = auszeichnung ? ctx.fonts.bold : ctx.fonts.regular;
+  /*
+   * Die Beschreibung steht unter einem ausgezeichneten Namen einen Punkt
+   * kleiner und anderthalb enger - so war es immer. Ohne Auszeichnung steht
+   * sie auf demselben Mass wie der Name: Die Vorlage setzt beides gleich.
+   */
+  const nameGroesse = grundgroesse(ctx);
+  const nameHoehe = grundzeile(ctx);
+  const zusatzGroesse = auszeichnung ? nameGroesse - 1 : nameGroesse;
+  const zusatzHoehe = auszeichnung ? nameHoehe - 1.5 : nameHoehe;
+  const zusatzFarbe = auszeichnung ? ctx.theme.muted : ctx.theme.text;
+
   invoice.lines.forEach((line, index) => {
     const nameWidth = (nameColumn?.width ?? 200) - 8;
-    const nameLines = wrapText(line.name, ctx.fonts.bold, 9, nameWidth);
+    const nameLines = wrapText(line.name, nameSchrift, nameGroesse, nameWidth);
     const descriptionLines = line.description
-      ? wrapText(line.description, ctx.fonts.regular, 8, nameWidth)
+      ? wrapText(line.description, ctx.fonts.regular, zusatzGroesse, nameWidth)
       : [];
     const periodText =
       line.periodStart && line.periodEnd
@@ -823,7 +1136,26 @@ function drawLineTable(
      * gerenderten Bild sah es aus, als stiessen die Zellen an ihren Rahmen -
      * weil sie das taten.
      */
-    const rowHeight = ZEILE_OBEN + nameLines.length * 11 + extraLines.length * 9.5 + ZEILE_UNTEN;
+    // Ohne Auszeichnung trennt eine Leerzeile den Namen von der Beschreibung -
+    // sonst stuenden vier gleich gesetzte Zeilen ohne Gliederung untereinander.
+    /*
+     * Ohne Auszeichnung trennt Weissraum den Namen von der Beschreibung -
+     * sonst stuenden gleich gesetzte Zeilen ohne Gliederung untereinander.
+     * Das Mass ist der Blockabstand der Vorlage; sie haelt hier zwoelf Punkt
+     * Zeile und vierundzwanzig zwischen den Bloecken.
+     */
+    const trennluft = auszeichnung || extraLines.length === 0 ? 0 : grundabsatz(ctx);
+    const inhaltHoehe =
+      nameLines.length * nameHoehe + trennluft + extraLines.length * zusatzHoehe;
+    /*
+     * Im schlichten Stil gibt es kein Band, das gepolstert werden muesste -
+     * dort trennt der Blockabstand der Vorlage eine Position von der
+     * naechsten. Mit Band bleiben es die alten Polster oben und unten.
+     */
+    const rowHeight =
+      ctx.inhaltAbsatz !== undefined && ctx.schlichteTabelle === true
+        ? inhaltHoehe + grundabsatz(ctx) - grundzeile(ctx)
+        : ZEILE_OBEN + inhaltHoehe + ZEILE_UNTEN;
 
     ensure(rowHeight + 4);
     if (cursor.y === PAGE.top) drawTableHead(cursor, ctx);
@@ -839,7 +1171,24 @@ function drawLineTable(
     }
 
     const baseY = cursor.y;
-    const cell = (key: string, text: string, bold = false, size = 9) => {
+    /*
+     * Auf welcher Grundlinie die Zahlenspalten stehen.
+     *
+     * Mit `betragUnten` auf der letzten Zeile des Blocks - dort, wo die
+     * Vorlage ihren Betrag hat. Aber nur, solange es beim Betrag bleibt:
+     * Gemessen wurde das an einer Vorlage **ohne** Mengenspalten, und dass
+     * sie eine Menge ebenfalls nach unten setzen wuerde, sagt sie nirgends.
+     * Menge und Einzelpreis gehoeren neben den Namen der Position, nicht
+     * neben ihre Beschreibung - und eine Zeile aufzuteilen, halbe Zahlen
+     * oben und halbe unten, waere das Schlechteste von beidem.
+     *
+     * Also: nach unten nur, wenn der Betrag allein steht.
+     */
+    const untenSetzen = ctx.betragUnten === true && ctx.mengenspalten === false;
+    const zahlenY = untenSetzen
+      ? baseY - (nameLines.length - 1) * nameHoehe - trennluft - extraLines.length * zusatzHoehe
+      : baseY;
+    const cell = (key: string, text: string, bold = false, size = nameGroesse) => {
       const column = columns.find((c) => c.key === key);
       if (!column) return;
       const options = {
@@ -848,37 +1197,57 @@ function drawLineTable(
         color: ctx.theme.text,
       };
       if (column.align === 'right') {
-        drawRight(cursor.page, text, column.x + column.width - ZELLENLUFT, baseY, options);
+        /*
+         * Der Betrag der letzten Spalte flieht mit denen des Summenblocks -
+         * die Vorlage setzt beide auf dieselbe Kante. Die Zellenluft davor
+         * schob ihn sechs Punkt nach links, und die Zahlenreihe knickte.
+         */
+        const kante =
+          column.key === 'total' && ctx.schlichteTabelle === true
+            ? satzRechts(ctx)
+            : column.x + column.width - ZELLENLUFT;
+        drawRight(cursor.page, text, kante, zahlenY, options);
       } else {
-        drawText(cursor.page, text, column.x + ZELLENLUFT, baseY, options);
+        drawText(cursor.page, text, column.x + ZELLENLUFT, zahlenY, options);
       }
     };
 
-    cell('pos', line.id);
+    if (ctx.positionsnummern !== false) cell('pos', line.id);
     cell('qty', `${formatQuantity(line.quantity)} ${unitLabel(line.unitCode)}`);
     cell('price', formatAmount(line.unitPrice, undefined, line.unitPrice % 1 === 0 ? 2 : 2));
     cell(
       'vat',
       line.vat.category === 'S' ? `${formatQuantity(line.vat.rate)} %` : line.vat.category,
     );
-    cell('total', formatAmount(totals.lineAmounts[index] ?? 0), true);
+    /*
+     * Das Waehrungswort auch an der Position, aber nur, wenn es aus der
+     * Vorlage stammt: Sie schreibt "65,00 Euro" in der Positionszeile ebenso
+     * wie im Summenblock. Ohne Vorlage bliebe es bei "EUR", und das Zeile fuer
+     * Zeile zu wiederholen waere Laerm, den unser eigener Entwurf nicht hat.
+     */
+    cell(
+      'total',
+      formatAmount(totals.lineAmounts[index] ?? 0, ctx.waehrungswort),
+      auszeichnung,
+    );
 
     let textY = baseY;
     for (const text of nameLines) {
       drawText(cursor.page, text, (nameColumn?.x ?? inhaltLinks(ctx)) + ZELLENLUFT, textY, {
-        font: ctx.fonts.bold,
-        size: 9,
+        font: nameSchrift,
+        size: nameGroesse,
         color: ctx.theme.text,
       });
-      textY -= 11;
+      textY -= nameHoehe;
     }
+    textY -= trennluft;
     for (const text of extraLines) {
       drawText(cursor.page, text, (nameColumn?.x ?? inhaltLinks(ctx)) + ZELLENLUFT, textY, {
         font: ctx.fonts.regular,
-        size: 8,
-        color: ctx.theme.muted,
+        size: zusatzGroesse,
+        color: zusatzFarbe,
       });
-      textY -= 9.5;
+      textY -= zusatzHoehe;
     }
 
     cursor.y -= rowHeight;
@@ -898,7 +1267,17 @@ function drawLineTable(
     }
   });
 
-  cursor.y -= 10;
+  /*
+   * Abstand zum Summenblock. Mit Raster das Mass der Vorlage: Sie laesst
+   * zwischen der letzten Positionszeile und "Gesamtbetrag netto" zwei
+   * Blockabstaende - die groesste Luecke ihres Rumpfes, und genau deshalb
+   * liest sich der Summenblock als eigener Teil.
+   *
+   * `rowHeight` endet eine Zeile unter der letzten Grundlinie; hier fehlt der
+   * Rest bis zum vollen Mass.
+   */
+  cursor.y -=
+    ctx.inhaltAbsatz !== undefined && ctx.schlichteTabelle === true ? grundabsatz(ctx) : 10;
 }
 
 function drawTotals(
@@ -960,11 +1339,16 @@ function drawTotals(
    * der Block mehr Platzbedarf an, als er hat, und rutscht geschlossen auf
    * die naechste Seite, waehrend die erste halb leer bleibt.
    */
+  /*
+   * Im schlichten Stil folgt der Block dem Raster der Vorlage: Sie setzt alle
+   * drei Summenzeilen im selben Abstand, naemlich ihrem Blockabstand von
+   * vierundzwanzig Punkt. Die betonte Zeile bekommt dort keine Extrahoehe -
+   * ausgezeichnet wird sie durch Schnitt und Strich, nicht durch Luft.
+   */
   const zeilenhoehe = (emphasised: boolean) =>
     ctx.schlichteTabelle
-      ? emphasised
-        ? SUMMENZEILE_SCHLICHT_STARK
-        : SUMMENZEILE_SCHLICHT
+      ? (ctx.inhaltAbsatz ??
+        (emphasised ? SUMMENZEILE_SCHLICHT_STARK : SUMMENZEILE_SCHLICHT))
       : emphasised
         ? 16
         : 13;
@@ -1014,18 +1398,42 @@ function drawTotals(
    * der Block auf die naechste Seite, obwohl er gepasst haette.
    */
   const gesetzt = rows.map(([label, value, emphasised]) => {
+    /*
+     * Die gewoehnlichen Summenbeschriftungen im kraeftigen Schnitt, wenn die
+     * Vorlage einen benutzt und er hinterlegt ist. Die Endsumme bleibt fett -
+     * sie ist die Auszeichnung, nicht die Zwischenstufe.
+     */
+    /*
+     * Der kraeftige Schnitt gilt der **Beschriftung**, nicht dem Betrag.
+     *
+     * Nachgemessen an der Vorlage: "Gesamtbetrag netto" steht in National
+     * Book, die 65,00 Euro daneben in National Light. Erst bei der Endsumme
+     * gehen beide zusammen ins Halbfette. Beides kraeftig zu setzen war die
+     * Ueberkorrektur zur vorigen Fassung, in der beides mager stand.
+     */
     const font = emphasised ? ctx.fonts.bold : ctx.fonts.regular;
-    const size = emphasised ? 10 : 8.5;
-    const rechteKante = schlicht ? betragslinks - 10 : satzRechts(ctx);
+    const labelfont = emphasised
+      ? ctx.fonts.bold
+      : ((ctx.summenlabelKraeftig ? ctx.fonts.kraeftig : undefined) ?? ctx.fonts.regular);
+    /*
+     * Mit Vorlage steht der ganze Block auf ihrer Grundgroesse: Sie setzt
+     * "Gesamtbetrag netto" und "Ueberweisungsbetrag" gleich gross und
+     * unterscheidet sie am Schnitt. Ohne Vorlage bleibt es bei 8,5 und 10.
+     */
+    const size = ctx.inhaltGroesse ?? (emphasised ? 10 : 8.5);
+    const rechteKante = schlicht
+      ? (ctx.summenlabelRechts ?? betragslinks - 10)
+      : satzRechts(ctx);
     const platz = schlicht
       ? rechteKante - boxLeft
-      : satzRechts(ctx) - font.widthOfTextAtSize(value, size) - 8 - boxLeft;
-    const zeilen = wrapText(label, font, size, Math.max(40, platz));
+      : satzRechts(ctx) - gekernteBreite(font, value, size) - 8 - boxLeft;
+    const zeilen = wrapText(label, labelfont, size, Math.max(40, platz));
 
     return {
       value,
       emphasised,
       font,
+      labelfont,
       size,
       rechteKante,
       zeilen,
@@ -1039,15 +1447,21 @@ function drawTotals(
   const stark = ctx.striche?.stark ?? 0.8;
 
   if (schlicht) {
+    /*
+     * Wie hoch der Trennstrich ueber der ersten Summenzeile sitzt. Die
+     * vermessene Vorlage haelt 15,5 Punkt; unsere festen 13 legten ihn
+     * zweieinhalb Punkte zu tief.
+     */
+    const strichhoehe = ctx.striche?.abstand ?? 13;
     cursor.page.drawLine({
-      start: { x: boxLeft, y: cursor.y + 13 },
-      end: { x: satzRechts(ctx), y: cursor.y + 13 },
+      start: { x: boxLeft, y: cursor.y + strichhoehe },
+      end: { x: satzRechts(ctx), y: cursor.y + strichhoehe },
       thickness: fein,
       color: ctx.theme.hairline,
     });
   }
 
-  for (const { value, emphasised, font, size, rechteKante, zeilen, hoehe } of gesetzt) {
+  for (const { value, emphasised, font, labelfont, size, rechteKante, zeilen, hoehe } of gesetzt) {
     if (emphasised && !schlicht) {
       cursor.page.drawLine({
         start: { x: boxLeft, y: cursor.y + 11 },
@@ -1062,13 +1476,24 @@ function drawTotals(
      * Pflichtangabe - BT-97 fuer den Abschlag, BT-104 fuer den Zuschlag. Ihn
      * mit drei Punkten abzuschneiden ist Inhaltsverlust, nicht Gestaltung.
      */
-    const farbe = emphasised ? ctx.theme.text : ctx.theme.muted;
+    /*
+     * Im schlichten Stil stehen auch die gewoehnlichen Beschriftungen
+     * schwarz.
+     *
+     * Nachgemessen an der Vorlage: "Gesamtbetrag netto" und "zzgl. 19 % MwSt."
+     * sind dort in reinem Schwarz gesetzt, nur einen Schnitt magerer als die
+     * Endsumme. Eine Vorlage, die im ganzen Inhalt keine Flaeche fuellt,
+     * staffelt auch nicht ueber Grauwerte - sie staffelt ueber den Schnitt.
+     * Grau gesetzt sah der Block aus, als waere die Zwischensumme
+     * nachrangig.
+     */
+    const farbe = emphasised || schlicht ? ctx.theme.text : ctx.theme.muted;
     for (const [nummer, teil] of zeilen.entries()) {
       const y = cursor.y - nummer * (size + 2);
       if (schlicht) {
-        drawRight(cursor.page, teil, rechteKante, y, { font, size, color: farbe });
+        drawRight(cursor.page, teil, rechteKante, y, { font: labelfont, size, color: farbe });
       } else {
-        drawText(cursor.page, teil, boxLeft, y, { font, size, color: farbe });
+        drawText(cursor.page, teil, boxLeft, y, { font: labelfont, size, color: farbe });
       }
     }
 
@@ -1077,10 +1502,21 @@ function drawTotals(
     if (schlicht) {
       // Unter der Endsumme dicker - das ist die Auszeichnung, mit der die
       // Vorlage sie vom Rest abhebt.
+      /*
+       * An der **Unterkante** ausgerichtet, nicht an der Mitte.
+       *
+       * Nachgemessen: Die duennen Striche der Vorlage liegen 11,9 Punkt unter
+       * ihrer Grundlinie, der dicke 11,4 - genau der halbe Unterschied ihrer
+       * Staerken. Der Gestalter setzt sie also auf eine gemeinsame Unterkante
+       * und laesst sie nach oben wachsen. Auf die Mitte gelegt sass unser
+       * dicker Strich einen halben Punkt zu tief.
+       */
+      const staerke = emphasised ? stark : fein;
+      const strichY = cursor.y - hoehe + 12 + staerke / 2;
       cursor.page.drawLine({
-        start: { x: betragslinks, y: cursor.y - hoehe + 12 },
-        end: { x: satzRechts(ctx), y: cursor.y - hoehe + 12 },
-        thickness: emphasised ? stark : fein,
+        start: { x: betragslinks, y: strichY },
+        end: { x: satzRechts(ctx), y: strichY },
+        thickness: staerke,
         color: emphasised ? ctx.theme.text : ctx.theme.hairline,
       });
     }
@@ -1215,14 +1651,27 @@ function drawContinuationHeader(cursor: Cursor, invoice: Invoice, ctx: LayoutCon
   // Mit Briefbogen liegt sie tiefer, sonst schreibt die Fortsetzungszeile in
   // den Briefkopf.
   const oben = cursor.y;
+  /*
+   * An der Inhaltskante, nicht am Satzrand.
+   *
+   * Ruckt die Vorlage ihren Inhalt ein - die vermessene um 105 Punkt -, stand
+   * die Fortsetzungszeile allein weiter links als alles, was unter ihr folgt.
+   * Auf Seite eins faellt so etwas nicht auf, weil es dort keine gibt.
+   */
   drawText(
     cursor.page,
     `${documentLabel(invoice.typeCode)} ${invoice.number} - Fortsetzung`,
-    satzLinks(ctx),
+    inhaltLinks(ctx),
     oben - 6,
-    { font: ctx.fonts.bold, size: 9, color: ctx.theme.muted },
+    {
+      font: ctx.fonts.bold,
+      size: grundgroesse(ctx),
+      // Schwarz, wo die Vorlage nicht ueber Grauwerte staffelt.
+      color: ctx.schlichteTabelle ? ctx.theme.text : ctx.theme.muted,
+    },
   );
-  cursor.y = oben - 30;
+  // Danach ein Blockabstand, wie ihn die Vorlage zwischen Bloecken haelt.
+  cursor.y = oben - 6 - (ctx.inhaltAbsatz !== undefined ? grundabsatz(ctx) : 24);
 }
 
 function drawFooter(
@@ -1297,7 +1746,29 @@ interface TextOptions {
   color: RGB;
 }
 
+/**
+ * Setzt Text - mit Unterschneidung, wo die Schrift welche vorsieht.
+ *
+ * pdf-lib zeichnet ein einziges `Tj` und ueberlaesst die Vorschuebe der
+ * `/Widths`-Tabelle; die kennt keine Unterschneidung. Nach einem T, V oder A
+ * klafft dann eine Luecke, die dort nicht hingehoert. Gemessen an einer
+ * gestalteten Fremdrechnung in derselben Schrift: eine Zeile lief um gut einen
+ * Punkt zu breit.
+ *
+ * Bringt die Schrift keine Unterschneidungspaare mit, bleibt es beim
+ * gewoehnlichen Weg - dann waere ein `TJ`-Feld nur groesser, nicht besser.
+ */
 function drawText(page: PDFPage, text: string, x: number, y: number, options: TextOptions): void {
+  /*
+   * Mit Unterschneidung, wo die Schrift welche vorsieht.
+   *
+   * pdf-lib zeichnet ein `Tj` und ueberlaesst die Vorschuebe der
+   * /Widths-Tabelle; die kennt keine Unterschneidung. Nach einem T, V oder A
+   * klafft dann eine Luecke, die dort nicht hingehoert. Gemessen an einer
+   * gestalteten Fremdrechnung in derselben Schrift lief eine Zeile um gut
+   * einen Punkt zu breit.
+   */
+  if (zeichneGekernt(page, text, x, y, options.font, options.size, options.color)) return;
   page.drawText(text, { x, y, font: options.font, size: options.size, color: options.color });
 }
 
@@ -1308,14 +1779,10 @@ function drawRight(
   y: number,
   options: TextOptions,
 ): void {
-  const width = options.font.widthOfTextAtSize(text, options.size);
-  page.drawText(text, {
-    x: right - width,
-    y,
-    font: options.font,
-    size: options.size,
-    color: options.color,
-  });
+  // Mit der **gekernten** Breite rechnen: Wer ungekernt misst und gekernt
+  // zeichnet, setzt den Text neben die Kante, die er treffen wollte.
+  const width = gekernteBreite(options.font, text, options.size);
+  drawText(page, text, right - width, y, options);
 }
 
 /**
@@ -1376,34 +1843,111 @@ export function kuerzeAufBreite(
   size: number,
   maxWidth: number,
 ): string {
-  if (maxWidth <= 0 || font.widthOfTextAtSize(text, size) <= maxWidth) return text;
+  /*
+   * Dasselbe Spiel wie beim Einpassen - und aus demselben Grund. Ohne das
+   * kuerzte die Zeile, die die Einpassung gerade noch hatte stehen lassen:
+   * "Rechnungsdatum: 12.8.20…" statt des vollstaendigen Datums. Zwei
+   * Schranken, die um zwoelf Tausendstel auseinanderliegen, sind eine
+   * Schranke zu viel.
+   */
+  if (maxWidth <= 0 || gekernteBreite(font, text, size) <= maxWidth + PASSUNGSSPIEL) return text;
 
   let gekuerzt = text;
-  while (gekuerzt.length > 1 && font.widthOfTextAtSize(`${gekuerzt}…`, size) > maxWidth) {
+  while (gekuerzt.length > 1 && gekernteBreite(font, `${gekuerzt}…`, size) > maxWidth) {
     gekuerzt = gekuerzt.slice(0, -1);
   }
   return `${gekuerzt.trimEnd()}…`;
 }
 
+/**
+ * Die groesste Schriftgroesse bis `wunsch`, in der der Text noch ganz passt.
+ *
+ * ## Warum verkleinern und nicht kuerzen
+ *
+ * Weil hier Rechnungsnummern und Datumsangaben stehen. Ein gekuerztes
+ * "Rechnungs-Nr. 2026/7..." ist keine Rechnungsnummer mehr, und eine Rechnung
+ * ohne vollstaendige Nummer verstoesst gegen Paragraf 14 UStG - der
+ * Schoenheitsfehler waere in Wahrheit ein Rechtsfehler.
+ *
+ * Der Anlass ist die uebernommene Vorlage: Sie setzt ihre Spalten nach ihrer
+ * eigenen, schmalen Schrift. In unserer Hausschrift braucht derselbe Text
+ * zwei Punkt mehr, und dann faellt das letzte Zeichen weg. Zwei Zehntel
+ * kleiner sieht niemand; ein fehlendes Zeichen sehr wohl.
+ *
+ * Unter `mindest` wird nicht weiter verkleinert - dann ist die Spalte
+ * wirklich zu schmal, und es bleibt beim Kuerzen. Lieber sichtbar zu eng als
+ * unleserlich klein.
+ */
+export function passeGroesseEin(
+  text: string,
+  font: PDFFont,
+  wunsch: number,
+  maxWidth: number,
+  mindest = wunsch * 0.85,
+): number {
+  if (maxWidth <= 0) return wunsch;
+  /*
+   * Ein Zwanzigstel Punkt Spiel.
+   *
+   * Ohne das schrumpfte eine Zeile, die **genau** passt: Die Vorlage gibt
+   * ihrer letzten Kennzahlenspalte 117,0 Punkt und ihr Datum braucht 117,0 -
+   * es fehlten zwoelf Tausendstel, und der ganze Kennzahlenblock ging auf 9,9
+   * Punkt herunter.
+   *
+   * Die zwoelf Tausendstel waren unsere eigenen: Die gemessenen Spaltenkanten
+   * werden auf zwei Stellen gerundet, damit die Briefbogendatei lesbar bleibt.
+   * Das Spiel muss also groesser sein als diese Rundung - und darf trotzdem
+   * unsichtbar bleiben. Ein Zwanzigstel Punkt sind achtzehn Tausendstel
+   * Millimeter; kein Drucker der Welt loest das auf, und keine Zeile wird
+   * dafuer kleiner gesetzt.
+   */
+  const spiel = PASSUNGSSPIEL;
+  let groesse = wunsch;
+  while (groesse > mindest && gekernteBreite(font, text, groesse) > maxWidth + spiel) {
+    groesse -= 0.1;
+  }
+  return Math.round(groesse * 10) / 10;
+}
+
 /** Weicher Umbruch an Wortgrenzen, harte Trennung nur bei ueberlangen Woertern. */
 export function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): string[] {
+  /*
+   * Ein gesetzter Zeilenumbruch bleibt einer.
+   *
+   * Vorher fiel er unter `\s+` und verschwand: Wer "Gestaltungsarbeiten" und
+   * "nach Vorgaben des Auftraggebers" auf zwei Zeilen geschrieben hatte,
+   * bekam einen Fliesstext zurueck, der irgendwo anders umbrach. Beim
+   * Vergleich mit der Vorlage fehlten genau diese zwei Stuecke - nicht weil
+   * sie fehlten, sondern weil sie mit ihrem Nachbarn verschmolzen waren.
+   *
+   * Ein Umbruch ist eine Angabe des Ausstellers, keine Formatierung, die wir
+   * neu treffen duerfen.
+   */
+  if (/[\r\n]/.test(text)) {
+    return text
+      .split(/\r?\n/)
+      .flatMap((absatz) =>
+        absatz.trim().length === 0 ? [''] : wrapText(absatz, font, size, maxWidth),
+      );
+  }
+
   const words = text.split(/\s+/).filter(Boolean);
   const lines: string[] = [];
   let current = '';
   for (const word of words) {
     const candidate = current ? `${current} ${word}` : word;
-    if (font.widthOfTextAtSize(candidate, size) <= maxWidth) {
+    if (gekernteBreite(font, candidate, size) <= maxWidth) {
       current = candidate;
       continue;
     }
     if (current) lines.push(current);
-    if (font.widthOfTextAtSize(word, size) <= maxWidth) {
+    if (gekernteBreite(font, word, size) <= maxWidth) {
       current = word;
       continue;
     }
     let chunk = '';
     for (const char of word) {
-      if (font.widthOfTextAtSize(chunk + char, size) > maxWidth) {
+      if (gekernteBreite(font, chunk + char, size) > maxWidth) {
         lines.push(chunk);
         chunk = char;
       } else chunk += char;

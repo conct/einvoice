@@ -40,6 +40,8 @@ export interface Textstueck {
   breite: number;
   /** Fett gesetzt? Abgelesen am Namen des Schriftschnitts. */
   fett: boolean;
+  /** Der Schnittname ohne Teilmengenkennung - "National-Semibold". */
+  schnitt: string;
   text: string;
 }
 
@@ -124,6 +126,14 @@ interface Schrift {
    * "Rechnungsdatum: 12.8.2026" mager - beides in derselben Zeile.
    */
   fett: boolean;
+  /**
+   * Der Name des Schnitts, ohne die Teilmengenkennung.
+   *
+   * "SXOQHJ+National-Semibold" wird zu "National-Semibold". Gebraucht, um
+   * einem Nutzer sagen zu koennen, **welche** Schriftdateien seine Vorlage
+   * braucht - sonst bliebe es bei "vielleicht mehrere".
+   */
+  name: string;
 }
 
 /** Schnittnamen, die auf eine fette Schrift deuten. */
@@ -150,6 +160,7 @@ function lieferSchriften(doc: PDFDocument, seite: number): Map<string, Schrift> 
     schriften.set(name.asString().replace(/^\//, ''), {
       breit: subtype === '/Type0',
       fett: FETTE_SCHNITTE.test(grundname),
+      name: grundname.replace(/^\//, '').replace(/^[A-Z]{6}\+/, ''),
       ...(strom ? { karte: leseToUnicode(latin1(decodePDFRawStream(strom).decode())) } : {}),
     });
   }
@@ -476,6 +487,7 @@ export async function liesPdfText(bytes: Uint8Array): Promise<PdfText> {
           groesse: schriftgroesse * (md || 1),
           breite,
           fett: schrift?.fett === true,
+          schnitt: schrift?.name ?? '',
           text,
         });
       }

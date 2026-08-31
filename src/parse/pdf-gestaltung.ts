@@ -199,6 +199,82 @@ export interface Briefpapier {
    */
   inhaltSchrift: { median: number; groesste: number };
   /**
+   * Das senkrechte Raster des Rechnungsinhalts.
+   *
+   * `zeile` ist der Zeilenabstand, `absatz` der Abstand zwischen Bloecken.
+   * Auf der vermessenen Vorlage 12 und 24 Punkt - ihr ganzer Rumpf steht auf
+   * einem Zwoelferraster: Anschrift, Positionsname, Beschreibung, jede
+   * Summenzeile.
+   *
+   * ## Warum das gebraucht wird
+   *
+   * Weil unser Rumpf sonst auf festen Konstanten steht - 11 Punkt Zeile, 18
+   * Punkt Summenzeile - und mit jeder Zeile weiter aus der Flucht der Vorlage
+   * laeuft. Nachgemessen: Die Kennzahlenzeile lag 9 Punkt daneben, der
+   * Summenblock 55. Waagerecht stimmte alles, senkrecht nichts.
+   *
+   * Beide undefiniert, wenn die Vorlage zu wenig Inhalt hat, um ein Raster
+   * zu zeigen. Dann bleibt es bei unseren Vorgaben - ein aus zwei Zeilen
+   * geratenes Raster waere schlechter als gar keines.
+   */
+  inhaltRaster: { zeile?: number; absatz?: number };
+  /**
+   * Textproben aus dem Rechnungsteil, mit ihrer gemessenen Breite.
+   *
+   * ## Wofuer
+   *
+   * Um die **Laufweite** der Vorlage zu treffen statt nur ihrer Punktgroesse.
+   * Nachgemessen: Ihre National-Light braucht fuer "Gesamtbetrag netto" 79,9
+   * Punkt, unsere Hausschrift bei derselben Groesse 94,0 - neunzehn Prozent
+   * mehr. Wer die Punktgroesse eins zu eins uebernimmt, setzt jede Zeile ein
+   * Fuenftel laenger: Das Anschreiben bricht um, wo es im Original einzeilig
+   * steht, und schiebt alles darunter um eine Zeile.
+   *
+   * Der Vergleich muss dort stattfinden, wo unsere Schrift bekannt ist - also
+   * beim Setzen, nicht beim Lesen. Hier stehen nur die Proben.
+   *
+   * ## Warum aus dem Inhalt und nicht aus dem Briefkopf
+   *
+   * Weil beide verschiedene Schriften tragen duerfen. Ein Briefkopf in einer
+   * Auszeichnungsschrift saegte den Faktor fuer einen Rumpf zurecht, der in
+   * einer ganz anderen Schrift steht.
+   */
+  inhaltProben: { text: string; breite: number; groesse: number; fett: boolean }[];
+  /**
+   * Die Grundlinie der obersten Anschriftenzeile.
+   *
+   * `grenze` markiert die Oberkante des Anschriftenfeldes; wie weit darunter
+   * die erste Zeile sitzt, ist Sache des Gestalters. Unser Satz nahm dafuer
+   * feste elf Punkt, die Vorlage haelt zehn - und ihre vier Anschriftenzeilen
+   * standen deshalb allesamt einen Punkt zu tief.
+   */
+  anschriftZeile?: number;
+  /**
+   * Die Textfarbe der Vorlage - der dunkelste Ton ihrer Schriftzuege.
+   *
+   * Unsere Hausfarbe fuer Text ist ein sehr dunkles Grau, kein Schwarz: Das
+   * ist eine Gestaltungsentscheidung und auf unserem eigenen Entwurf richtig.
+   * Auf einem uebernommenen Bogen ist sie falsch, wenn dieser durchgehend in
+   * hundert Prozent Schwarz gesetzt ist - dann steht der Rumpf sichtbar
+   * blasser da als der Briefkopf darueber.
+   *
+   * Genommen wird der dunkelste vorkommende Ton, nicht der haeufigste: Eine
+   * Vorlage mit grauem Kleingedrucktem soll ihren Fliesstext nicht danach
+   * richten.
+   */
+  textfarbe?: { r: number; g: number; b: number };
+  /**
+   * Die Schriften des Briefkopfs als eigene kleine PDF-Datei, base64-kodiert.
+   *
+   * Damit der Briefkopf **wiedergegeben** statt nachgezeichnet werden kann,
+   * ohne dass die alte Rechnung mitwandert. Siehe pdf/schriftbogen.ts.
+   *
+   * Wird beim Lesen nicht gefuellt - das taete `liesBriefpapier` zu einem
+   * Erzeuger von PDF-Dateien, und der Leser soll lesen. Wer die Quellbytes
+   * hat, ruft `schriftbogenAus` und traegt das Ergebnis ein.
+   */
+  schriftbogen?: string;
+  /**
    * Die Satzbreite des Bogens, an seinen durchgehenden Linien abgelesen.
    *
    * Genauer als der linkeste Text: Falz- und Lochmarken stehen weiter aussen
@@ -232,7 +308,20 @@ export interface Briefpapier {
    * ist die Auszeichnung der Endsumme - wer alle gleich zieht, nimmt ihr die
    * Betonung.
    */
-  inhaltStriche?: { fein: number; stark: number };
+  inhaltStriche?: {
+    fein: number;
+    stark: number;
+    abstand?: number;
+    /**
+     * Die Farbe der feinen Striche.
+     *
+     * Unsere Haarlinie ist ein helles Grau - auf unserem Entwurf richtig, auf
+     * einem uebernommenen Bogen falsch, wenn dieser seine Linien in Schwarz
+     * zieht. Gemessen an der Vorlage: Sie setzt auch die duennsten Striche
+     * voll deckend; unsere waren daneben kaum zu sehen.
+     */
+    farbe?: { r: number; g: number; b: number };
+  };
 }
 
 // --- Farben -----------------------------------------------------------------
@@ -860,11 +949,67 @@ export async function liesBriefpapier(bytes: Uint8Array, seite = 0): Promise<Bri
     ausgelassen: inhaltspfade.length,
     inhaltFuellungen: inhaltspfade.filter((pfad) => pfad.fuellung).length,
     inhaltSchrift: messeInhaltsschrift(gelesen.seiten[seite]?.zeilen ?? [], grenze, fussgrenze),
+    inhaltRaster: messeRaster(gelesen.seiten[seite]?.zeilen ?? [], grenze, fussgrenze),
+    inhaltProben: sammleProben(gelesen.seiten[seite]?.zeilen ?? [], grenze, fussgrenze),
     ...(findeSatzspiegel(briefkopfpfade, breite) ?? {}),
     ...findeInhaltskante(gelesen.seiten[seite]?.zeilen ?? [], grenze, fussgrenze),
     ...findeWaehrungswort(gelesen.seiten[seite]?.zeilen ?? [], grenze, fussgrenze),
-    ...findeStrichstaerken(inhaltspfade),
+    ...findeStrichstaerken(
+      inhaltspfade,
+      (gelesen.seiten[seite]?.zeilen ?? []).filter(
+        (zeile) => zeile.y <= grenze && (fussgrenze <= 0 || zeile.y >= fussgrenze),
+      ),
+    ),
+    ...findeAnschriftzeile(gelesen.seiten[seite]?.zeilen ?? [], grenze, fussgrenze),
+    ...findeTextfarbe(laeufe),
   };
+}
+
+/**
+ * Der dunkelste Ton, in dem die Vorlage Text setzt.
+ *
+ * Weisser Text - etwa in einem farbigen Firmenzeichen - bleibt aussen vor: Er
+ * ist die Ausnahme im Zeichen, nicht die Regel des Blattes.
+ */
+export function findeTextfarbe(laeufe: Textlauf[]): {
+  textfarbe: { r: number; g: number; b: number };
+} | Record<string, never> {
+  let dunkelster: Farbe | undefined;
+  let dunkelheit = -1;
+  for (const lauf of laeufe) {
+    const wert = 1 - (0.299 * lauf.farbe.r + 0.587 * lauf.farbe.g + 0.114 * lauf.farbe.b);
+    if (wert > dunkelheit) {
+      dunkelheit = wert;
+      dunkelster = lauf.farbe;
+    }
+  }
+  // Unter einem Drittel Dunkelheit ist es kein Textton, sondern eine
+  // Auszeichnung auf farbigem Grund.
+  return dunkelster && dunkelheit >= 0.33
+    ? { textfarbe: { r: dunkelster.r, g: dunkelster.g, b: dunkelster.b } }
+    : {};
+}
+
+/**
+ * Die oberste Zeile unterhalb des Anschriftenfeldes.
+ *
+ * Nach DIN 5008 steht dort die Empfaengeranschrift - und ihre erste Zeile ist
+ * das, woran unser Anschriftenblock ausgerichtet wird.
+ */
+function findeAnschriftzeile(
+  zeilen: { y: number; text: string }[],
+  grenze: number,
+  fussgrenze: number,
+): { anschriftZeile: number } | Record<string, never> {
+  const oberste = zeilen
+    .filter(
+      (zeile) =>
+        zeile.y <= grenze &&
+        (fussgrenze <= 0 || zeile.y >= fussgrenze) &&
+        zeile.text.trim().length > 0,
+    )
+    .sort((eins, zwei) => zwei.y - eins.y)[0];
+  return oberste ? { anschriftZeile: Math.round(oberste.y * 100) / 100 } : {};
 }
 
 /**
@@ -910,8 +1055,16 @@ function findeInhaltskante(
  * Sind beide gleich, zieht die Vorlage alle Linien gleich - dann gibt es
  * nichts zu uebernehmen, und es bleibt bei unseren Vorgaben.
  */
-export function findeStrichstaerken(pfade: Pfad[]): {
-  inhaltStriche?: { fein: number; stark: number };
+export function findeStrichstaerken(
+  pfade: Pfad[],
+  inhaltszeilen: { y: number }[] = [],
+): {
+  inhaltStriche?: {
+    fein: number;
+    stark: number;
+    abstand?: number;
+    farbe?: { r: number; g: number; b: number };
+  };
 } {
   const staerken = pfade.filter((pfad) => pfad.strich).map((pfad) => pfad.staerke);
   if (staerken.length < 2) return {};
@@ -926,7 +1079,54 @@ export function findeStrichstaerken(pfade: Pfad[]): {
   const groesste = Math.max(...staerken);
   if (haeufigste === undefined || groesste <= haeufigste) return {};
 
-  return { inhaltStriche: { fein: haeufigste, stark: groesste } };
+  /*
+   * Und wie hoch der Trennstrich ueber dem Summenblock sitzt.
+   *
+   * Gemessen vom Strich zur naechsten Grundlinie darunter - dem ersten
+   * Summenwort. Unser Satz nahm dafuer feste 13 Punkt; die vermessene Vorlage
+   * haelt 15,5, und der Strich lag damit zweieinhalb Punkte zu tief.
+   *
+   * Genommen wird der **breiteste** Strich des Inhalts: Er ist der, der den
+   * Block eroeffnet. Die kurzen darunter gehoeren zu je einer Betragszeile.
+   */
+  const breiteste = pfade
+    .filter((pfad) => pfad.strich)
+    .sort((eins, zwei) => zwei.rahmen.x2 - zwei.rahmen.x1 - (eins.rahmen.x2 - eins.rahmen.x1))[0];
+  const darunter = breiteste
+    ? inhaltszeilen
+        .filter((zeile) => zeile.y < breiteste.rahmen.y1)
+        .sort((eins, zwei) => zwei.y - eins.y)[0]
+    : undefined;
+  const abstand =
+    breiteste && darunter ? Math.round((breiteste.rahmen.y1 - darunter.y) * 10) / 10 : undefined;
+
+  /*
+   * Und ihre Farbe - der dunkelste Ton unter den Strichen des Inhalts. Wie
+   * bei der Schrift: Ein grau gesetzter Zierstrich soll nicht bestimmen, wie
+   * die Summenlinien aussehen.
+   */
+  let ton: Farbe | undefined;
+  let dunkelheit = -1;
+  for (const pfad of pfade) {
+    if (!pfad.strich) continue;
+    const wert = 1 - (0.299 * pfad.strich.r + 0.587 * pfad.strich.g + 0.114 * pfad.strich.b);
+    if (wert > dunkelheit) {
+      dunkelheit = wert;
+      ton = pfad.strich;
+    }
+  }
+
+  return {
+    inhaltStriche: {
+      fein: haeufigste,
+      stark: groesste,
+      ...(ton && dunkelheit >= 0.33
+        ? { farbe: { r: ton.r, g: ton.g, b: ton.b } }
+        : {}),
+      // Nur wenn es plausibel ist: ein halber bis zwei Zeilenabstaende.
+      ...(abstand !== undefined && abstand > 4 && abstand < 40 ? { abstand } : {}),
+    },
+  };
 }
 
 /**
@@ -957,6 +1157,16 @@ function findeWaehrungswort(
  * Ueberschrift. Liegen beide nah beieinander, gibt es keine - und dann sollte
  * auch keine erfunden werden.
  */
+/**
+ * Die Schranken des Rasters.
+ *
+ * Unter sechs Punkt waere es kein Zeilenabstand, sondern zwei Grundlinien
+ * derselben Zeile; ueber sechzig kein Absatz, sondern ein leerer Seitenteil,
+ * und den als Mass zu nehmen risse jeden Satz auseinander.
+ */
+const MIN_ZEILE = 6;
+const MAX_ABSATZ = 60;
+
 function messeInhaltsschrift(
   zeilen: { y: number; stuecke: { groesse: number }[] }[],
   grenze: number,
@@ -974,6 +1184,104 @@ function messeInhaltsschrift(
     median: groessen[Math.floor(groessen.length / 2)] ?? 0,
     groesste: groessen[groessen.length - 1] ?? 0,
   };
+}
+
+/**
+ * Liest das senkrechte Raster des Rechnungsinhalts.
+ *
+ * ## Wie
+ *
+ * Aus den Abstaenden zwischen aufeinanderfolgenden Textzeilen. Auf der
+ * vermessenen Vorlage sind das 56, 24, 36, 12, 36, 12, 48, 24, 24 - kein
+ * Durcheinander, sondern lauter Vielfache von zwoelf.
+ *
+ * `zeile` ist der **kleinste** Abstand, der mehr als einmal vorkommt: Ein
+ * einzelnes kleines Mass koennte eine hochgestellte Ziffer sein oder eine
+ * zweite Grundlinie derselben Zeile. `absatz` ist der naechstgroessere, der
+ * ebenfalls mehrfach vorkommt - der Abstand, mit dem die Vorlage Bloecke
+ * trennt.
+ *
+ * ## Warum nicht der Mittelwert
+ *
+ * Weil er zwischen Zeilen- und Blockabstand landen wuerde, also auf einem
+ * Mass, das die Vorlage nirgends benutzt. Gesucht ist das Raster, nicht der
+ * Durchschnitt.
+ */
+/**
+ * Wie viele Proben genuegen und wie kurz eine sein darf.
+ *
+ * Kurze Stuecke taugen nicht: Bei "017" oder "96" entscheidet eine einzige
+ * Ziffernbreite ueber den ganzen Faktor. Zwanzig Proben sind reichlich - der
+ * Median liegt danach stabil, und der Bogen soll nicht durch Messdaten
+ * aufgeblaeht werden, die im Profil mitgespeichert werden.
+ */
+const PROBE_MINDESTLAENGE = 6;
+const PROBE_HOECHSTZAHL = 20;
+
+/** Sammelt Textproben aus dem Rechnungsteil - Text, Breite, Groesse. */
+function sammleProben(
+  zeilen: {
+    y: number;
+    stuecke: { text: string; breite: number; groesse: number; fett: boolean }[];
+  }[],
+  grenze: number,
+  fussgrenze: number,
+): { text: string; breite: number; groesse: number; fett: boolean }[] {
+  const proben: { text: string; breite: number; groesse: number; fett: boolean }[] = [];
+  for (const zeile of zeilen) {
+    if (zeile.y > grenze || (fussgrenze > 0 && zeile.y < fussgrenze)) continue;
+    for (const stueck of zeile.stuecke) {
+      if (proben.length >= PROBE_HOECHSTZAHL) return proben;
+      const text = stueck.text.trim();
+      if (text.length < PROBE_MINDESTLAENGE || stueck.breite <= 0 || stueck.groesse <= 0) continue;
+      proben.push({
+        text,
+        breite: stueck.breite,
+        groesse: Math.abs(stueck.groesse),
+        fett: stueck.fett,
+      });
+    }
+  }
+  return proben;
+}
+
+export function messeRaster(
+  zeilen: { y: number; stuecke: unknown[] }[],
+  grenze: number,
+  fussgrenze: number,
+): { zeile?: number; absatz?: number } {
+  const hoehen = zeilen
+    .filter((z) => z.y <= grenze && (fussgrenze <= 0 || z.y >= fussgrenze) && z.stuecke.length > 0)
+    .map((z) => z.y)
+    .sort((eins, zwei) => zwei - eins);
+
+  // Auf halbe Punkte gerundet: Gemessene Grundlinien treffen sich selten aufs
+  // Hundertstel, und zwei Abstaende von 11,98 und 12,01 sind derselbe.
+  const zaehler = new Map<number, number>();
+  for (let i = 1; i < hoehen.length; i += 1) {
+    const abstand = Math.round((hoehen[i - 1]! - hoehen[i]!) * 2) / 2;
+    if (abstand < MIN_ZEILE || abstand > MAX_ABSATZ) continue;
+    zaehler.set(abstand, (zaehler.get(abstand) ?? 0) + 1);
+  }
+
+  const mehrfach = [...zaehler.entries()]
+    .filter(([, anzahl]) => anzahl >= 2)
+    .map(([abstand]) => abstand)
+    .sort((eins, zwei) => eins - zwei);
+
+  const zeile = mehrfach[0];
+  if (zeile === undefined) return {};
+
+  /*
+   * Der Blockabstand muss ein Vielfaches des Zeilenabstands sein - sonst ist
+   * es kein Raster, sondern Zufall, und darauf soll sich unser Satz nicht
+   * stuetzen.
+   */
+  const absatz = mehrfach.find(
+    (kandidat) => kandidat > zeile && Math.abs(kandidat / zeile - Math.round(kandidat / zeile)) < 0.05,
+  );
+
+  return { zeile, ...(absatz !== undefined ? { absatz } : {}) };
 }
 
 /**

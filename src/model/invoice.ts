@@ -220,6 +220,30 @@ export const InvoiceSchema = z.object({
   /** Zu- und Abschlaege auf Dokumentebene */
   allowancesCharges: z.array(AllowanceChargeSchema).default([]),
   payment: PaymentSchema.optional(),
+  /**
+   * Anrede und Anschreiben ueber den Positionen.
+   *
+   * "Sehr geehrter Herr Ranacher," und darunter "wir bedanken uns fuer Ihren
+   * Auftrag und stellen Ihnen folgende Leistungen in Rechnung:" - so haelt es
+   * die vermessene Vorlage, und so halten es die meisten Rechnungen, die ein
+   * Mensch geschrieben hat.
+   *
+   * ## Warum von Hand und nicht erzeugt
+   *
+   * Eine Anrede aus dem Namen abzuleiten hiesse, aus "Christian Ranacher" auf
+   * eine Anredeform zu schliessen. Das geht bei genug Namen schief, und der
+   * Fehler steht dann gedruckt beim Empfaenger. Wer eine Anrede will,
+   * schreibt sie; wer keine will, laesst das Feld leer und bekommt keine.
+   *
+   * ## Warum sie auch im XML steht
+   *
+   * Als BT-22 (`ram:IncludedNote`). Das gedruckte Blatt und der Datensatz
+   * sind nach ZUGFeRD gleichrangig; Text, der nur auf einem von beiden steht,
+   * ist eine Abweichung, auch wenn er nur hoeflich ist.
+   *
+   * Ein Leerzeilenumbruch (zwei Zeilenumbrueche) trennt Absaetze.
+   */
+  intro: z.string().trim().optional(),
   /** BG-1 Bemerkungen zur Rechnung */
   notes: z
     .array(z.object({ text: nonEmpty, subjectCode: z.string().trim().optional() }))

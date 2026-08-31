@@ -1,4 +1,6 @@
 import {
+  rgb,
+  type PDFFont,
   AFRelationship,
   PDFDocument,
   PDFHexString,
@@ -10,6 +12,8 @@ import fontkit from '@pdf-lib/fontkit';
 
 import type { Invoice } from '../model/invoice';
 import { computeTotals, type InvoiceTotals } from '../model/totals';
+import { merkeSchriftquelle } from './kerning';
+import { fromBase64 } from '../util/base64';
 import { buildCii } from '../xml/cii';
 import { utf8Encode } from '../util/base64';
 import { formatDate } from '../util/date';
@@ -34,6 +38,16 @@ export interface RenderAssets {
   fontRegular: Uint8Array;
   /** Fette Schnitt derselben Familie */
   fontBold: Uint8Array;
+  /**
+   * Ein dritter, kraeftiger Schnitt zwischen mager und fett.
+   *
+   * Gestaltete Rechnungen benutzen ihn fuer Zwischenueberschriften und
+   * Summenbeschriftungen: Die vermessene Vorlage setzt "Gesamtbetrag netto" in
+   * National Book, ihren Fliesstext in National Light und ihre Auszeichnung in
+   * National Semibold. Fehlt er, wird der magere benutzt - drei Prozent zu
+   * schmal, aber nicht falsch.
+   */
+  fontKraeftig?: Uint8Array;
   /**
    * ICC-Profil fuer den OutputIntent. PDF/A verlangt einen definierten
    * Farbraum; ohne dieses Profil ist die Datei kein gueltiges PDF/A.
@@ -118,6 +132,39 @@ export interface RenderOptions {
   kennzahlenFett?: (keyof Beschriftungen)[];
   /** Positionsnummern zeigen. Aus, wenn die Vorlage nicht nummeriert. */
   positionsnummern?: boolean;
+  /**
+   * Die senkrechten Anker der Vorlage, in Hoehen **ihrer** Seite.
+   *
+   * Hier wird die Verschiebung auf unsere Seite aufgeschlagen - dieselbe, mit
+   * der auch der Bogen gesetzt wird. Ohne Bogen bleiben sie wirkungslos: Zu
+   * einer Seite, die wir selbst aufbauen, gehoeren keine fremden Hoehen.
+   */
+  kennzahlenOben?: number;
+  textOben?: number;
+  /** Die linken Kanten der Kennzahlenspalten, in Masen ihrer Seite. */
+  kennzahlenSpalten?: Partial<Record<keyof Beschriftungen, number>>;
+  /** Die Fluchtlinie der Summenbeschriftungen, in Masen ihrer Seite. */
+  summenlabelRechts?: number;
+  /** Einzug der Positionen vom Satzrand, wenn die Vorlage einen hat. */
+  positionsEinzug?: number;
+  /**
+   * Menge und Einzelpreis zeigen. Ohne Angabe entscheidet der Inhalt: Sie
+   * entfallen, wenn jede Position genau ein Stueck ist und der Einzelpreis
+   * deshalb die Zeilensumme wiederholt.
+   */
+  mengenspalten?: boolean;
+  /**
+   * Die Steuerspalte zeigen. Ohne Angabe entscheidet der Inhalt: Sie
+   * entfaellt, wenn alle Positionen unter demselben Satz laufen - der steht
+   * dann im Summenblock.
+   */
+  steuerspalte?: boolean;
+  /** Positionsnamen fett, Beschreibung grau. Aus, wenn die Vorlage gleich setzt. */
+  positionsauszeichnung?: boolean;
+  /** Summenbeschriftungen im kraeftigen Schnitt, wie es die Vorlage haelt. */
+  summenlabelKraeftig?: boolean;
+  /** Betrag auf die letzte Zeile der Position, wie es die Vorlage haelt. */
+  betragUnten?: boolean;
   /** Datum ohne fuehrende Nullen. */
   datumOhneNullen?: boolean;
   steuergrundlage?: boolean;
@@ -192,6 +239,71 @@ const DEFAULT_PRODUCER = 'erechnung-core (pdf-lib)';
  *  3. ein XMP-Paket mit pdfaid- und Factur-X-Kennzeichnung,
  *  4. ein Info-Dictionary, das exakt zum XMP passt.
  */
+/**
+ * Um wie viel unsere Schrift schmaler gesetzt werden muss, um die Laufweite
+ * der Vorlage zu treffen.
+ *
+ * ## Wie
+ *
+ * Fuer jede Textprobe der Vorlage steht ihre gemessene Breite fest. Dieselbe
+ * Zeichenfolge in unserer Schrift bei derselben Groesse ergibt eine zweite
+ * Breite; ihr Verhaeltnis ist der gesuchte Faktor. Genommen wird der **Median**
+ * ueber alle Proben: Ein Ausreisser - eine Zeile aus lauter Ziffern etwa, die
+ * in beiden Schriften gleich breit laufen - soll den Satz nicht bestimmen.
+ *
+ * ## Die Schranken
+ *
+ * Zwischen 0,75 und 1,15. Darueber hinaus stimmt etwas anderes nicht: Der
+ * Text der Probe wurde falsch gelesen, oder die Vorlage benutzt eine
+ * Laufweitenaenderung, die wir nicht nachbauen. Dann bleibt es beim Nennwert -
+ * eine falsch gesetzte Rechnung ist schlimmer als eine, die etwas zu breit
+ * laeuft.
+ *
+ * Unter drei Proben wird gar nicht erst gerechnet.
+ */
+function laufweitenfaktor(
+  schrift: PDFFont,
+  proben: { text: string; breite: number; groesse: number; fett: boolean }[],
+): number {
+  /*
+   * Gemessen wird nur an Fliesstext.
+   *
+   * Nachgerechnet mit der echten Schrift der Vorlage, die also eins ergeben
+   * muss: Ihre Fliesstextproben lagen zwischen 0,99 und 1,03 - richtig. Ihre
+   * halbfetten Zeilen lagen bei 1,08 bis 1,11, weil ein schwererer Schnitt
+   * breiter laeuft als unser magerer. Und ihre Betraege bei 1,18, weil die
+   * Vorlage **Tabellenziffern** benutzt (im Schriftprogramm als "five.LT" zu
+   * sehen) und die breiter sind als die gewoehnlichen.
+   *
+   * Der Median ueber alles landete dadurch bei 1,04, und der ganze Rumpf kam
+   * vier Prozent zu gross heraus. Beide Verzerrungen ziehen in dieselbe
+   * Richtung - nach oben -, deshalb genuegt es, die verzerrten Proben
+   * wegzulassen statt gegenzurechnen.
+   */
+  const brauchbar = proben.filter((probe) => {
+    if (probe.fett) return false;
+    const ziffern = [...probe.text].filter((zeichen) => zeichen >= '0' && zeichen <= '9').length;
+    return ziffern / probe.text.length <= 0.3;
+  });
+
+  const faktoren: number[] = [];
+  for (const probe of brauchbar.length >= 3 ? brauchbar : proben) {
+    let unser = 0;
+    try {
+      unser = schrift.widthOfTextAtSize(probe.text, probe.groesse);
+    } catch {
+      // Zeichen, die unsere Schrift nicht kennt - die Probe faellt weg.
+      continue;
+    }
+    if (unser > 0 && probe.breite > 0) faktoren.push(probe.breite / unser);
+  }
+  if (faktoren.length < 3) return 1;
+
+  faktoren.sort((eins, zwei) => eins - zwei);
+  const median = faktoren[Math.floor(faktoren.length / 2)] ?? 1;
+  return median >= 0.75 && median <= 1.15 ? median : 1;
+}
+
 export async function renderZugferdPdf(
   invoice: Invoice,
   options: RenderOptions,
@@ -209,8 +321,49 @@ export async function renderZugferdPdf(
   // Nur eingebettete Schriften sind PDF/A-konform. Standard-14-Schriften
   // waeren kleiner, aber die Datei waere damit ungueltig.
   const subset = options.subsetFonts ?? false;
-  const regular = await doc.embedFont(options.assets.fontRegular, { subset });
-  const bold = await doc.embedFont(options.assets.fontBold, { subset });
+  /*
+   * Tabellenziffern, wo die Schrift sie mitbringt.
+   *
+   * Auf einer Rechnung stehen Zahlen untereinander - Betraege, Steuersaetze,
+   * Datumsangaben. Gewoehnliche Ziffern sind verschieden breit; die Eins ist
+   * schmal, die Null breit. Untereinander gesetzt franst die Spalte dann aus,
+   * und zwei gleich lange Betraege sind verschieden lang.
+   *
+   * Nachgemessen an der vermessenen Vorlage: Sie waehlt genau dieses Merkmal.
+   * Im Schriftprogramm stehen die Ziffern als "five.LT", "three.LT" - die
+   * tabellarischen Schnitte. Ohne sie lief unser Satz an jeder Zahl aus der
+   * Flucht: "12,35 Euro" war 38,6 Punkt breit statt 44,7.
+   *
+   * Kennt eine Schrift das Merkmal nicht, wird es stillschweigend ignoriert -
+   * fontkit laesst unbekannte Merkmale fallen.
+   */
+  const merkmale = ['tnum'];
+  const regular = await doc.embedFont(options.assets.fontRegular, {
+    subset,
+    features: merkmale as never,
+  });
+  const bold = await doc.embedFont(options.assets.fontBold, {
+    subset,
+    features: merkmale as never,
+  });
+
+  /*
+   * Die Schriftdateien fuer die Unterschneidung anmelden.
+   *
+   * pdf-lib gibt seine eigene fontkit-Instanz nicht heraus und fragt beim
+   * Zeichnen auch nicht danach: Es setzt ein `Tj` und ueberlaesst die
+   * Vorschuebe der /Widths-Tabelle, die keine Unterschneidung kennt. Mit den
+   * Bytes hier laesst sie sich nachrechnen - siehe pdf/kerning.ts.
+   */
+  merkeSchriftquelle(regular, options.assets.fontRegular, merkmale);
+  merkeSchriftquelle(bold, options.assets.fontBold, merkmale);
+
+  const kraeftig = options.assets.fontKraeftig
+    ? await doc.embedFont(options.assets.fontKraeftig, { subset, features: merkmale as never })
+    : undefined;
+  if (kraeftig && options.assets.fontKraeftig) {
+    merkeSchriftquelle(kraeftig, options.assets.fontKraeftig, merkmale);
+  }
   const logo = options.assets.logoPng ? await doc.embedPng(options.assets.logoPng) : undefined;
 
   // Die eingebettete Schrift deckt nur das lateinische Schriftsystem ab. Ein
@@ -233,9 +386,20 @@ export async function renderZugferdPdf(
       }
     : { x: 0, y: 0 };
 
+  /*
+   * Woraus die Schriften des Briefkopfs kommen.
+   *
+   * Erste Wahl ist die uebergebene Vorlage - wer das Original-PDF zur Hand
+   * hat, bekommt die genaueste Wiedergabe. Sonst der Schriftbogen, den der
+   * Bogen selbst mitbringt: dieselben Schriftobjekte, aber ohne die alte
+   * Rechnung darum herum. Fehlt beides, wird der Briefkopf nachgezeichnet.
+   */
+  const schriftquelle =
+    options.briefpapierVorlage ??
+    (bogen?.schriftbogen ? fromBase64(bogen.schriftbogen) : undefined);
   const setzer =
-    bogen && options.briefpapierVorlage
-      ? await bereiteVorlagenschrift(doc, bogen, options.briefpapierVorlage)
+    bogen && schriftquelle
+      ? await bereiteVorlagenschrift(doc, bogen, schriftquelle)
       : undefined;
 
   const addPage = (): PDFPage => {
@@ -277,6 +441,52 @@ export async function renderZugferdPdf(
     Boolean(bogen) &&
     bogen!.inhaltSchrift.median > 0 &&
     bogen!.inhaltSchrift.groesste <= bogen!.inhaltSchrift.median * 1.25;
+  /*
+   * Spalten, die nichts sagen, werden nicht gesetzt.
+   *
+   * ## Menge und Einzelpreis
+   *
+   * Steht in jeder Zeile ein Stueck und ist der Einzelpreis deshalb dieselbe
+   * Zahl wie die Zeilensumme, sagen beide Spalten nichts, was rechts nicht
+   * schon steht - "1 Stk. 65,00 ... 65,00". Die vermessene Vorlage setzt sie
+   * aus genau diesem Grund nicht.
+   *
+   * Die Einheit muss dabei das dimensionslose Stueck sein. "1 Monat" oder
+   * "1 Pauschale" traegt eine Angabe, die sonst nirgends steht; die zu
+   * streichen, weil die Zahl davor eine Eins ist, waere ein Verlust.
+   *
+   * ## Der Steuersatz
+   *
+   * Laufen alle Positionen unter demselben Satz, nennt ihn der Summenblock.
+   * Die Spalte wiederholte ihn dann Zeile fuer Zeile. Bei gemischten Saetzen
+   * bleibt sie stehen - dort ist sie die einzige Stelle, an der die Zuordnung
+   * ueberhaupt sichtbar wird.
+   */
+  const stummeMengen = invoice.lines.every(
+    (zeile, nummer) =>
+      zeile.quantity === 1 &&
+      zeile.unitCode === 'C62' &&
+      Math.abs(zeile.unitPrice - (totals.lineAmounts[nummer] ?? Number.NaN)) < 0.005,
+  );
+  const einSteuersatz =
+    new Set(invoice.lines.map((zeile) => `${zeile.vat.category}-${zeile.vat.rate ?? ''}`)).size === 1;
+
+  /*
+   * Die Grundgroesse des Rumpfes - nach **Laufweite**, nicht nach Nennwert.
+   *
+   * Die Vorlage setzt zehn Punkt. Unsere Hausschrift braucht bei zehn Punkt
+   * neunzehn Prozent mehr Platz je Zeile als ihre; eins zu eins uebernommen
+   * bricht das Anschreiben um, wo im Original eine Zeile steht, und alles
+   * darunter rutscht. Gesucht ist die Groesse, in der unsere Schrift dieselbe
+   * Strecke belegt wie ihre.
+   */
+  const grundgroesse = ((): number | undefined => {
+    if (!bogen) return undefined;
+    const median = bogen.inhaltSchrift.median;
+    if (!(median >= 7 && median <= 14)) return undefined;
+    return Math.round(median * laufweitenfaktor(regular, bogen.inhaltProben) * 10) / 10;
+  })();
+
   const grundthema =
     options.theme ?? (bogen?.akzent ? themaMitAkzent(bogen.akzent) : DEFAULT_THEME);
 
@@ -286,11 +496,37 @@ export async function renderZugferdPdf(
    * Prozent Grau; das Rot kommt genau einmal vor, im Firmenzeichen. Dort
    * gehoert es hin - und nur dorthin.
    */
-  const thema =
-    schlicht && !options.theme ? { ...grundthema, accent: grundthema.text } : grundthema;
+  /*
+   * Und die Textfarbe des Bogens.
+   *
+   * Unsere ist ein sehr dunkles Grau - eine Gestaltungsentscheidung, die auf
+   * unserem eigenen Entwurf richtig ist. Auf einem Bogen, der durchgehend in
+   * hundert Prozent Schwarz gesetzt ist, steht der Rumpf damit sichtbar
+   * blasser da als der Briefkopf darueber; gemessen zwoelf Prozent heller.
+   */
+  const strichfarbe = bogen?.inhaltStriche?.farbe;
+  const mitFarbe =
+    !options.theme && (bogen?.textfarbe || strichfarbe)
+      ? {
+          ...grundthema,
+          ...(bogen?.textfarbe
+            ? { text: rgb(bogen.textfarbe.r, bogen.textfarbe.g, bogen.textfarbe.b) }
+            : {}),
+          /*
+           * Und die Haarlinie. Unsere ist ein helles Grau; die Vorlage zieht
+           * ihre Summenlinien voll deckend, und unsere standen daneben kaum
+           * sichtbar.
+           */
+          ...(strichfarbe
+            ? { hairline: rgb(strichfarbe.r, strichfarbe.g, strichfarbe.b) }
+            : {}),
+        }
+      : grundthema;
+
+  const thema = schlicht && !options.theme ? { ...mitFarbe, accent: mitFarbe.text } : mitFarbe;
 
   drawInvoice(addPage, invoice, totals, {
-    fonts: { regular, bold },
+    fonts: { regular, bold, ...(kraeftig ? { kraeftig } : {}) },
     theme: thema,
     logo,
     footerNote: options.footerNote,
@@ -310,7 +546,17 @@ export async function renderZugferdPdf(
      * markiert genau die Kante unter seiner Rueckabsenderzeile. Ohne das lag
      * die Empfaengeranschrift auf ihr.
      */
-    ...(bogen ? { anschriftOben: bogen.grenze + versatz.y - ANSCHRIFT_LUFT } : {}),
+    /*
+     * Das Anschriftenfeld: wo die Vorlage ihre erste Zeile hat, sonst ein
+     * fester Abstand unter der Kante. Der feste war elf Punkt, ihrer ist
+     * zehn - alle vier Zeilen standen einen Punkt zu tief.
+     */
+    ...(bogen
+      ? {
+          anschriftOben:
+            (bogen.anschriftZeile ?? bogen.grenze - ANSCHRIFT_LUFT) + versatz.y,
+        }
+      : {}),
     ...(schlicht ? { schlichteTabelle: true } : {}),
     ...(ohneTitel ? { ohneTitel: true } : {}),
     /*
@@ -351,11 +597,49 @@ export async function renderZugferdPdf(
     ...(options.positionsnummern !== undefined
       ? { positionsnummern: options.positionsnummern }
       : {}),
+    ...(options.positionsEinzug !== undefined
+      ? { positionsEinzug: options.positionsEinzug }
+      : {}),
+    ...(options.positionsauszeichnung !== undefined
+      ? { positionsauszeichnung: options.positionsauszeichnung }
+      : {}),
+    ...(options.betragUnten !== undefined ? { betragUnten: options.betragUnten } : {}),
+    ...(options.summenlabelKraeftig !== undefined
+      ? { summenlabelKraeftig: options.summenlabelKraeftig }
+      : {}),
+    mengenspalten: options.mengenspalten ?? !stummeMengen,
+    steuerspalte: options.steuerspalte ?? !einSteuersatz,
     /*
      * Die Strichstaerken des Summenblocks kommen aus der Vorlage: Sie zieht
      * 0,25 pt unter den gewoehnlichen Zeilen und 1,00 pt unter der Endsumme.
      */
     ...(bogen?.inhaltStriche ? { striche: bogen.inhaltStriche } : {}),
+    /*
+     * Und das senkrechte Raster des Rumpfes. Die Schriftgroesse nur, wenn sie
+     * plausibel ist: Ein Median aus zwei Zeilen Kleingedrucktem saehe aus wie
+     * eine Grundgroesse und setzte die ganze Rechnung in Sechspunkt.
+     */
+    ...(grundgroesse !== undefined ? { inhaltGroesse: grundgroesse } : {}),
+    ...(bogen?.inhaltRaster.zeile !== undefined ? { inhaltZeile: bogen.inhaltRaster.zeile } : {}),
+    ...(bogen?.inhaltRaster.absatz !== undefined
+      ? { inhaltAbsatz: bogen.inhaltRaster.absatz }
+      : {}),
+    ...(bogen && options.kennzahlenOben !== undefined
+      ? { kennzahlenOben: options.kennzahlenOben + versatz.y }
+      : {}),
+    ...(bogen && options.textOben !== undefined
+      ? { textOben: options.textOben + versatz.y }
+      : {}),
+    ...(bogen && options.summenlabelRechts !== undefined
+      ? { summenlabelRechts: options.summenlabelRechts + versatz.x }
+      : {}),
+    ...(bogen && options.kennzahlenSpalten
+      ? {
+          kennzahlenSpalten: Object.fromEntries(
+            Object.entries(options.kennzahlenSpalten).map(([feld, x]) => [feld, x + versatz.x]),
+          ),
+        }
+      : {}),
     ...(options.datumOhneNullen !== undefined ? { datumOhneNullen: options.datumOhneNullen } : {}),
     ...(options.steuergrundlage !== undefined ? { steuergrundlage: options.steuergrundlage } : {}),
     ...(options.hinweise !== undefined ? { hinweise: options.hinweise } : {}),

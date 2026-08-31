@@ -68,6 +68,18 @@ export function buildCii(invoice: Invoice, options: CiiOptions = {}): string {
     x.leaf('ram:ID', invoice.number);
     x.leaf('ram:TypeCode', invoice.typeCode);
     dateElement(x, 'ram:IssueDateTime', invoice.issueDate);
+    /*
+     * Das Anschreiben zuerst - es steht auf dem Blatt ueber allem anderen,
+     * und die Reihenfolge der Bemerkungen ist die einzige Stelle, an der das
+     * im XML ueberhaupt ausdrueckbar ist. "AAI" ist der UNTDID-4451-Kode fuer
+     * allgemeine Angaben.
+     */
+    if (invoice.intro) {
+      x.element('ram:IncludedNote', undefined, (n) => {
+        n.leaf('ram:Content', invoice.intro);
+        n.leaf('ram:SubjectCode', 'AAI');
+      });
+    }
     for (const note of invoice.notes) {
       x.element('ram:IncludedNote', undefined, (n) => {
         n.leaf('ram:Content', note.text);
