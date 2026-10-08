@@ -22,9 +22,15 @@ npm install github:conct/einvoice#v1.0.0
 ```
 
 Das Repository ist privat; der Rechner braucht also einen Zugang zu GitHub.
-Beim Installieren läuft `prepare` und baut `dist/` — wie bei
-[conct/legal](https://github.com/conct/legal). Eine Registry ist nicht im
-Spiel.
+Eine Registry ist nicht im Spiel. **`dist/` liegt im Repository** —
+Installieren heißt klonen, nicht bauen.
+
+Der erste Versuch ging den üblichen Weg: `prepare` baut beim Installieren.
+Auf dem Uberspace wurde der Bau mitten in der Typdeklaration **vom System
+abgeschossen** (SIGKILL, Speichergrenze) — und zwar in der Auslieferung,
+nachdem das Zielverzeichnis schon gelöscht war. Ein geteilter Host gibt keinem
+Installationsschritt ein halbes Gigabyte RAM. Seitdem gilt: gebaut wird hier,
+ausgeliefert wird das Ergebnis.
 
 ```ts
 import { renderZugferdPdf, buildInvoiceXml, readEInvoice } from '@erechnung/core';
@@ -75,6 +81,23 @@ npm run build     # tsup -> dist/ (ESM + Typdeklarationen)
 npm run probe     # die gebaute Fassung in nacktem Node
 ```
 
+### Eine neue Fassung herausgeben
+
+```bash
+npm run release                      # Typen, Tests, Bau, Probe
+git add -A dist && git commit -m "…"
+git tag -a v1.0.2 -m "…" && git push origin main --tags
+```
+
+Danach im einbindenden Projekt `npm install github:conct/einvoice#v1.0.2`
+(oder die Fassung in `package.json` heraufsetzen und `npm update
+@erechnung/core`) — die Sperrdatei merkt sich den Commit, nicht den Tag.
+
+**`dist/` muss zum Quellstand passen.** Die Tests laufen gegen `src/`, der
+Bau ist ein eigener Schritt: Wer Quellen ändert und `dist/` nicht neu baut,
+gibt eine Fassung heraus, in der beides auseinanderläuft. Dafür ist
+`npm run release` da — ein Befehl, der alles vier macht.
+
 **Warum zwei Typprüfungen.** `tsconfig.json` prüft alles mit Node-Typen,
 `tsconfig.kern.json` prüft den Kern **ohne** sie. Nur der zweite Durchgang
 merkt, wenn sich in die isomorphe Hälfte eine Node-Eigenheit einschleicht —
@@ -116,6 +139,9 @@ auf ein Unterverzeichnis zu zeigen.
 
 Rechnungswerk bindet dieses Repository seitdem über einen Tag ein. Änderungen
 gehören hierher, nicht in eine Kopie — die lief dort schon einmal auseinander.
+
+Die erste brauchbare Fassung ist **v1.0.1**. `v1.0.0` ist gelöscht: Sie baute
+beim Installieren und ließ sich auf dem Uberspace deshalb nicht installieren.
 
 ## Lizenz
 

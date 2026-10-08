@@ -12,6 +12,10 @@ import { defineConfig } from 'tsup';
  * Die fuenf Eintraege entsprechen den Unterpfaden in package.json. Ihre
  * Verzeichnistiefe muss erhalten bleiben: assets/node.js sucht die Schriften
  * ueber '../../files', also zwei Ebenen ueber sich.
+ *
+ * Ohne Quellkarten: dist/ liegt im Repository (warum, steht im README), und
+ * die Karte zu index.js allein waere 650 kB erzeugte Datei bei jeder Fassung.
+ * Wer sie zum Suchen braucht, baut mit `npm run build -- --sourcemap`.
  */
 export default defineConfig({
   entry: [
@@ -26,7 +30,7 @@ export default defineConfig({
   outDir: 'dist',
   dts: true,
   splitting: true,
-  sourcemap: true,
+  sourcemap: false,
   clean: true,
   treeshake: false,
 });

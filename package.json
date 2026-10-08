@@ -42,7 +42,7 @@
   ],
   "scripts": {
     "build": "tsup",
-    "prepare": "npm run build",
+    "release": "npm run typecheck && npm test && npm run build && npm run probe",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.kern.json",
     "test": "vitest run",
     "probe": "node tools/probe.mjs",
