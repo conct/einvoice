@@ -18,7 +18,7 @@
  * files/ und sind eingecheckt - so braucht weder die CI noch ein Mitarbeiter
  * eine Python-Umgebung.
  *
- *   npm run schrift --workspace @erechnung/assets
+ *   npm run schrift
  */
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
@@ -40,7 +40,7 @@ const ziel = fileURLToPath(new URL('../files/', import.meta.url));
  * Wer hier etwas streicht, muss damit rechnen, dass die Erzeugung fuer einen
  * echten Kundennamen abbricht: Zeichen ausserhalb dieser Liste werden nicht
  * etwa ersetzt, sondern gar nicht gezeichnet. Dagegen steht die Pruefung in
- * packages/einvoice-core/src/pdf/zeichenvorrat.ts.
+ * src/pdf/zeichenvorrat.ts.
  */
 const VORRAT = [
   'U+0020-007E', // Basis-Latein

@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { loadSrgbIcc } from './index';
 
-const datei = (name: string) => new URL(`../files/${name}`, import.meta.url);
+const datei = (name: string) => new URL(`../../files/${name}`, import.meta.url);
 
 /**
  * Laedt Schriften und Farbprofil im Node-Prozess. Nur fuer Server und

@@ -4,13 +4,13 @@ import fontkit from '@pdf-lib/fontkit';
 /**
  * Prueft, ob eine Schrift jedes Zeichen zeichnen kann, das im Dokument steht.
  *
- * Der Anlass ist derselbe wie bei der Glyphenpruefung in tools/validate: Eine
+ * Der Anlass ist derselbe wie bei der Glyphenpruefung in den Pruefwerkzeugen von rechnungswerk: Eine
  * Schrift, die ein Zeichen nicht kennt, beschwert sich nicht - pdf-lib setzt
  * die Glyphe 0 und die Stelle bleibt im fertigen PDF einfach leer. Kein
  * Validator sieht das, denn strukturell ist das Dokument in Ordnung.
  *
  * Seit die eingebettete Schrift nur noch das lateinische Schriftsystem
- * abdeckt (siehe packages/einvoice-assets/tools/schrift-erzeugen.mjs), ist das
+ * abdeckt (siehe tools/schrift-erzeugen.mjs), ist das
  * kein hypothetischer Fall mehr: Ein Kunde mit griechischem oder kyrillischem
  * Namen trifft ihn sofort. Lieber ein Abbruch mit klarer Meldung als eine
  * Rechnung mit einer Luecke an der Stelle des Empfaengers.
@@ -115,7 +115,7 @@ export class Zeichenpruefung {
         'Sie wuerden im PDF nicht falsch, sondern gar nicht erscheinen, deshalb ' +
         'wird die Rechnung nicht erzeugt. Abhilfe: die Zeichen im Rechnungstext ' +
         'ersetzen, oder den Zeichenvorrat der Schrift erweitern (siehe ' +
-        'packages/einvoice-assets/tools/schrift-erzeugen.mjs).',
+        'tools/schrift-erzeugen.mjs).',
     );
   }
 }

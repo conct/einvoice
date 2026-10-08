@@ -77,11 +77,36 @@ function imEigenenNetz(rechner: string): boolean {
  * Gibt die bereinigte Adresse zurueck - ohne abschliessenden Schraegstrich,
  * damit die Aufrufer sie ohne weiteres Zutun zusammensetzen koennen.
  */
+/**
+ * Minimale Deklaration von URL - absichtlich hier und nicht global.
+ *
+ * Node, Browser und die React-Native-Engines Hermes und JSC kennen URL alle,
+ * die Typen dafuer stehen aber in der DOM- bzw. der Node-Bibliothek. Die
+ * Kernbibliothek bindet keine von beiden ein, denn sonst wuerde sie Globals
+ * vorgaukeln, die auf einer der Plattformen fehlen.
+ *
+ * Global deklariert verdeckte diese Fassung aber auch das echte URL von Node -
+ * und damit brach `readFile(new URL(...))` in assets/node.ts. Deshalb steht
+ * sie nur in dieser Datei. Deklariert ist, was pruefeDienstadresse braucht;
+ * das ist zugleich die Liste dessen, was eine Umgebung koennen muss.
+ *
+ * Der Konstruktor wirft bei einer unbrauchbaren Eingabe; die aufrufende Stelle
+ * faengt das ab und macht daraus eine Meldung fuer den Nutzer.
+ */
+interface MinimaleUrl {
+  readonly protocol: string;
+  readonly hostname: string;
+  readonly port: string;
+  readonly pathname: string;
+  readonly href: string;
+}
+declare const URL: { new (input: string, base?: string): MinimaleUrl };
+
 export function pruefeDienstadresse(eingabe: string): Adressbefund {
   const text = eingabe.trim().replace(/\/+$/, '');
   if (!text) return { gut: false, grund: 'Bitte eine Adresse eingeben.' };
 
-  let zerlegt: URL;
+  let zerlegt: MinimaleUrl;
   try {
     zerlegt = new URL(text);
   } catch {

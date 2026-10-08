@@ -78,11 +78,11 @@ export interface RenderOptions {
    * Textbefehle aber auf den alten Nummern stehen - das Dokument besteht jede
    * Strukturpruefung und zeigt beim Oeffnen Buchstabensalat. Klein wird die
    * Datei stattdessen ueber eine vorbereitete Schrift, siehe
-   * packages/einvoice-assets/tools/schrift-erzeugen.mjs.
+   * tools/schrift-erzeugen.mjs.
    *
    * Bleibt als Schalter erhalten, weil der Vergleich beider Wege der einzige
-   * Weg ist, den Fehler vorzufuehren: npm run schriftprobe --workspace
-   * @erechnung/validate
+   * Weg ist, den Fehler vorzufuehren: npm run schriftprobe
+   * in den Pruefwerkzeugen von rechnungswerk
    */
   subsetFonts?: boolean;
   /**

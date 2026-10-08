@@ -7,10 +7,10 @@ import fontkit from '@pdf-lib/fontkit';
 import { renderZugferdPdf } from '../src/pdf/pdfa3';
 import { sampleInvoice } from '../src/fixtures/sample';
 import { fromBase64 } from '../src/util/base64';
-import { SRGB_ICC_BASE64 } from '../../einvoice-assets/src/icc';
+import { SRGB_ICC_BASE64 } from '../src/assets/icc';
 
 /** Dieselben vorbereiteten Teilmengen, die auch App und Dienst einbetten. */
-const schrift = (name: string) => new URL(`../../einvoice-assets/files/${name}`, import.meta.url);
+const schrift = (name: string) => new URL(`../files/${name}`, import.meta.url);
 const FESTER_ZEITPUNKT = new Date('2026-08-24T10:15:00+02:00');
 
 async function assets() {

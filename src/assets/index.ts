@@ -1,7 +1,7 @@
 export { SRGB_ICC_BASE64, SRGB_ICC_BYTE_LENGTH } from './icc';
 
 import { SRGB_ICC_BASE64, SRGB_ICC_BYTE_LENGTH } from './icc';
-import { fromBase64 } from '@erechnung/core';
+import { fromBase64 } from '../util/base64';
 
 /**
  * Dekodiert das sRGB-Profil. Das Ergebnis wird gecached, weil der Renderer es
@@ -25,10 +25,10 @@ export function loadSrgbIcc(): Uint8Array {
  *
  * Das sind vorbereitete Teilmengen von Inter, keine vollstaendigen Schnitte -
  * 30 statt 334 kB je Schnitt. Erzeugt werden sie von Hand mit
- * `npm run schrift --workspace @erechnung/assets`; welche Zeichen darin
+ * `npm run schrift`; welche Zeichen darin
  * enthalten sind, steht in tools/schrift-erzeugen.mjs.
  */
 export const FONT_MODULES = {
-  regular: '@erechnung/assets/files/Inter-Rechnung-Regular.ttf',
-  bold: '@erechnung/assets/files/Inter-Rechnung-Bold.ttf',
+  regular: '@erechnung/core/files/Inter-Rechnung-Regular.ttf',
+  bold: '@erechnung/core/files/Inter-Rechnung-Bold.ttf',
 } as const;

@@ -17,7 +17,7 @@ import {
  * Zweck der Pruefung ist, echte Schriftdateien zu beurteilen.
  */
 const datei = (name: string) =>
-  new Uint8Array(readFileSync(new URL(`../../einvoice-assets/files/${name}`, import.meta.url)));
+  new Uint8Array(readFileSync(new URL(`../files/${name}`, import.meta.url)));
 
 const REGULAR = datei('Inter-Rechnung-Regular.ttf');
 const FETT = datei('Inter-Rechnung-Bold.ttf');
