@@ -135,7 +135,9 @@ zitieren ließen. Für ein offenes Repository ist das der falsche Nachweis.
 
 Fehlerberichte und Verbesserungen sind willkommen — am liebsten mit dem
 Dokument, das falsch herauskam, oder dem, das sich nicht lesen ließ. Eine
-Rechnung sagt mehr als eine Beschreibung.
+Rechnung sagt mehr als eine Beschreibung. Als
+[Issue](https://github.com/conct/einvoice/issues) oder per Post an
+<mail@feif.space>.
 
 Wer diese Bibliothek geschäftlich einsetzt, kann ihre Pflege mitfinanzieren:
 **[GitHub Sponsors](https://github.com/sponsors/conct)**. Was dadurch nicht
