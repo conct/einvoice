@@ -3,6 +3,8 @@
 Deutsche E-Rechnungen erzeugen, lesen und prüfen — ein Paket, das überall
 dasselbe tut: in Node, im Browser und in React Native.
 
+[![Lizenz: Apache 2.0](https://img.shields.io/badge/Lizenz-Apache%202.0-blue.svg)](LICENSE)
+
 - **Datenmodell** nach EN 16931 mit den Codelisten, die dazugehören
 - **XML** als CII (ZUGFeRD 2.3 / Factur-X, XRechnung CII) und UBL (XRechnung UBL)
 - **PDF/A-3** mit eingebetteter Rechnung, Briefkopf, Tabelle und Summenblock
@@ -18,12 +20,16 @@ deshalb läuft derselbe Code in der App und auf dem Server.
 ## Einbinden
 
 ```bash
-npm install github:conct/einvoice#v1.0.0
+npm install github:conct/einvoice#v2.0.0
 ```
 
-Das Repository ist privat; der Rechner braucht also einen Zugang zu GitHub.
-Eine Registry ist nicht im Spiel. **`dist/` liegt im Repository** —
-Installieren heißt klonen, nicht bauen.
+Keine Registry im Spiel, und **`dist/` liegt im Repository** — Installieren
+heißt klonen, nicht bauen. Ohne SSH-Schlüssel auf dem Rechner geht es über
+HTTPS:
+
+```bash
+npm install git+https://github.com/conct/einvoice.git#v2.0.0
+```
 
 Der erste Versuch ging den üblichen Weg: `prepare` baut beim Installieren.
 Auf dem Uberspace wurde der Bau mitten in der Typdeklaration **vom System
@@ -44,7 +50,6 @@ const { pdf, xml } = await renderZugferdPdf(rechnung, { assets });
 |---|---|
 | `@erechnung/core` | Modell, XML, PDF, Empfang, DATEV, Übernahme |
 | `@erechnung/core/fixtures` | Beispielrechnungen für Tests und Vorschauen |
-| `@erechnung/core/lizenz` | Lizenzschlüssel (kein E-Rechnungsthema, siehe unten) |
 | `@erechnung/core/assets` | sRGB-Profil, Pfade der Schriftdateien |
 | `@erechnung/core/assets/node` | derselbe Satz, aus dem Dateisystem geladen |
 | `@erechnung/core/files/*` | die Dateien selbst, für Bundler und `require` |
@@ -67,7 +72,7 @@ Vergleichsläufe gegen fremde Rechnungen bleiben in
 Prüfregelsätze und etliche Megabyte Testbestand dran. Wer an der Ausgabe
 dieses Pakets etwas ändert, prüft dort nach.
 
-Mitgekommen ist nur, was ohne Zubehör läuft: 254 Tests über 23 Dateien, die
+Mitgekommen ist nur, was ohne Zubehör läuft: 222 Tests über 21 Dateien, die
 jeden Weg einmal gehen, und `npm run probe` — eine Rechnung durch XML, PDF,
 Anhang und zurück ins Modell, gegen das **gebaute** Paket.
 
@@ -75,7 +80,7 @@ Anhang und zurück ins Modell, gegen das **gebaute** Paket.
 
 ```bash
 npm install
-npm test          # vitest, 254 Tests
+npm test          # vitest, 222 Tests
 npm run typecheck # zwei Durchgänge, siehe unten
 npm run build     # tsup -> dist/ (ESM + Typdeklarationen)
 npm run probe     # die gebaute Fassung in nacktem Node
@@ -111,28 +116,44 @@ unter Metro, Vite und vitest.
 ## Schriften und Farbprofil
 
 Unter `files/` liegen zwei vorbereitete Teilmengen von **Inter** — 30 statt
-334 kB je Schnitt — und das Profil **sRGB IEC61966-2.1**, ohne das eine Datei
-kein gültiges PDF/A ist. Erneuert werden die Schriften mit `npm run schrift`;
-welche Zeichen sie abdecken, steht in `tools/schrift-erzeugen.mjs`.
+334 kB je Schnitt — und das sRGB-Profil, ohne das eine Datei kein gültiges
+PDF/A ist. Erneuert werden die Schriften mit `npm run schrift`, das Profil mit
+`npm run icc`; welche Zeichen die Schriften abdecken, steht in
+`tools/schrift-erzeugen.mjs`.
 
-Inter steht unter der SIL Open Font License, der Text liegt als
-`files/Inter-OFL.txt` daneben. **Die Weitergabebedingungen des ICC-Profils
-sind noch nicht geprüft** — das muss geschehen, bevor dieses Repository
-öffentlich wird.
+Beides darf weitergegeben werden, und beides ist belegt: Inter steht unter der
+SIL Open Font License (Text in `files/Inter-OFL.txt`), das Farbprofil ist das
+v2-sRGB-Profil des **International Color Consortium**, dessen Bedingungen das
+Weitergeben und Einbetten ausdrücklich ohne Einschränkung erlauben. Wortlaut
+und Fundstellen in [LIZENZEN.md](LIZENZEN.md).
 
-## Zwei Dinge, die hier eigentlich nicht hingehören
+Bis zum 08.10.2026 lag hier stattdessen das Systemprofil von Windows —
+derselbe Farbraum, aber eine Kopie, deren Weitergabebedingungen sich nicht
+zitieren ließen. Für ein offenes Repository ist das der falsche Nachweis.
 
-`lizenz/schluessel` und `lizenz/dienstadresse` stellen Lizenzschlüssel aus und
-prüfen sie. Das ist kein E-Rechnungsthema, aber die Stelle, die
-Ausstellungswerkzeug und App gemeinsam einbinden müssen — lägen sie
-auseinander, könnte das Werkzeug etwas ausstellen, das die App ablehnt. Wer
-dieses Paket nur für Rechnungen benutzt, lässt den Unterpfad einfach liegen.
+## Mitmachen und mittragen
+
+Fehlerberichte und Verbesserungen sind willkommen — am liebsten mit dem
+Dokument, das falsch herauskam, oder dem, das sich nicht lesen ließ. Eine
+Rechnung sagt mehr als eine Beschreibung.
+
+Wer diese Bibliothek geschäftlich einsetzt, kann ihre Pflege mitfinanzieren:
+**[GitHub Sponsors](https://github.com/sponsors/conct)**. Was dadurch nicht
+passiert: Die Bibliothek bleibt Apache-2.0, die Prüfläufe bleiben öffentlich,
+und niemand bekommt einen Vorrang bei Fehlern, der Geld kostet. Bezahlt wird
+damit das, was an einer Normbibliothek wirklich Arbeit macht — jeder
+Korrigendum, jede neue XRechnung-Fassung, jeder Prüfregelsatz, der sich ändert.
+
+Getragen wird die Pflege vom Produkt, das auf dieser Bibliothek aufsetzt:
+**[Rechnungswerk](https://rechnungswerk.conct.de)**. Dort liegen Oberflächen,
+Dienste und der laufende Konformitätsnachweis; hier liegt die Formatschicht,
+und die ist offen, weil eine Pflicht, die alle trifft, kein Geschäftsmodell
+sein sollte.
 
 ## Herkunft
 
-Herausgelöst aus [conct/rechnungswerk](https://github.com/conct/rechnungswerk)
-(Stand 6cb69c0, 08.10.2026), vorher `packages/einvoice-core` und
-`packages/einvoice-assets`. Die Geschichte beider Pakete ist mitgenommen, die
+Herausgelöst aus `conct/rechnungswerk` (privates Repository, Stand 6cb69c0,
+08.10.2026), vorher `packages/einvoice-core` und `packages/einvoice-assets`. Die Geschichte beider Pakete ist mitgenommen, die
 Commits davor stehen also hier. Aus den zwei Paketen ist eines geworden, weil
 npm ein Repository nur als **ein** Paket einbinden kann: Es gibt keinen Weg,
 auf ein Unterverzeichnis zu zeigen.
@@ -140,9 +161,23 @@ auf ein Unterverzeichnis zu zeigen.
 Rechnungswerk bindet dieses Repository seitdem über einen Tag ein. Änderungen
 gehören hierher, nicht in eine Kopie — die lief dort schon einmal auseinander.
 
-Die erste brauchbare Fassung ist **v1.0.1**. `v1.0.0` ist gelöscht: Sie baute
-beim Installieren und ließ sich auf dem Uberspace deshalb nicht installieren.
+Zwei Fassungen und ihr Grund:
+
+- **v1.0.1** ist die erste installierbare. `v1.0.0` ist gelöscht — sie baute
+  beim Installieren und ließ sich auf einem geteilten Host nicht installieren.
+- **v2.0.0** ist die erste öffentliche. Zwei Dinge haben sich geändert: Der
+  Unterpfad `./lizenz` ist fort — er stellte die Produktschlüssel von
+  Rechnungswerk aus, enthielt dessen Preisliste und gehört nicht in eine
+  offene Bibliothek. Und das Farbprofil ist das des ICC, nicht mehr das von
+  Windows.
 
 ## Lizenz
 
-UNLICENSED. Alle Rechte vorbehalten, Daniel von Lühmann.
+**Apache License 2.0** — Text in [LICENSE](LICENSE). Verwenden, verändern und
+weitergeben ist erlaubt, auch geschäftlich und in geschlossenen Produkten;
+verlangt sind Namensnennung und der Hinweis auf Änderungen.
+
+Die Dateien unter `files/` stammen nicht von hier und haben eigene
+Bedingungen: Inter unter der SIL Open Font License, das Farbprofil vom
+International Color Consortium. Beides erlaubt die Weitergabe; Fundstellen und
+Wortlaut stehen in [LIZENZEN.md](LIZENZEN.md).

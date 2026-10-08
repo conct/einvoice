@@ -1,4 +1,10 @@
 import {
+  fromBase64,
+  toBase64,
+  utf8Decode,
+  utf8Encode
+} from "./chunk-BJGX7GXP.js";
+import {
   AddressSchema,
   AllowanceChargeSchema,
   AttachmentSchema,
@@ -16,23 +22,6 @@ import {
   parseInvoice,
   toCiiDate
 } from "./chunk-F5JTQAFO.js";
-import {
-  PRODUKTE,
-  anschlussBis,
-  erzeugeSchluesselpaar,
-  euroText,
-  istProdukt,
-  laufzeitBis,
-  pruefeDienstadresse,
-  pruefeSchluessel,
-  stelleSchluesselAus
-} from "./chunk-FT6QIVKV.js";
-import {
-  fromBase64,
-  toBase64,
-  utf8Decode,
-  utf8Encode
-} from "./chunk-BJGX7GXP.js";
 
 // src/model/codes.ts
 var INVOICE_TYPE_CODES = {
@@ -6594,7 +6583,6 @@ export {
   LineSchema,
   MAX_SCHRIFT_BYTES,
   PAYMENT_MEANS,
-  PRODUKTE,
   PROFILE_ID,
   PartySchema,
   PaymentSchema,
@@ -6618,7 +6606,6 @@ export {
   alsGraustufenPng,
   alsHex,
   alsSvg,
-  anschlussBis,
   anschriftenAus,
   bankverbindungImBogen,
   belegteFlaechen,
@@ -6634,9 +6621,7 @@ export {
   decimal,
   detectKind,
   entschluesseleCcitt,
-  erzeugeSchluesselpaar,
   escapeXml,
-  euroText,
   extractAttachments,
   extractInvoiceXml,
   familienkern,
@@ -6659,11 +6644,9 @@ export {
   istDebitorennummer,
   istKleinunternehmerRechnung,
   istPng,
-  istProdukt,
   kennungVon,
   kennzahlenrahmen,
   laufbreite,
-  laufzeitBis,
   liefereBreiten,
   liesBogendatei,
   liesBriefpapier,
@@ -6681,8 +6664,6 @@ export {
   positionenAus,
   profilAus,
   pruefeAlleStellungen,
-  pruefeDienstadresse,
-  pruefeSchluessel,
   pruefeSchrift,
   pruefeSchriftpaar,
   pruefeStellung,
@@ -6703,7 +6684,6 @@ export {
   setzeMitVorlagenschrift,
   signaturVon,
   specificationAge,
-  stelleSchluesselAus,
   steuerfallFuer,
   sum,
   summarizeTotals,

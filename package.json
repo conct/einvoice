@@ -1,8 +1,8 @@
 {
   "name": "@erechnung/core",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Deutsche E-Rechnung: EN 16931 Datenmodell, CII/UBL XML, PDF/A-3 (ZUGFeRD 2.3 / Factur-X, XRechnung) - isomorph fuer Node, Browser und React Native",
-  "license": "UNLICENSED",
+  "license": "Apache-2.0",
   "author": "Daniel von Lühmann",
   "repository": {
     "type": "git",
@@ -21,10 +21,6 @@
       "types": "./dist/fixtures/sample.d.ts",
       "default": "./dist/fixtures/sample.js"
     },
-    "./lizenz": {
-      "types": "./dist/lizenz/schluessel.d.ts",
-      "default": "./dist/lizenz/schluessel.js"
-    },
     "./assets": {
       "types": "./dist/assets/index.d.ts",
       "default": "./dist/assets/index.js"
@@ -35,10 +31,27 @@
     },
     "./files/*": "./files/*"
   },
+  "keywords": [
+    "e-rechnung",
+    "zugferd",
+    "factur-x",
+    "xrechnung",
+    "en16931",
+    "pdfa3",
+    "cii",
+    "ubl",
+    "datev",
+    "invoice"
+  ],
+  "homepage": "https://github.com/conct/einvoice#readme",
+  "bugs": "https://github.com/conct/einvoice/issues",
   "files": [
     "dist",
     "files",
-    "README.md"
+    "README.md",
+    "LICENSE",
+    "NOTICE",
+    "LIZENZEN.md"
   ],
   "scripts": {
     "build": "tsup",
@@ -46,7 +59,8 @@
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.kern.json",
     "test": "vitest run",
     "probe": "node tools/probe.mjs",
-    "schrift": "node tools/schrift-erzeugen.mjs"
+    "schrift": "node tools/schrift-erzeugen.mjs",
+    "icc": "node tools/icc-erzeugen.mjs"
   },
   "dependencies": {
     "@pdf-lib/fontkit": "^1.1.1",

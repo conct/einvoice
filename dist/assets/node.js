@@ -1,6 +1,6 @@
 import {
   loadSrgbIcc
-} from "../chunk-3FXPC7VK.js";
+} from "../chunk-H4RAYUF3.js";
 import "../chunk-BJGX7GXP.js";
 
 // src/assets/node.ts

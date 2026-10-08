@@ -1,7 +1,6 @@
 import { V as Vat, I as Invoice, L as Line, b as InvoiceInput } from './invoice-BoN0H4V6.js';
 export { A as Address, c as AddressSchema, d as AllowanceCharge, e as AllowanceChargeSchema, f as Attachment, g as AttachmentSchema, C as ContactSchema, E as ElectronicAddressSchema, a as InvoiceProfile, h as InvoiceProfileSchema, i as InvoiceSchema, j as LineSchema, P as Party, k as PartySchema, l as Payment, m as PaymentSchema, n as VatSchema, p as parseInvoice } from './invoice-BoN0H4V6.js';
 import { RGB, PDFFont, rgb, PDFPage, PDFDocument } from 'pdf-lib';
-export { LizenzInhalt, LizenzStufe, Lizenzbefund, PRODUKTE, Produkt, Schluesselmaterial, anschlussBis, erzeugeSchluesselpaar, euroText, istProdukt, laufzeitBis, pruefeSchluessel, stelleSchluesselAus } from './lizenz/schluessel.js';
 import 'zod';
 
 /**
@@ -1189,51 +1188,6 @@ declare function istPng(bytes: Uint8Array): boolean;
  * beschaedigte Datei frueh zu erkennen.
  */
 declare function pngFarbtyp(bytes: Uint8Array): number | undefined;
-
-/**
- * Welche Dienstadressen zulaessig sind.
- *
- * Eine Regel, drei Anwender: die Einstellung in der App, die Pruefung eines
- * Lizenzschluessels mit `dienst`, und das Ausstellungswerkzeug. Lagen sie
- * auseinander, koennte ein Werkzeug etwas ausstellen, das die App danach
- * ablehnt - der Kunde haette bezahlt und stuende vor einer Fehlermeldung.
- *
- * ## Warum nicht einfach "nur https"
- *
- * Das war die erste Fassung, und sie war falsch. Fuer einen Dienst im eigenen
- * Netz - ein Raspberry Pi unter dem Schreibtisch, ein NAS im Serverschrank -
- * gibt es kein oeffentliches Zertifikat: Keine Zertifizierungsstelle stellt
- * eines fuer 192.168.1.50 aus, und das ist auch richtig so, denn diese Adresse
- * gehoert in jedem Netz jemand anderem.
- *
- * "Nur https" haette damit ausgerechnet den Fall ausgeschlossen, der bei
- * Rechnungsdaten am ueberzeugendsten ist: Die Daten verlassen das Gebaeude
- * nicht.
- *
- * ## Die Regel
- *
- *  - **https ueberall.** Der Normalfall, keine Einschraenkung.
- *  - **http nur im eigenen Netz** - Rueckschleife, die privaten Bereiche nach
- *    RFC 1918, die Verbindungslokalen nach RFC 3927, und Namen auf `.local`.
- *  - **http sonst nirgends.** Ueber diese Verbindung gehen Kundennamen, Preise
- *    und Margen; im offenen Netz liest sie jeder mit, der dazwischen sitzt.
- *
- * ## Was diese Regel nicht leistet
- *
- * Sie schuetzt nicht vor jemandem, der **im selben Netz sitzt** - im
- * Hotel-WLAN oder im Gaestenetz eines Kunden. Wer dort eine private Adresse
- * eintraegt, vertraut dem Netz. Das ist eine bewusste Abwaegung: Ein
- * Firmennetz, dem man nicht traut, hat groessere Probleme als diese App.
- */
-type Adressbefund = {
-    gut: true;
-    adresse: string;
-    oertlich: boolean;
-} | {
-    gut: false;
-    grund: string;
-};
-declare function pruefeDienstadresse(eingabe: string): Adressbefund;
 
 /**
  * Ein Word-Dokument aufschluesseln.
@@ -2892,4 +2846,4 @@ declare function buildInvoiceXml(invoice: Invoice): {
     filename: string;
 };
 
-export { A4, type Absenderprofil, type Adressbefund, type Anschrift, BOGENDATEI_ART, BOGENDATEI_FASSUNG, BUNDLED_SPECIFICATIONS, type Beschriftung, type Beschriftungen, type Bildart, type Bogenbefund, type Bogendatei, type Bogenmangel, type Bogenquelle, type Breiten, type Briefpapier, type CcittAngaben, type CiiOptions, type Cp1252Ergebnis, DEFAULT_THEME, type DatevErgebnis, type DatevMandant, type DatevOptionen, type DeclaredTotals, EAS, EInvoiceError, type EInvoiceErrorCode, type Erloeskonto, type ExtractedAttachment, type FacturXConformanceLevel, type Farbe, type Fehlerbild, type Feld, type Flaeche, type Folgeart, type Fund, type Herkunft, INVOICE_TYPE_CODES, type Identitaet, Invoice, InvoiceInput, type InvoiceSyntax, type InvoiceTotals, type InvoiceTypeCode, type IsoDate, type Kennzahlenstellung, type Kontenrahmen, type Kreis, Line, MAX_SCHRIFT_BYTES, PAYMENT_MEANS, PROFILE_ID, type ParsedInvoice, type PaymentMeansCode, type PdfText, type Pfad, RECHNUNGSZEICHEN, ROLLEN, type Rahmen, type ReceivedInvoice, type RenderAssets, type RenderOptions, type RenderResult, SKR03, SKR04, STANDARD_BESCHRIFTUNGEN, type Schriftbefund, type Schriftmangel, type Seitenbild, type Severity, type Sicherheit, type SourceKind, type Spaltenrolle, type SpecificationAge, type SpecificationEntry, SpecificationError, type SpecificationSet, type Stammdatenfund, type Stellungsbefund, type Steuerfall, type Strich, type Tabellenbefund, type Textlauf, type Textseite, type Textstueck, type Textzeile, type Theme, UNIT, type UblOptions, type Uebernahme, type UnitCode, VAT_CATEGORY, VORLAGEN, type ValidationIssue, type ValidationResult, Vat, type VatBreakdownEntry, type VatCategoryCode, type Vorlagenbefund, type Vorlagenschalter, type Vorlagenvorschlag, type WordAbsatz, type WordBlock, type WordDokument, type WordTabelle, XmlWriter, type XmpOptions, ZERO_RATE_CATEGORIES, type Zahlungsklausel, type Zeichenbefund, ZeichenvorratFehler, type Zuordnung, abgewandelt, activeSpecifications, addDays, alsBogendatei, alsGraustufenPng, alsHex, alsSvg, anschriftenAus, bankverbindungImBogen, belegteFlaechen, beschriftungenMit, bogenmangelText, buildCii, buildDatevBuchungsstapel, buildInvoiceXml, buildUbl, buildXmp, computeTotals, cp1252, decimal, detectKind, entschluesseleCcitt, escapeXml, extractAttachments, extractInvoiceXml, familienkern, farbeAusHex, findeFussgrenze, findeGrenze, findeStammdaten, findeStrichstaerken, findeZahlungsklausel, folgedokument, formatAmount, formatDate, formatQuantity, fromBase64, isIsoDate, isPlausibleIban, isPlausibleLeitwegId, isPlausibleVatId, istBrauchbareBeschriftung, istDebitorennummer, istKleinunternehmerRechnung, istPng, kennungVon, kennzahlenrahmen, laufbreite, liefereBreiten, liesBogendatei, liesBriefpapier, liesPdfText, liesSeitenbilder, liesWordDokument, lineNetAmount, maskeAlsGrau, nurAbweichungen, ohneUnsichtbare, parseInvoiceXml, parseSpecificationSet, pngFarbtyp, positionenAus, profilAus, pruefeAlleStellungen, pruefeDienstadresse, pruefeSchrift, pruefeSchriftpaar, pruefeStellung, pruefeZuordnung, readEInvoice, renderZugferdPdf, resetSpecifications, round, sanitizeXmlText, schalterAusVorschlag, schlageKopfzeileVor, schlageVorlageVor, schlageZuordnungVor, schriftbogenAus, schriftenImBriefkopf, schriftmangelText, setActiveSpecifications, setzeMitVorlagenschrift, signaturVon, specificationAge, steuerfallFuer, sum, summarizeTotals, tabelleAusZeilen, themaMitAkzent, toBase64, toCiiDate, uebernimmBriefpapier, utf8Decode, utf8Encode, validateInvoice, wrapText, xmpDate, zahlAus, zahlungsklauselImBogen, zeichneBriefpapier, zeilenImBogen };
+export { A4, type Absenderprofil, type Anschrift, BOGENDATEI_ART, BOGENDATEI_FASSUNG, BUNDLED_SPECIFICATIONS, type Beschriftung, type Beschriftungen, type Bildart, type Bogenbefund, type Bogendatei, type Bogenmangel, type Bogenquelle, type Breiten, type Briefpapier, type CcittAngaben, type CiiOptions, type Cp1252Ergebnis, DEFAULT_THEME, type DatevErgebnis, type DatevMandant, type DatevOptionen, type DeclaredTotals, EAS, EInvoiceError, type EInvoiceErrorCode, type Erloeskonto, type ExtractedAttachment, type FacturXConformanceLevel, type Farbe, type Fehlerbild, type Feld, type Flaeche, type Folgeart, type Fund, type Herkunft, INVOICE_TYPE_CODES, type Identitaet, Invoice, InvoiceInput, type InvoiceSyntax, type InvoiceTotals, type InvoiceTypeCode, type IsoDate, type Kennzahlenstellung, type Kontenrahmen, type Kreis, Line, MAX_SCHRIFT_BYTES, PAYMENT_MEANS, PROFILE_ID, type ParsedInvoice, type PaymentMeansCode, type PdfText, type Pfad, RECHNUNGSZEICHEN, ROLLEN, type Rahmen, type ReceivedInvoice, type RenderAssets, type RenderOptions, type RenderResult, SKR03, SKR04, STANDARD_BESCHRIFTUNGEN, type Schriftbefund, type Schriftmangel, type Seitenbild, type Severity, type Sicherheit, type SourceKind, type Spaltenrolle, type SpecificationAge, type SpecificationEntry, SpecificationError, type SpecificationSet, type Stammdatenfund, type Stellungsbefund, type Steuerfall, type Strich, type Tabellenbefund, type Textlauf, type Textseite, type Textstueck, type Textzeile, type Theme, UNIT, type UblOptions, type Uebernahme, type UnitCode, VAT_CATEGORY, VORLAGEN, type ValidationIssue, type ValidationResult, Vat, type VatBreakdownEntry, type VatCategoryCode, type Vorlagenbefund, type Vorlagenschalter, type Vorlagenvorschlag, type WordAbsatz, type WordBlock, type WordDokument, type WordTabelle, XmlWriter, type XmpOptions, ZERO_RATE_CATEGORIES, type Zahlungsklausel, type Zeichenbefund, ZeichenvorratFehler, type Zuordnung, abgewandelt, activeSpecifications, addDays, alsBogendatei, alsGraustufenPng, alsHex, alsSvg, anschriftenAus, bankverbindungImBogen, belegteFlaechen, beschriftungenMit, bogenmangelText, buildCii, buildDatevBuchungsstapel, buildInvoiceXml, buildUbl, buildXmp, computeTotals, cp1252, decimal, detectKind, entschluesseleCcitt, escapeXml, extractAttachments, extractInvoiceXml, familienkern, farbeAusHex, findeFussgrenze, findeGrenze, findeStammdaten, findeStrichstaerken, findeZahlungsklausel, folgedokument, formatAmount, formatDate, formatQuantity, fromBase64, isIsoDate, isPlausibleIban, isPlausibleLeitwegId, isPlausibleVatId, istBrauchbareBeschriftung, istDebitorennummer, istKleinunternehmerRechnung, istPng, kennungVon, kennzahlenrahmen, laufbreite, liefereBreiten, liesBogendatei, liesBriefpapier, liesPdfText, liesSeitenbilder, liesWordDokument, lineNetAmount, maskeAlsGrau, nurAbweichungen, ohneUnsichtbare, parseInvoiceXml, parseSpecificationSet, pngFarbtyp, positionenAus, profilAus, pruefeAlleStellungen, pruefeSchrift, pruefeSchriftpaar, pruefeStellung, pruefeZuordnung, readEInvoice, renderZugferdPdf, resetSpecifications, round, sanitizeXmlText, schalterAusVorschlag, schlageKopfzeileVor, schlageVorlageVor, schlageZuordnungVor, schriftbogenAus, schriftenImBriefkopf, schriftmangelText, setActiveSpecifications, setzeMitVorlagenschrift, signaturVon, specificationAge, steuerfallFuer, sum, summarizeTotals, tabelleAusZeilen, themaMitAkzent, toBase64, toCiiDate, uebernimmBriefpapier, utf8Decode, utf8Encode, validateInvoice, wrapText, xmpDate, zahlAus, zahlungsklauselImBogen, zeichneBriefpapier, zeilenImBogen };

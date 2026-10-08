@@ -9,7 +9,7 @@ import { defineConfig } from 'tsup';
  * tsup loest die Pfade beim Bauen auf; die Quellen bleiben unberuehrt und
  * laufen weiter unter Metro, Vite und vitest.
  *
- * Die fuenf Eintraege entsprechen den Unterpfaden in package.json. Ihre
+ * Die vier Eintraege entsprechen den Unterpfaden in package.json. Ihre
  * Verzeichnistiefe muss erhalten bleiben: assets/node.js sucht die Schriften
  * ueber '../../files', also zwei Ebenen ueber sich.
  *
@@ -21,7 +21,6 @@ export default defineConfig({
   entry: [
     'src/index.ts',
     'src/fixtures/sample.ts',
-    'src/lizenz/schluessel.ts',
     'src/assets/index.ts',
     'src/assets/node.ts',
   ],

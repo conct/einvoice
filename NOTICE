@@ -1,0 +1,13 @@
+@erechnung/core
+Copyright 2026 Daniel von Lühmann
+
+Dieses Werk steht unter der Apache License 2.0; der Text liegt als LICENSE bei.
+
+Mitgelieferte Daten unter files/ stehen unter eigenen Bedingungen, die die
+Apache-Lizenz nicht ersetzt oder erweitert:
+
+- Inter-Rechnung-Regular.ttf, Inter-Rechnung-Bold.ttf — aus Inter abgeleitete
+  Teilmengen. SIL Open Font License 1.1, Text in files/Inter-OFL.txt.
+- sRGB2014.icc — sRGB-v2-Profil des International Color Consortium.
+
+Einzelheiten und Fundstellen stehen in LIZENZEN.md.

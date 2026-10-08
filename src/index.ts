@@ -32,25 +32,6 @@ export { ZeichenvorratFehler, ohneUnsichtbare } from './pdf/zeichenvorrat';
 export { A4, DEFAULT_THEME, wrapText, type Theme } from './pdf/layout';
 export { farbeAusHex, istPng, pngFarbtyp, themaMitAkzent } from './pdf/gestaltung';
 
-// Lizenzschluessel fuer den Kauf im Browser. Kein E-Rechnungsthema, aber die
-// Stelle, die Ausstellungswerkzeug und App gemeinsam einbinden.
-export {
-  anschlussBis,
-  erzeugeSchluesselpaar,
-  euroText,
-  istProdukt,
-  laufzeitBis,
-  pruefeSchluessel,
-  stelleSchluesselAus,
-  PRODUKTE,
-  type Lizenzbefund,
-  type LizenzInhalt,
-  type LizenzStufe,
-  type Produkt,
-  type Schluesselmaterial,
-} from './lizenz/schluessel';
-export { pruefeDienstadresse, type Adressbefund } from './lizenz/dienstadresse';
-
 // Word-Dokumente aufschluesseln - die Umzugshilfe fuer alle, die ihre
 // Rechnungen bisher in Word schreiben. Deutet nichts, holt nur heraus.
 export {

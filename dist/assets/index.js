@@ -3,7 +3,7 @@ import {
   SRGB_ICC_BASE64,
   SRGB_ICC_BYTE_LENGTH,
   loadSrgbIcc
-} from "../chunk-3FXPC7VK.js";
+} from "../chunk-H4RAYUF3.js";
 import "../chunk-BJGX7GXP.js";
 export {
   FONT_MODULES,
