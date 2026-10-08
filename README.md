@@ -10,7 +10,6 @@ dasselbe tut: in Node, im Browser und in React Native.
 - **PDF/A-3** mit eingebetteter Rechnung, Briefkopf, Tabelle und Summenblock
 - **Empfang**: Anhänge aus einem hybriden PDF holen, XML einlesen, Summen
   nachrechnen, statt sie zu glauben
-- **DATEV-Buchungsstapel** mit SKR03 und SKR04
 - **Übernahme** aus Word und aus fremden PDF-Rechnungen, samt Briefbogen
 
 Kein Zugriff auf Dateisystem, DOM oder plattformeigene Krypto. Binärdaten —
@@ -20,7 +19,7 @@ deshalb läuft derselbe Code in der App und auf dem Server.
 ## Einbinden
 
 ```bash
-npm install github:conct/einvoice#v2.0.0
+npm install github:conct/einvoice#v3.0.0
 ```
 
 Keine Registry im Spiel, und **`dist/` liegt im Repository** — Installieren
@@ -28,7 +27,7 @@ heißt klonen, nicht bauen. Ohne SSH-Schlüssel auf dem Rechner geht es über
 HTTPS:
 
 ```bash
-npm install git+https://github.com/conct/einvoice.git#v2.0.0
+npm install git+https://github.com/conct/einvoice.git#v3.0.0
 ```
 
 Der erste Versuch ging den üblichen Weg: `prepare` baut beim Installieren.
@@ -48,7 +47,7 @@ const { pdf, xml } = await renderZugferdPdf(rechnung, { assets });
 
 | Unterpfad | Inhalt |
 |---|---|
-| `@erechnung/core` | Modell, XML, PDF, Empfang, DATEV, Übernahme |
+| `@erechnung/core` | Modell, XML, PDF, Empfang, Übernahme |
 | `@erechnung/core/fixtures` | Beispielrechnungen für Tests und Vorschauen |
 | `@erechnung/core/assets` | sRGB-Profil, Pfade der Schriftdateien |
 | `@erechnung/core/assets/node` | derselbe Satz, aus dem Dateisystem geladen |
@@ -65,6 +64,11 @@ const SCHRIFTEN = {
 
 ## Was hier **nicht** liegt
 
+**Der DATEV-Buchungsstapel.** Er lag bis v2.0.0 hier und ist mit v3.0.0
+herausgenommen: Ein Buchungsstapel ist kein E-Rechnungsformat, sondern eine
+Leistung des Produkts. Wer ihn braucht, baut ihn aus dem Datenmodell dieser
+Bibliothek — die Summen, Steuerfälle und Positionen stehen alle darin.
+
 **Die Konformitätsprüfung.** Schematron-Regeln, veraPDF und die
 Vergleichsläufe gegen fremde Rechnungen bleiben in
 [rechnungswerk](https://github.com/conct/rechnungswerk) unter
@@ -72,7 +76,7 @@ Vergleichsläufe gegen fremde Rechnungen bleiben in
 Prüfregelsätze und etliche Megabyte Testbestand dran. Wer an der Ausgabe
 dieses Pakets etwas ändert, prüft dort nach.
 
-Mitgekommen ist nur, was ohne Zubehör läuft: 222 Tests über 21 Dateien, die
+Mitgekommen ist nur, was ohne Zubehör läuft: 206 Tests über 20 Dateien, die
 jeden Weg einmal gehen, und `npm run probe` — eine Rechnung durch XML, PDF,
 Anhang und zurück ins Modell, gegen das **gebaute** Paket.
 
@@ -80,7 +84,7 @@ Anhang und zurück ins Modell, gegen das **gebaute** Paket.
 
 ```bash
 npm install
-npm test          # vitest, 222 Tests
+npm test          # vitest, 206 Tests
 npm run typecheck # zwei Durchgänge, siehe unten
 npm run build     # tsup -> dist/ (ESM + Typdeklarationen)
 npm run probe     # die gebaute Fassung in nacktem Node
@@ -172,6 +176,9 @@ Zwei Fassungen und ihr Grund:
   Rechnungswerk aus, enthielt dessen Preisliste und gehört nicht in eine
   offene Bibliothek. Und das Farbprofil ist das des ICC, nicht mehr das von
   Windows.
+- **v3.0.0** nimmt den DATEV-Stapel heraus, samt Kontenrahmen und der
+  CP1252-Kodierung, die nur er brauchte. Dieselbe Überlegung: Format offen,
+  Buchhaltung beim Produkt.
 
 ## Lizenz
 

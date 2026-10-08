@@ -1892,21 +1892,21 @@ async function liesPdfText(bytes) {
     });
     seiten.push({ zeilen: zuZeilen(stuecke) });
   }
-  const text2 = seiten.flatMap((seite) => seite.zeilen.map((zeile2) => zeile2.text)).join("\n");
+  const text2 = seiten.flatMap((seite) => seite.zeilen.map((zeile) => zeile.text)).join("\n");
   return { seiten, text: text2, leer: text2.trim().length === 0 };
 }
 function zuZeilen(stuecke) {
   const zeilen = [];
   for (const stueck of [...stuecke].sort((a, b) => b.y - a.y || a.x - b.x)) {
-    const passend = zeilen.find((zeile2) => Math.abs(zeile2.y - stueck.y) <= ZEILENTOLERANZ);
+    const passend = zeilen.find((zeile) => Math.abs(zeile.y - stueck.y) <= ZEILENTOLERANZ);
     if (passend) passend.stuecke.push(stueck);
     else zeilen.push({ y: stueck.y, stuecke: [stueck], text: "" });
   }
-  for (const zeile2 of zeilen) {
-    zeile2.stuecke.sort((a, b) => a.x - b.x);
+  for (const zeile of zeilen) {
+    zeile.stuecke.sort((a, b) => a.x - b.x);
     let text2 = "";
     let ende;
-    for (const stueck of zeile2.stuecke) {
+    for (const stueck of zeile.stuecke) {
       const inhalt = stueck.text;
       if (!inhalt.trim()) continue;
       if (text2 && ende !== void 0) {
@@ -1916,9 +1916,9 @@ function zuZeilen(stuecke) {
       text2 += inhalt;
       ende = stueck.x + stueck.breite;
     }
-    zeile2.text = text2.replace(/\s+/g, " ").trim();
+    zeile.text = text2.replace(/\s+/g, " ").trim();
   }
-  return zeilen.filter((zeile2) => zeile2.text.length > 0);
+  return zeilen.filter((zeile) => zeile.text.length > 0);
 }
 
 // src/parse/pdf-gestaltung.ts
@@ -1984,10 +1984,10 @@ function findeGrenze(zeilen, seitenhoehe) {
   const unten = seitenhoehe * 0.6;
   const oben = seitenhoehe * 0.88;
   const sortiert = [...zeilen].sort((a, b) => b.y - a.y);
-  for (const [stelle, zeile2] of sortiert.entries()) {
-    if (zeile2.y < unten || zeile2.y > oben) continue;
-    if (!PLZ_ZEILE.test(zeile2.text)) continue;
-    let kopf = zeile2;
+  for (const [stelle, zeile] of sortiert.entries()) {
+    if (zeile.y < unten || zeile.y > oben) continue;
+    if (!PLZ_ZEILE.test(zeile.text)) continue;
+    let kopf = zeile;
     let hoch = stelle - 1;
     while (hoch >= 0) {
       const darueber = sortiert[hoch];
@@ -1995,7 +1995,7 @@ function findeGrenze(zeilen, seitenhoehe) {
       kopf = darueber;
       hoch -= 1;
     }
-    if (kopf === zeile2 && !STRASSENZEILE.test(zeile2.text)) continue;
+    if (kopf === zeile && !STRASSENZEILE.test(zeile.text)) continue;
     return kopf.y + kopf.hoehe;
   }
   return seitenhoehe * 0.8;
@@ -2005,7 +2005,7 @@ var FUSSBLOCK = 2.5;
 var FUSSABSTAND = 4;
 var SEITENZAHL = /^\s*(Seite\s+\d+(\s*(von|\/)\s*\d+)?|\d+\s*\/\s*\d+)\s*$/i;
 function findeFussgrenze(zeilen, seitenhoehe) {
-  const sortiert = [...zeilen].filter((zeile2) => !SEITENZAHL.test(zeile2.text)).sort((a, b) => a.y - b.y);
+  const sortiert = [...zeilen].filter((zeile) => !SEITENZAHL.test(zeile.text)).sort((a, b) => a.y - b.y);
   const unterste = sortiert[0];
   if (!unterste || unterste.y > seitenhoehe * FUSSZONE) return 0;
   let kopf = unterste;
@@ -2295,9 +2295,9 @@ async function liesBriefpapier(bytes, seite = 0) {
     }
   });
   const texte = [];
-  for (const zeile2 of gelesen.seiten[seite]?.zeilen ?? []) {
-    if (!imBriefpapier(zeile2.y)) continue;
-    for (const stueck of zeile2.stuecke) {
+  for (const zeile of gelesen.seiten[seite]?.zeilen ?? []) {
+    if (!imBriefpapier(zeile.y)) continue;
+    for (const stueck of zeile.stuecke) {
       texte.push({
         x: stueck.x,
         y: stueck.y,
@@ -2333,7 +2333,7 @@ async function liesBriefpapier(bytes, seite = 0) {
     ...findeStrichstaerken(
       inhaltspfade,
       (gelesen.seiten[seite]?.zeilen ?? []).filter(
-        (zeile2) => zeile2.y <= grenze && (fussgrenze <= 0 || zeile2.y >= fussgrenze)
+        (zeile) => zeile.y <= grenze && (fussgrenze <= 0 || zeile.y >= fussgrenze)
       )
     ),
     ...findeAnschriftzeile(gelesen.seiten[seite]?.zeilen ?? [], grenze, fussgrenze),
@@ -2354,15 +2354,15 @@ function findeTextfarbe(laeufe) {
 }
 function findeAnschriftzeile(zeilen, grenze, fussgrenze) {
   const oberste = zeilen.filter(
-    (zeile2) => zeile2.y <= grenze && (fussgrenze <= 0 || zeile2.y >= fussgrenze) && zeile2.text.trim().length > 0
+    (zeile) => zeile.y <= grenze && (fussgrenze <= 0 || zeile.y >= fussgrenze) && zeile.text.trim().length > 0
   ).sort((eins, zwei) => zwei.y - eins.y)[0];
   return oberste ? { anschriftZeile: Math.round(oberste.y * 100) / 100 } : {};
 }
 function findeInhaltskante(zeilen, grenze, fussgrenze) {
   const zaehler = /* @__PURE__ */ new Map();
-  for (const zeile2 of zeilen) {
-    if (zeile2.y > grenze || fussgrenze > 0 && zeile2.y < fussgrenze) continue;
-    const x = zeile2.stuecke[0]?.x;
+  for (const zeile of zeilen) {
+    if (zeile.y > grenze || fussgrenze > 0 && zeile.y < fussgrenze) continue;
+    const x = zeile.stuecke[0]?.x;
     if (x === void 0) continue;
     const fach = Math.round(x / 5) * 5;
     const bisher = zaehler.get(fach);
@@ -2384,7 +2384,7 @@ function findeStrichstaerken(pfade, inhaltszeilen = []) {
   const groesste = Math.max(...staerken);
   if (haeufigste === void 0 || groesste <= haeufigste) return {};
   const breiteste = pfade.filter((pfad) => pfad.strich).sort((eins, zwei) => zwei.rahmen.x2 - zwei.rahmen.x1 - (eins.rahmen.x2 - eins.rahmen.x1))[0];
-  const darunter = breiteste ? inhaltszeilen.filter((zeile2) => zeile2.y < breiteste.rahmen.y1).sort((eins, zwei) => zwei.y - eins.y)[0] : void 0;
+  const darunter = breiteste ? inhaltszeilen.filter((zeile) => zeile.y < breiteste.rahmen.y1).sort((eins, zwei) => zwei.y - eins.y)[0] : void 0;
   const abstand = breiteste && darunter ? Math.round((breiteste.rahmen.y1 - darunter.y) * 10) / 10 : void 0;
   let ton;
   let dunkelheit = -1;
@@ -2407,9 +2407,9 @@ function findeStrichstaerken(pfade, inhaltszeilen = []) {
   };
 }
 function findeWaehrungswort(zeilen, grenze, fussgrenze) {
-  for (const zeile2 of zeilen) {
-    if (zeile2.y > grenze || fussgrenze > 0 && zeile2.y < fussgrenze) continue;
-    const treffer = /\d[\d.]*,\d{2}\s*(Euro|EUR|€)(?![A-Za-z])/.exec(zeile2.text);
+  for (const zeile of zeilen) {
+    if (zeile.y > grenze || fussgrenze > 0 && zeile.y < fussgrenze) continue;
+    const treffer = /\d[\d.]*,\d{2}\s*(Euro|EUR|€)(?![A-Za-z])/.exec(zeile.text);
     if (treffer?.[1]) return { waehrungswort: treffer[1] };
   }
   return {};
@@ -2418,9 +2418,9 @@ var MIN_ZEILE = 6;
 var MAX_ABSATZ = 60;
 function messeInhaltsschrift(zeilen, grenze, fussgrenze) {
   const groessen = [];
-  for (const zeile2 of zeilen) {
-    if (zeile2.y > grenze || fussgrenze > 0 && zeile2.y < fussgrenze) continue;
-    for (const stueck of zeile2.stuecke) groessen.push(Math.abs(stueck.groesse));
+  for (const zeile of zeilen) {
+    if (zeile.y > grenze || fussgrenze > 0 && zeile.y < fussgrenze) continue;
+    for (const stueck of zeile.stuecke) groessen.push(Math.abs(stueck.groesse));
   }
   if (groessen.length === 0) return { median: 0, groesste: 0 };
   groessen.sort((eins, zwei) => eins - zwei);
@@ -2433,9 +2433,9 @@ var PROBE_MINDESTLAENGE = 6;
 var PROBE_HOECHSTZAHL = 20;
 function sammleProben(zeilen, grenze, fussgrenze) {
   const proben = [];
-  for (const zeile2 of zeilen) {
-    if (zeile2.y > grenze || fussgrenze > 0 && zeile2.y < fussgrenze) continue;
-    for (const stueck of zeile2.stuecke) {
+  for (const zeile of zeilen) {
+    if (zeile.y > grenze || fussgrenze > 0 && zeile.y < fussgrenze) continue;
+    for (const stueck of zeile.stuecke) {
       if (proben.length >= PROBE_HOECHSTZAHL) return proben;
       const text2 = stueck.text.trim();
       if (text2.length < PROBE_MINDESTLAENGE || stueck.breite <= 0 || stueck.groesse <= 0) continue;
@@ -2458,12 +2458,12 @@ function messeRaster(zeilen, grenze, fussgrenze) {
     zaehler.set(abstand, (zaehler.get(abstand) ?? 0) + 1);
   }
   const mehrfach = [...zaehler.entries()].filter(([, anzahl]) => anzahl >= 2).map(([abstand]) => abstand).sort((eins, zwei) => eins - zwei);
-  const zeile2 = mehrfach[0];
-  if (zeile2 === void 0) return {};
+  const zeile = mehrfach[0];
+  if (zeile === void 0) return {};
   const absatz = mehrfach.find(
-    (kandidat) => kandidat > zeile2 && Math.abs(kandidat / zeile2 - Math.round(kandidat / zeile2)) < 0.05
+    (kandidat) => kandidat > zeile && Math.abs(kandidat / zeile - Math.round(kandidat / zeile)) < 0.05
   );
-  return { zeile: zeile2, ...absatz !== void 0 ? { absatz } : {} };
+  return { zeile, ...absatz !== void 0 ? { absatz } : {} };
 }
 function findeSatzspiegel(pfade, seitenbreite) {
   let beste;
@@ -2623,13 +2623,13 @@ var WENDUNGEN = [
   { muster: /(\d{1,2})\s*%\s*Skonto/i, merkmal: "Skontoklausel" }
 ];
 function findeZahlungsklausel(zeilen) {
-  for (const zeile2 of zeilen) {
+  for (const zeile of zeilen) {
     for (const { muster, merkmal } of WENDUNGEN) {
-      const treffer = muster.exec(zeile2);
+      const treffer = muster.exec(zeile);
       if (!treffer) continue;
       const zahl4 = treffer[1] ? Number(treffer[1]) : void 0;
       return {
-        beleg: zeile2.trim(),
+        beleg: zeile.trim(),
         ...zahl4 !== void 0 && Number.isFinite(zahl4) ? { tage: zahl4 } : {},
         merkmal
       };
@@ -2903,8 +2903,8 @@ function drawAddressAndMeta(cursor, invoice, ctx) {
   const erlaubt = ctx.kennzahlenfelder;
   const reihenfolge = erlaubt ?? METAFELDER;
   const gefuellt = reihenfolge.map((feld) => {
-    const zeile2 = metaRows[METAFELDER.indexOf(feld)];
-    return zeile2?.[1] ? { feld, label: zeile2[0], wert: zeile2[1] } : void 0;
+    const zeile = metaRows[METAFELDER.indexOf(feld)];
+    return zeile?.[1] ? { feld, label: zeile[0], wert: zeile[1] } : void 0;
   }).filter((eintrag) => Boolean(eintrag));
   const metaY = zeichneKennzahlen(page, gefuellt, ctx, addressTop, cursor.y);
   cursor.y = Math.min(y, metaY) - 22;
@@ -3023,9 +3023,9 @@ function drawIntro(cursor, invoice, ctx, ensure) {
   const hoehe = grundzeile(ctx);
   const zeilen = wrapText(invoice.intro, ctx.fonts.regular, groesse, breite);
   ensure(zeilen.length * hoehe + grundabsatz(ctx));
-  for (const zeile2 of zeilen) {
-    if (zeile2.length > 0) {
-      drawText(cursor.page, zeile2, inhaltLinks(ctx), cursor.y, {
+  for (const zeile of zeilen) {
+    if (zeile.length > 0) {
+      drawText(cursor.page, zeile, inhaltLinks(ctx), cursor.y, {
         font: ctx.fonts.regular,
         size: groesse,
         color: ctx.theme.text
@@ -3248,7 +3248,7 @@ function drawTotals(cursor, invoice, totals, ctx, ensure) {
       hoehe: zeilenhoehe(emphasised) + (zeilen.length - 1) * (size + 2)
     };
   });
-  ensure(gesetzt.reduce((summe, zeile2) => summe + zeile2.hoehe, 0) + 24);
+  ensure(gesetzt.reduce((summe, zeile) => summe + zeile.hoehe, 0) + 24);
   const fein = ctx.striche?.fein ?? 0.4;
   const stark = ctx.striche?.stark ?? 0.8;
   if (schlicht) {
@@ -3971,9 +3971,9 @@ async function renderZugferdPdf(invoice, options) {
   const schlicht = Boolean(bogen) && bogen.inhaltFuellungen === 0;
   const ohneTitel = Boolean(bogen) && bogen.inhaltSchrift.median > 0 && bogen.inhaltSchrift.groesste <= bogen.inhaltSchrift.median * 1.25;
   const stummeMengen = invoice.lines.every(
-    (zeile2, nummer) => zeile2.quantity === 1 && zeile2.unitCode === "C62" && Math.abs(zeile2.unitPrice - (totals.lineAmounts[nummer] ?? Number.NaN)) < 5e-3
+    (zeile, nummer) => zeile.quantity === 1 && zeile.unitCode === "C62" && Math.abs(zeile.unitPrice - (totals.lineAmounts[nummer] ?? Number.NaN)) < 5e-3
   );
-  const einSteuersatz = new Set(invoice.lines.map((zeile2) => `${zeile2.vat.category}-${zeile2.vat.rate ?? ""}`)).size === 1;
+  const einSteuersatz = new Set(invoice.lines.map((zeile) => `${zeile.vat.category}-${zeile.vat.rate ?? ""}`)).size === 1;
   const grundgroesse2 = (() => {
     if (!bogen) return void 0;
     const median = bogen.inhaltSchrift.median;
@@ -4344,9 +4344,9 @@ function zahlAus(text2) {
   const wert = Number(bereinigt);
   return Number.isFinite(wert) ? wert : void 0;
 }
-function schlageZuordnungVor(kopfzeile2) {
+function schlageZuordnungVor(kopfzeile) {
   const vergeben = /* @__PURE__ */ new Set();
-  return kopfzeile2.map((zelle) => {
+  return kopfzeile.map((zelle) => {
     const wort = zelle.toLowerCase().replace(/\s+/g, " ").trim();
     const treffer = () => {
       if (/(bezeichnung|leistung|beschreibung|artikel|position|text)/.test(wort)) return "bezeichnung";
@@ -4363,28 +4363,28 @@ function schlageZuordnungVor(kopfzeile2) {
     return rolle;
   });
 }
-function signaturVon(kopfzeile2) {
-  return kopfzeile2.map((zelle) => zelle.toLowerCase().replace(/\s+/g, " ").trim()).join("|");
+function signaturVon(kopfzeile) {
+  return kopfzeile.map((zelle) => zelle.toLowerCase().replace(/\s+/g, " ").trim()).join("|");
 }
 function positionenAus(tabelle, rollen, mitKopfzeile, vorlage) {
   const spalte = (rolle) => rollen.indexOf(rolle);
   const zeilen = mitKopfzeile ? tabelle.zeilen.slice(1) : tabelle.zeilen;
   const positionen = [];
   const uebersprungen = [];
-  for (const zeile2 of zeilen) {
+  for (const zeile of zeilen) {
     const feld = (rolle) => {
       const stelle = spalte(rolle);
-      return stelle >= 0 ? zeile2[stelle] ?? "" : "";
+      return stelle >= 0 ? zeile[stelle] ?? "" : "";
     };
     const name = feld("bezeichnung").replace(/\s+/g, " ").trim();
     const menge = zahlAus(feld("menge"));
     const preis = zahlAus(feld("einzelpreis"));
     if (!name) {
-      uebersprungen.push({ zeile: zeile2, grund: "Keine Bezeichnung \u2014 vermutlich eine Summenzeile." });
+      uebersprungen.push({ zeile, grund: "Keine Bezeichnung \u2014 vermutlich eine Summenzeile." });
       continue;
     }
     if (preis === void 0) {
-      uebersprungen.push({ zeile: zeile2, grund: "Kein Einzelpreis erkannt." });
+      uebersprungen.push({ zeile, grund: "Kein Einzelpreis erkannt." });
       continue;
     }
     positionen.push({
@@ -4406,24 +4406,24 @@ var ABBRUCH_NACH = 2;
 function schlageKopfzeileVor(zeilen) {
   let beste = -1;
   let meiste = MINDESTSTUECKE - 1;
-  for (const [stelle, zeile2] of zeilen.entries()) {
-    if (zeile2.stuecke.length > meiste) {
-      meiste = zeile2.stuecke.length;
+  for (const [stelle, zeile] of zeilen.entries()) {
+    if (zeile.stuecke.length > meiste) {
+      meiste = zeile.stuecke.length;
       beste = stelle;
     }
   }
   return beste;
 }
-function tabelleAusZeilen(zeilen, kopfzeile2) {
-  const kopf = zeilen[kopfzeile2];
+function tabelleAusZeilen(zeilen, kopfzeile) {
+  const kopf = zeilen[kopfzeile];
   if (!kopf || kopf.stuecke.length < MINDESTSTUECKE) {
     return { tabelle: { art: "tabelle", zeilen: [] }, fortsetzungen: [] };
   }
   const anker = kopf.stuecke.map((stueck) => stueck.x);
   const spalten = anker.length;
-  const einordnen = (zeile2) => {
+  const einordnen = (zeile) => {
     const zellen = Array.from({ length: spalten }, () => "");
-    for (const stueck of zeile2.stuecke) {
+    for (const stueck of zeile.stuecke) {
       let naechste = 0;
       let abstand = Infinity;
       for (const [stelle, x] of anker.entries()) {
@@ -4440,10 +4440,10 @@ function tabelleAusZeilen(zeilen, kopfzeile2) {
   const ausgabe = [einordnen(kopf)];
   const fortsetzungen = [];
   let ohneFuehrung = 0;
-  for (let stelle = kopfzeile2 + 1; stelle < zeilen.length; stelle += 1) {
-    const zeile2 = zeilen[stelle];
-    if (zeile2.stuecke.length === 0) break;
-    const zellen = einordnen(zeile2);
+  for (let stelle = kopfzeile + 1; stelle < zeilen.length; stelle += 1) {
+    const zeile = zeilen[stelle];
+    if (zeile.stuecke.length === 0) break;
+    const zellen = einordnen(zeile);
     const fuehrend = zellen.slice(0, FUEHRENDE_SPALTEN).some((zelle) => zelle.trim().length > 0);
     if (!fuehrend) {
       ohneFuehrung += 1;
@@ -4455,7 +4455,7 @@ function tabelleAusZeilen(zeilen, kopfzeile2) {
       continue;
     }
     ohneFuehrung = 0;
-    if (zeile2.stuecke.length < MINDESTSTUECKE) {
+    if (zeile.stuecke.length < MINDESTSTUECKE) {
       if (ausgabe.length === 1) break;
       fortsetzungen.push(ausgabe.length);
     }
@@ -4473,23 +4473,23 @@ var UST_KANDIDAT = new RegExp(`(?<![A-Za-z-])(${EU_LAENDER})\\s?(\\d{8,12})(?![\
 var STEUERNUMMER = /Steuer(?:\s*-?\s*)?(?:nummer|nr\.?)\s*:?\s*([\d/.\s-]{8,20})/i;
 var LEITWEG = /Leitweg\s*-?\s*ID\s*:?\s*([\dA-Za-z-]{6,45})/i;
 var ANREDE = /^(?:z\.?\s*(?:Hd\.?|H\.?)|Herrn?|Hr\.?|Frau|Fr\.?|Familie|Fam\.?)\s+\S/i;
-function taugtAlsName(zeile2) {
-  return zeile2.length > 0 && zeile2.length <= 70 && !PLZ_ORT.test(zeile2) && !STRASSE.test(zeile2);
+function taugtAlsName(zeile) {
+  return zeile.length > 0 && zeile.length <= 70 && !PLZ_ORT.test(zeile) && !STRASSE.test(zeile);
 }
 function anschriftAusZeilen(zeilen, stelle) {
-  const zeile2 = zeilen[stelle] ?? "";
-  const treffer = PLZ_ORT.exec(zeile2);
+  const zeile = zeilen[stelle] ?? "";
+  const treffer = PLZ_ORT.exec(zeile);
   if (!treffer) return void 0;
   const felder = [
-    { feld: "plz", wert: treffer[1], sicherheit: "muster", beleg: zeile2 },
+    { feld: "plz", wert: treffer[1], sicherheit: "muster", beleg: zeile },
     {
       feld: "ort",
       wert: treffer[2].trim(),
       sicherheit: "muster",
-      beleg: zeile2
+      beleg: zeile
     }
   ];
-  const beleg = [zeile2];
+  const beleg = [zeile];
   const davor = zeilen[stelle - 1]?.trim() ?? "";
   const strasse = STRASSE.exec(davor);
   if (strasse) {
@@ -4534,8 +4534,8 @@ function anschriftAusZeilen(zeilen, stelle) {
   return { beleg, felder };
 }
 var TRENNER = /\s+[-–—·•∙|/]\s+/;
-function anschriftAusEinerZeile(zeile2) {
-  const teile = zeile2.split(TRENNER).map((teil) => teil.trim()).filter(Boolean);
+function anschriftAusEinerZeile(zeile) {
+  const teile = zeile.split(TRENNER).map((teil) => teil.trim()).filter(Boolean);
   if (teile.length < 2) return void 0;
   const gebaut = anschriftAusZeilen(teile, teile.length - 1);
   if (!gebaut) return void 0;
@@ -4543,16 +4543,16 @@ function anschriftAusEinerZeile(zeile2) {
   const name = bisStrasse > 0 ? teile.slice(0, bisStrasse).join(" ") : void 0;
   const felder = name ? [
     ...gebaut.felder.filter((fund) => fund.feld !== "name"),
-    { feld: "name", wert: name, sicherheit: "geraten", beleg: zeile2 }
+    { feld: "name", wert: name, sicherheit: "geraten", beleg: zeile }
   ] : gebaut.felder;
-  return { beleg: [zeile2], felder };
+  return { beleg: [zeile], felder };
 }
 function findeStammdaten(zeilen) {
-  const sauber = zeilen.map((zeile2) => zeile2.replace(/\s+/g, " ").trim()).filter(Boolean);
+  const sauber = zeilen.map((zeile) => zeile.replace(/\s+/g, " ").trim()).filter(Boolean);
   const anschriften = [];
   const gesehen = /* @__PURE__ */ new Set();
-  for (const [stelle, zeile2] of sauber.entries()) {
-    const gefunden = anschriftAusEinerZeile(zeile2) ?? anschriftAusZeilen(sauber, stelle);
+  for (const [stelle, zeile] of sauber.entries()) {
+    const gefunden = anschriftAusEinerZeile(zeile) ?? anschriftAusZeilen(sauber, stelle);
     if (!gefunden) continue;
     const schluessel2 = gefunden.felder.map((fund) => `${fund.feld}:${fund.wert.toLowerCase()}`).sort().join("|");
     if (gesehen.has(schluessel2)) continue;
@@ -4567,27 +4567,27 @@ function findeStammdaten(zeilen) {
     schon.add(schluessel2);
     angaben.push({ feld, wert, sicherheit, beleg });
   };
-  for (const zeile2 of sauber) {
-    for (const treffer of zeile2.matchAll(IBAN_KANDIDAT)) {
+  for (const zeile of sauber) {
+    for (const treffer of zeile.matchAll(IBAN_KANDIDAT)) {
       const kandidat = (treffer[1] ?? "").replace(/\s/g, "").toUpperCase();
-      if (isPlausibleIban(kandidat)) merke("iban", kandidat, "geprueft", zeile2);
+      if (isPlausibleIban(kandidat)) merke("iban", kandidat, "geprueft", zeile);
     }
-    for (const treffer of zeile2.matchAll(UST_KANDIDAT)) {
+    for (const treffer of zeile.matchAll(UST_KANDIDAT)) {
       const kandidat = (treffer[1] ?? "").replace(/\s/g, "").toUpperCase();
       if (isPlausibleVatId(kandidat) && !isPlausibleIban(kandidat) && kandidat.length <= 14) {
-        merke("ustId", kandidat, "muster", zeile2);
+        merke("ustId", kandidat, "muster", zeile);
       }
     }
     const bic = /\b(?:BIC|SWIFT)(?:-?Code)?\s*:?\s*([A-Z]{6}[A-Z0-9]{2}(?:[A-Z0-9]{3})?)\b/.exec(
-      zeile2
+      zeile
     );
-    if (bic?.[1]) merke("bic", bic[1], "muster", zeile2);
-    const steuer = STEUERNUMMER.exec(zeile2);
-    if (steuer) merke("steuernummer", (steuer[1] ?? "").trim(), "muster", zeile2);
-    const leitweg = LEITWEG.exec(zeile2);
+    if (bic?.[1]) merke("bic", bic[1], "muster", zeile);
+    const steuer = STEUERNUMMER.exec(zeile);
+    if (steuer) merke("steuernummer", (steuer[1] ?? "").trim(), "muster", zeile);
+    const leitweg = LEITWEG.exec(zeile);
     const leitwegWert = (leitweg?.[1] ?? "").trim();
     if (leitwegWert && isPlausibleLeitwegId(leitwegWert)) {
-      merke("leitwegId", leitwegWert, "muster", zeile2);
+      merke("leitwegId", leitwegWert, "muster", zeile);
     }
   }
   return { anschriften, angaben };
@@ -5139,318 +5139,6 @@ function detectKind(bytes) {
   return "unknown";
 }
 
-// src/util/cp1252.ts
-var SONDERFAELLE = /* @__PURE__ */ new Map([
-  [8364, 128],
-  // Euro
-  [8218, 130],
-  // tiefes einfaches Anfuehrungszeichen
-  [402, 131],
-  [8222, 132],
-  // tiefes doppeltes Anfuehrungszeichen
-  [8230, 133],
-  // Auslassungspunkte
-  [8224, 134],
-  [8225, 135],
-  [710, 136],
-  [8240, 137],
-  // Promille
-  [352, 138],
-  [8249, 139],
-  [338, 140],
-  [381, 142],
-  [8216, 145],
-  // einfache Anfuehrungszeichen
-  [8217, 146],
-  [8220, 147],
-  // doppelte Anfuehrungszeichen
-  [8221, 148],
-  [8226, 149],
-  // Aufzaehlungspunkt
-  [8211, 150],
-  // Halbgeviertstrich
-  [8212, 151],
-  // Geviertstrich
-  [732, 152],
-  [8482, 153],
-  // Markenzeichen
-  [353, 154],
-  [8250, 155],
-  [339, 156],
-  [382, 158],
-  [376, 159]
-]);
-var ERSATZ = /* @__PURE__ */ new Map([
-  [8722, "-"],
-  // Minuszeichen
-  [160, " "],
-  // geschuetztes Leerzeichen
-  [8239, " "],
-  // schmales geschuetztes Leerzeichen
-  [8209, "-"]
-  // geschuetzter Bindestrich
-]);
-function cp1252(text2) {
-  const bytes = [];
-  const ersetzt = [];
-  for (const zeichen of text2) {
-    const punkt = zeichen.codePointAt(0) ?? 0;
-    const ersatz = ERSATZ.get(punkt);
-    if (ersatz !== void 0) {
-      for (const b of ersatz) bytes.push(b.charCodeAt(0));
-      continue;
-    }
-    if (punkt < 128 || punkt >= 160 && punkt <= 255) {
-      bytes.push(punkt);
-      continue;
-    }
-    const sonder = SONDERFAELLE.get(punkt);
-    if (sonder !== void 0) {
-      bytes.push(sonder);
-      continue;
-    }
-    bytes.push(63);
-    if (!ersetzt.includes(zeichen)) ersetzt.push(zeichen);
-  }
-  return { bytes: new Uint8Array(bytes), ersetzt };
-}
-
-// src/export/kontenrahmen.ts
-var SKR03 = {
-  name: "SKR 03",
-  sachkontenlaenge: 4,
-  erloese: {
-    standard: { konto: "8400", bezeichnung: "Erloese 19 % USt" },
-    ermaessigt: { konto: "8300", bezeichnung: "Erloese 7 % USt" },
-    steuerfrei: { konto: "8200", bezeichnung: "Erloese steuerfrei" },
-    reverseCharge: {
-      konto: "8337",
-      bezeichnung: "Erloese Reverse Charge (Paragraf 13b UStG)"
-    },
-    innergemeinschaftlich: {
-      konto: "8125",
-      bezeichnung: "Steuerfreie innergemeinschaftliche Lieferung"
-    },
-    ausfuhr: { konto: "8120", bezeichnung: "Steuerfreie Ausfuhrlieferung" },
-    nichtSteuerbar: { konto: "8338", bezeichnung: "Nicht steuerbare Umsaetze" }
-  },
-  sammeldebitor: "10000",
-  debitorenbereich: { von: 1e4, bis: 69999 }
-};
-var SKR04 = {
-  name: "SKR 04",
-  sachkontenlaenge: 4,
-  erloese: {
-    standard: { konto: "4400", bezeichnung: "Erloese 19 % USt" },
-    ermaessigt: { konto: "4300", bezeichnung: "Erloese 7 % USt" },
-    steuerfrei: { konto: "4200", bezeichnung: "Erloese steuerfrei" },
-    reverseCharge: {
-      konto: "4337",
-      bezeichnung: "Erloese Reverse Charge (Paragraf 13b UStG)"
-    },
-    innergemeinschaftlich: {
-      konto: "4125",
-      bezeichnung: "Steuerfreie innergemeinschaftliche Lieferung"
-    },
-    ausfuhr: { konto: "4120", bezeichnung: "Steuerfreie Ausfuhrlieferung" },
-    nichtSteuerbar: { konto: "4338", bezeichnung: "Nicht steuerbare Umsaetze" }
-  },
-  sammeldebitor: "10000",
-  debitorenbereich: { von: 1e4, bis: 69999 }
-};
-var VORLAGEN = [SKR03, SKR04];
-function steuerfallFuer(vat) {
-  switch (vat.category) {
-    case "AE":
-      return "reverseCharge";
-    case "K":
-      return "innergemeinschaftlich";
-    case "G":
-      return "ausfuhr";
-    case "O":
-      return "nichtSteuerbar";
-    case "E":
-    case "Z":
-      return "steuerfrei";
-    default:
-      return vat.rate >= 19 ? "standard" : "ermaessigt";
-  }
-}
-function istDebitorennummer(rahmen, nummer) {
-  if (!/^\d+$/.test(nummer)) return false;
-  const wert = Number(nummer);
-  return wert >= rahmen.debitorenbereich.von && wert <= rahmen.debitorenbereich.bis;
-}
-function abgewandelt(rahmen, aenderungen) {
-  const erloese = { ...rahmen.erloese };
-  for (const [fall, wert] of Object.entries(aenderungen.erloese ?? {})) {
-    const schluessel2 = fall;
-    erloese[schluessel2] = { ...erloese[schluessel2], ...wert };
-  }
-  return { ...rahmen, ...aenderungen, erloese };
-}
-
-// src/export/datev.ts
-var FORMAT_VERSION = 700;
-var FORMAT_KATEGORIE = 21;
-var FORMAT_NAME = "Buchungsstapel";
-var FORMAT_UNTERVERSION = 13;
-var SPALTEN = [
-  "Umsatz (ohne Soll/Haben-Kz)",
-  "Soll/Haben-Kennzeichen",
-  "WKZ Umsatz",
-  "Kurs",
-  "Basis-Umsatz",
-  "WKZ Basis-Umsatz",
-  "Konto",
-  "Gegenkonto (ohne BU-Schluessel)",
-  "BU-Schluessel",
-  "Belegdatum",
-  "Belegfeld 1",
-  "Belegfeld 2",
-  "Skonto",
-  "Buchungstext"
-];
-function buildDatevBuchungsstapel(rechnungen, optionen) {
-  const now = optionen.now ?? /* @__PURE__ */ new Date();
-  const uebersprungen = [];
-  const buchungen = [];
-  for (const rechnung of rechnungen) {
-    const totals = computeTotals(rechnung);
-    if (rechnung.currency !== "EUR") {
-      uebersprungen.push({
-        nummer: rechnung.number,
-        grund: `Waehrung ${rechnung.currency} wird noch nicht unterstuetzt`
-      });
-      continue;
-    }
-    const debitor = optionen.debitor?.(rechnung) ?? optionen.kontenrahmen.sammeldebitor;
-    const gutschrift = rechnung.typeCode === "381" || rechnung.typeCode === "396";
-    for (const gruppe of totals.vatBreakdown) {
-      const brutto = round(gruppe.taxableAmount + gruppe.taxAmount, 2);
-      if (brutto === 0) continue;
-      const fall = steuerfallFuer(gruppe);
-      const erloes = optionen.kontenrahmen.erloese[fall];
-      buchungen.push({
-        // Der Betrag ist im DATEV-Format immer positiv; die Richtung steckt
-        // ausschliesslich im Soll/Haben-Kennzeichen.
-        umsatz: Math.abs(brutto),
-        sollHaben: gutschrift === brutto >= 0 ? "H" : "S",
-        konto: debitor,
-        gegenkonto: erloes.konto,
-        buSchluessel: erloes.buSchluessel ?? "",
-        belegdatum: belegdatum(rechnung.issueDate),
-        belegfeld1: rechnung.number.slice(0, 36),
-        buchungstext: buchungstext(rechnung, gruppe.category, gruppe.rate),
-        faelligkeit: rechnung.dueDate ? datumAcht(rechnung.dueDate) : ""
-      });
-    }
-  }
-  const zeitraum = zeitraumVon(rechnungen);
-  const kopf = kopfzeile(optionen, now, zeitraum);
-  const spalten = SPALTEN.map(inAnfuehrung).join(";");
-  const daten = buchungen.map(zeile);
-  const text2 = [kopf, spalten, ...daten].join("\r\n") + "\r\n";
-  const { bytes, ersetzt } = cp1252(text2);
-  return {
-    bytes,
-    dateiname: `EXTF_Buchungsstapel_${zeitraum.von}-${zeitraum.bis}.csv`,
-    saetze: buchungen.length,
-    summe: buchungen.reduce((s, b) => s + (b.sollHaben === "H" ? -b.umsatz : b.umsatz), 0),
-    uebersprungen,
-    ersetzteZeichen: ersetzt
-  };
-}
-function kopfzeile(optionen, now, zeitraum) {
-  const felder = [
-    inAnfuehrung("EXTF"),
-    FORMAT_VERSION,
-    FORMAT_KATEGORIE,
-    inAnfuehrung(FORMAT_NAME),
-    FORMAT_UNTERVERSION,
-    zeitstempel(now),
-    "",
-    // importiert - bleibt leer
-    inAnfuehrung("RE"),
-    // Herkunft: zwei Zeichen, frei vergeben
-    inAnfuehrung(""),
-    // exportiert von
-    inAnfuehrung(""),
-    // importiert von
-    optionen.mandant.berater,
-    optionen.mandant.mandant,
-    datumAcht(optionen.mandant.wirtschaftsjahrBeginn),
-    optionen.kontenrahmen.sachkontenlaenge,
-    zeitraum.von,
-    zeitraum.bis,
-    inAnfuehrung(optionen.bezeichnung ?? "Ausgangsrechnungen"),
-    inAnfuehrung(""),
-    // Diktatkuerzel
-    1,
-    // Buchungstyp: Finanzbuchfuehrung
-    "",
-    // Rechnungslegungszweck
-    optionen.festschreiben ? 1 : 0,
-    inAnfuehrung("EUR")
-  ];
-  return felder.join(";");
-}
-function zeile(b) {
-  return [
-    betrag(b.umsatz),
-    inAnfuehrung(b.sollHaben),
-    inAnfuehrung("EUR"),
-    "",
-    // Kurs
-    "",
-    // Basis-Umsatz
-    inAnfuehrung(""),
-    // WKZ Basis-Umsatz
-    inAnfuehrung(b.konto),
-    inAnfuehrung(b.gegenkonto),
-    inAnfuehrung(b.buSchluessel),
-    b.belegdatum,
-    inAnfuehrung(b.belegfeld1),
-    inAnfuehrung(""),
-    // Belegfeld 2
-    "",
-    // Skonto
-    inAnfuehrung(b.buchungstext.slice(0, 60))
-  ].join(";");
-}
-function buchungstext(rechnung, kategorie, satz) {
-  const name = rechnung.buyer.name.trim();
-  const mehrere = computeTotals(rechnung).vatBreakdown.length > 1;
-  if (!mehrere) return name;
-  const zusatz = kategorie === "S" ? `${decimal(satz, 0)} %` : kategorie;
-  return `${name} (${zusatz})`;
-}
-function belegdatum(iso) {
-  const [, monat, tag] = iso.split("-");
-  return `${tag}${monat}`;
-}
-function datumAcht(iso) {
-  return iso.replace(/-/g, "");
-}
-function zeitstempel(now) {
-  const p = (n, breite = 2) => String(n).padStart(breite, "0");
-  return `${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}${p(now.getMilliseconds(), 3)}`;
-}
-function betrag(wert) {
-  return decimal(Math.abs(wert)).replace(".", ",");
-}
-function inAnfuehrung(wert) {
-  return `"${wert.replace(/"/g, '""')}"`;
-}
-function zeitraumVon(rechnungen) {
-  const daten = rechnungen.map((r) => r.issueDate).sort();
-  const heute = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-  return {
-    von: datumAcht(daten[0] ?? heute),
-    bis: datumAcht(daten[daten.length - 1] ?? heute)
-  };
-}
-
 // src/absender/profil.ts
 function vereinheitliche(wert) {
   return wert.toLowerCase().replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -5737,7 +5425,7 @@ function entschluesseleCcitt(daten, angaben) {
   let vorzeile = [];
   let gestoerteZeilen = 0;
   const hoechstens = angaben.hoehe ?? 1e5;
-  for (let zeile2 = 0; zeile2 < hoechstens; zeile2 += 1) {
+  for (let zeile = 0; zeile < hoechstens; zeile += 1) {
     if (strom.amEnde) break;
     const wechsel = [];
     let a0 = -1;
@@ -5830,9 +5518,9 @@ function leseModus(strom) {
 function zuPunkten(zeilen, breite, sollhoehe) {
   const hoehe = sollhoehe ?? zeilen.length;
   const punkte = new Uint8Array(breite * hoehe);
-  for (let zeile2 = 0; zeile2 < Math.min(hoehe, zeilen.length); zeile2 += 1) {
-    const wechsel = zeilen[zeile2];
-    const versatz = zeile2 * breite;
+  for (let zeile = 0; zeile < Math.min(hoehe, zeilen.length); zeile += 1) {
+    const wechsel = zeilen[zeile];
+    const versatz = zeile * breite;
     let schwarz = false;
     let stelle = 0;
     for (const wechselstelle of wechsel) {
@@ -5890,9 +5578,9 @@ function alsGraustufenPng(breite, hoehe, grau2) {
     throw new Error(`Zu wenige Bildpunkte: ${grau2.length} statt ${breite * hoehe}`);
   }
   const zeilen = new Uint8Array((breite + 1) * hoehe);
-  for (let zeile2 = 0; zeile2 < hoehe; zeile2 += 1) {
-    zeilen[zeile2 * (breite + 1)] = 0;
-    zeilen.set(grau2.subarray(zeile2 * breite, (zeile2 + 1) * breite), zeile2 * (breite + 1) + 1);
+  for (let zeile = 0; zeile < hoehe; zeile += 1) {
+    zeilen[zeile * (breite + 1)] = 0;
+    zeilen.set(grau2.subarray(zeile * breite, (zeile + 1) * breite), zeile * (breite + 1) + 1);
   }
   const kopf = new Uint8Array(13);
   kopf.set(zahl32(breite), 0);
@@ -6282,8 +5970,8 @@ function schlageVorlageVor(seite, seitenhoehe, inhaltLinks2) {
   const schnitte = /* @__PURE__ */ new Map();
   const fett = /* @__PURE__ */ new Set();
   let nebeneinander = 0;
-  for (const zeile2 of seite.zeilen) {
-    for (const stueck of zeile2.stuecke) {
+  for (const zeile of seite.zeilen) {
+    for (const stueck of zeile.stuecke) {
       for (const { feld, muster, ueberall } of WENDUNGEN2) {
         if (beschriftungen[feld]) continue;
         const inhalt = stueck.text.trim();
@@ -6294,25 +5982,25 @@ function schlageVorlageVor(seite, seitenhoehe, inhaltLinks2) {
         if (!istBrauchbareBeschriftung(wort)) continue;
         beschriftungen[feld] = wort;
         stellen.set(feld, stueck.x);
-        hoehen.set(feld, zeile2.y);
+        hoehen.set(feld, zeile.y);
         kanten.set(feld, stueck.x + stueck.breite);
         schnitte.set(feld, stueck.schnitt);
         if (stueck.fett) fett.add(feld);
         if (KENNZAHLENFELDER.has(feld) && inhalt.slice(wort.length).trim().length > 0) {
           nebeneinander += 1;
         }
-        belege.add(zeile2.text);
+        belege.add(zeile.text);
       }
     }
     const inZeile = WENDUNGEN2.filter(
-      ({ feld, muster }) => KENNZAHLENFELDER.has(feld) && zeile2.stuecke.some((stueck) => {
+      ({ feld, muster }) => KENNZAHLENFELDER.has(feld) && zeile.stuecke.some((stueck) => {
         const inhalt = stueck.text.trim();
         if (inhalt.length > MAX_STUECK) return false;
         const treffer = muster.exec(inhalt);
         return treffer?.index === 0;
       })
     ).length;
-    if (inZeile > 0) querzaehler.set(zeile2.y, inZeile);
+    if (inZeile > 0) querzaehler.set(zeile.y, inZeile);
   }
   const kopffelder = [
     "pos",
@@ -6338,8 +6026,8 @@ function schlageVorlageVor(seite, seitenhoehe, inhaltLinks2) {
   };
 }
 function erkenneDatumsform(seite) {
-  for (const zeile2 of seite.zeilen) {
-    const treffer = /\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b/.exec(zeile2.text);
+  for (const zeile of seite.zeilen) {
+    const treffer = /\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b/.exec(zeile.text);
     if (!treffer) continue;
     const tag = treffer[1] ?? "";
     const monat = treffer[2] ?? "";
@@ -6350,10 +6038,10 @@ function erkenneDatumsform(seite) {
   return {};
 }
 function erkenneSteuergrundlage(seite) {
-  for (const zeile2 of seite.zeilen) {
-    if (!/\d+([.,]\d+)?\s*%\s*(?:MwSt|USt)/i.test(zeile2.text)) continue;
+  for (const zeile of seite.zeilen) {
+    if (!/\d+([.,]\d+)?\s*%\s*(?:MwSt|USt)/i.test(zeile.text)) continue;
     return {
-      steuergrundlage: /(?:MwSt|USt)\.?\s*(?:auf|von)\s+[\d.]+,\d{2}/i.test(zeile2.text)
+      steuergrundlage: /(?:MwSt|USt)\.?\s*(?:auf|von)\s+[\d.]+,\d{2}/i.test(zeile.text)
     };
   }
   return {};
@@ -6391,7 +6079,7 @@ function erkenneAnker(seite, hoehen, stellen) {
     const x = stellen.get(feld);
     if (x !== void 0) spalten[feld] = rund(x);
   }
-  const text2 = seite.zeilen.filter((zeile2) => zeile2.y < unterste - 0.5 && zeile2.text.trim().length > 0).sort((eins, zwei) => zwei.y - eins.y)[0];
+  const text2 = seite.zeilen.filter((zeile) => zeile.y < unterste - 0.5 && zeile.text.trim().length > 0).sort((eins, zwei) => zwei.y - eins.y)[0];
   return {
     kennzahlenOben: rund(oben),
     ...Object.keys(spalten).length > 0 ? { kennzahlenSpalten: spalten } : {},
@@ -6413,26 +6101,26 @@ function summenkante(hoehen) {
 var BETRAGSENDE = /\d[\d.]*,\d{2}(?:\s+\p{L}+\.?)?\s*$/u;
 function erkennePositionen(seite, inhaltLinks2, kante) {
   if (inhaltLinks2 === void 0 || kante === void 0) return {};
-  const linksVon = (zeile2) => zeile2.stuecke.filter((stueck) => stueck.text.trim().length > 0)[0]?.x;
+  const linksVon = (zeile) => zeile.stuecke.filter((stueck) => stueck.text.trim().length > 0)[0]?.x;
   let spalte = Infinity;
   let betragszeile = Infinity;
-  for (const zeile2 of seite.zeilen) {
-    if (zeile2.y <= kante || !BETRAGSENDE.test(zeile2.text)) continue;
-    const x = linksVon(zeile2);
+  for (const zeile of seite.zeilen) {
+    if (zeile.y <= kante || !BETRAGSENDE.test(zeile.text)) continue;
+    const x = linksVon(zeile);
     if (x !== void 0 && x < spalte) spalte = x;
-    if (zeile2.y < betragszeile) betragszeile = zeile2.y;
+    if (zeile.y < betragszeile) betragszeile = zeile.y;
   }
   if (!Number.isFinite(spalte)) return {};
   const einzug = spalte - inhaltLinks2;
   const brauchbar = einzug > 2 && einzug <= 80;
   let fett = false;
   let unterste = Infinity;
-  for (const zeile2 of seite.zeilen) {
-    if (zeile2.y <= kante) continue;
-    const erstes = zeile2.stuecke.filter((stueck) => stueck.text.trim().length > 0)[0];
+  for (const zeile of seite.zeilen) {
+    if (zeile.y <= kante) continue;
+    const erstes = zeile.stuecke.filter((stueck) => stueck.text.trim().length > 0)[0];
     if (!erstes || Math.abs(erstes.x - spalte) >= 1) continue;
     if (erstes.fett) fett = true;
-    if (zeile2.y < unterste) unterste = zeile2.y;
+    if (zeile.y < unterste) unterste = zeile.y;
   }
   const betragUnten = Number.isFinite(unterste) ? Math.abs(betragszeile - unterste) < 0.5 : void 0;
   return {
@@ -6450,8 +6138,8 @@ function erkenneSummenkante(kanten) {
 function erkenneSchnitte(seite, schnitte) {
   const zaehler = /* @__PURE__ */ new Map();
   const alle = /* @__PURE__ */ new Set();
-  for (const zeile2 of seite.zeilen) {
-    for (const stueck of zeile2.stuecke) {
+  for (const zeile of seite.zeilen) {
+    for (const stueck of zeile.stuecke) {
       if (stueck.schnitt.length === 0 || stueck.text.trim().length === 0) continue;
       alle.add(stueck.schnitt);
       if (stueck.fett) continue;
@@ -6588,18 +6276,14 @@ export {
   PaymentSchema,
   RECHNUNGSZEICHEN,
   ROLLEN,
-  SKR03,
-  SKR04,
   STANDARD_BESCHRIFTUNGEN,
   SpecificationError,
   UNIT,
   VAT_CATEGORY,
-  VORLAGEN,
   VatSchema,
   XmlWriter,
   ZERO_RATE_CATEGORIES,
   ZeichenvorratFehler,
-  abgewandelt,
   activeSpecifications,
   addDays,
   alsBogendatei,
@@ -6612,12 +6296,10 @@ export {
   beschriftungenMit,
   bogenmangelText,
   buildCii,
-  buildDatevBuchungsstapel,
   buildInvoiceXml,
   buildUbl,
   buildXmp,
   computeTotals,
-  cp1252,
   decimal,
   detectKind,
   entschluesseleCcitt,
@@ -6641,7 +6323,6 @@ export {
   isPlausibleLeitwegId,
   isPlausibleVatId,
   istBrauchbareBeschriftung,
-  istDebitorennummer,
   istKleinunternehmerRechnung,
   istPng,
   kennungVon,
@@ -6684,7 +6365,6 @@ export {
   setzeMitVorlagenschrift,
   signaturVon,
   specificationAge,
-  steuerfallFuer,
   sum,
   summarizeTotals,
   tabelleAusZeilen,
