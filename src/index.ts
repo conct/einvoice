@@ -32,48 +32,21 @@ export { ZeichenvorratFehler, ohneUnsichtbare } from './pdf/zeichenvorrat';
 export { A4, DEFAULT_THEME, wrapText, type Theme } from './pdf/layout';
 export { farbeAusHex, istPng, pngFarbtyp, themaMitAkzent } from './pdf/gestaltung';
 
-// Word-Dokumente aufschluesseln - die Umzugshilfe fuer alle, die ihre
-// Rechnungen bisher in Word schreiben. Deutet nichts, holt nur heraus.
+// Empfang und Auswertung eingehender E-Rechnungen
+// Text und Breiten aus einem PDF - die Grundlage dafuer, ein erzeugtes
+// Dokument nachzulesen, und das Handwerkszeug fuer jeden eigenen Leser.
 export {
-  liesWordDokument,
-  type WordAbsatz,
-  type WordBlock,
-  type WordDokument,
-  type WordTabelle,
-} from './parse/word';
-export {
-  positionenAus,
-  schlageZuordnungVor,
-  signaturVon,
-  zahlAus,
-  ROLLEN,
-  type Spaltenrolle,
-  type Uebernahme,
-} from './parse/word-uebernahme';
-
-// Text aus einem PDF holen - die Grundlage dafuer, aus einem Word-PDF ohne
-// eingebettete Daten doch noch eine Rechnung zu machen.
-export {
+  leseInhalt,
   liesPdfText,
+  seiteninhalt,
   type PdfText,
   type Textseite,
   type Textstueck,
   type Textzeile,
+  type Wert,
 } from './parse/pdf-text';
-export { schlageKopfzeileVor, tabelleAusZeilen, type Tabellenbefund } from './parse/pdf-tabelle';
+export { laufbreite, liefereBreiten, type Breiten } from './parse/pdf-breiten';
 
-// Stammdaten aus einer fremden Rechnung - Anschriften, IBAN, Steuernummern.
-// Jeder Fund traegt seine Sicherheit mit sich; zugeordnet wird von Hand.
-export {
-  findeStammdaten,
-  type Anschrift,
-  type Feld,
-  type Fund,
-  type Sicherheit,
-  type Stammdatenfund,
-} from './parse/stammdaten';
-
-// Empfang und Auswertung eingehender E-Rechnungen
 export { extractAttachments, extractInvoiceXml, type ExtractedAttachment } from './parse/extract';
 export {
   parseInvoiceXml,
@@ -124,48 +97,26 @@ export function buildInvoiceXml(invoice: Invoice): { xml: string; filename: stri
   }
 }
 
-export {
-  alsHex,
-  findeFussgrenze,
-  findeGrenze,
-  findeStrichstaerken,
-  liesBriefpapier,
-  type Beschriftung,
-  type Briefpapier,
-  type Farbe,
-  type Flaeche,
-  type Kreis,
-  type Pfad,
-  type Strich,
-} from './parse/pdf-gestaltung';
+// Ein uebernommener Briefbogen: die Beschreibung und das Zeichnen daraus.
+// Gelesen und vermessen wird eine fremde Vorlage nicht mehr hier - siehe
+// README, Abschnitt "Was hier nicht liegt".
+export type {
+  Beschriftung,
+  Briefpapier,
+  Farbe,
+  Flaeche,
+  Kreis,
+  Pfad,
+  Strich,
+  Textlauf,
+} from './pdf/briefpapier-typen';
+export { alsHex } from './pdf/gestaltung';
 export { alsSvg, zeichneBriefpapier, type Zeichenbefund } from './pdf/briefpapier';
 export {
   schriftenImBriefkopf,
   setzeMitVorlagenschrift,
   type Vorlagenbefund,
 } from './pdf/vorlagenschrift';
-export { type Textlauf } from './parse/pdf-gestaltung';
-export {
-  kennungVon,
-  profilAus,
-  pruefeZuordnung,
-  uebernimmBriefpapier,
-  type Absenderprofil,
-  type Herkunft,
-  type Identitaet,
-  type Zuordnung,
-} from './absender/profil';
-export { laufbreite, liefereBreiten, type Breiten } from './parse/pdf-breiten';
-export {
-  findeZahlungsklausel,
-  bankverbindungImBogen,
-  zahlungsklauselImBogen,
-  zeilenImBogen,
-  type Zahlungsklausel,
-} from './absender/zahlungsklausel';
-export { entschluesseleCcitt, type CcittAngaben, type Fehlerbild } from './parse/ccitt';
-export { liesSeitenbilder, type Bildart, type Seitenbild } from './parse/pdf-bilder';
-export { alsGraustufenPng, maskeAlsGrau } from './util/png';
 export {
   beschriftungenMit,
   istBrauchbareBeschriftung,
@@ -174,19 +125,6 @@ export {
   type Beschriftungen,
 } from './pdf/beschriftungen';
 export type { Kennzahlenstellung } from './pdf/layout';
-export { anschriftenAus } from './absender/anschrift';
-export { schriftbogenAus } from './pdf/schriftbogen';
-export {
-  alsBogendatei,
-  liesBogendatei,
-  bogenmangelText,
-  BOGENDATEI_ART,
-  BOGENDATEI_FASSUNG,
-  type Bogendatei,
-  type Bogenbefund,
-  type Bogenmangel,
-  type Bogenquelle,
-} from './absender/bogendatei';
 export {
   familienkern,
   pruefeSchrift,
@@ -197,17 +135,4 @@ export {
   type Schriftbefund,
   type Schriftmangel,
 } from './pdf/eigenschrift';
-export {
-  schlageVorlageVor,
-  schalterAusVorschlag,
-  type Vorlagenvorschlag,
-  type Vorlagenschalter,
-} from './absender/vorlage';
-export {
-  belegteFlaechen,
-  pruefeAlleStellungen,
-  pruefeStellung,
-  type Rahmen,
-  type Stellungsbefund,
-} from './pdf/stellungspruefung';
 export { kennzahlenrahmen } from './pdf/layout';

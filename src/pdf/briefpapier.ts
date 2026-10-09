@@ -1,7 +1,8 @@
 import type { PDFFont, PDFPage } from 'pdf-lib';
 import { PDFNumber, PDFOperator, PDFOperatorNames, rgb } from 'pdf-lib';
 
-import { alsHex, type Briefpapier, type Farbe } from '../parse/pdf-gestaltung';
+import { alsHex } from './gestaltung';
+import type { Briefpapier, Farbe } from './briefpapier-typen';
 
 /**
  * Ein abgelesenes Briefpapier wieder ausgeben - als SVG und als PDF.

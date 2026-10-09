@@ -1,6 +1,6 @@
 import { V as Vat, I as Invoice, L as Line, b as InvoiceInput } from './invoice-BoN0H4V6.js';
 export { A as Address, c as AddressSchema, d as AllowanceCharge, e as AllowanceChargeSchema, f as Attachment, g as AttachmentSchema, C as ContactSchema, E as ElectronicAddressSchema, a as InvoiceProfile, h as InvoiceProfileSchema, i as InvoiceSchema, j as LineSchema, P as Party, k as PartySchema, l as Payment, m as PaymentSchema, n as VatSchema, p as parseInvoice } from './invoice-BoN0H4V6.js';
-import { RGB, PDFFont, rgb, PDFPage, PDFDocument } from 'pdf-lib';
+import { RGB, PDFFont, rgb, PDFDocument, PDFPage } from 'pdf-lib';
 import 'zod';
 
 /**
@@ -378,34 +378,16 @@ interface UblOptions {
 declare function buildUbl(invoice: Invoice, options?: UblOptions): string;
 
 /**
- * Das Briefpapier aus einer fremden Rechnung herausloesen.
+ * Die Beschreibung eines uebernommenen Briefbogens.
  *
- * Der Anlass: Wer von einer gestalteten Rechnung umsteigt, will sein Haus
- * nicht verlieren. Die Farbe, das Zeichen oben rechts, die Linien - das ist
- * kein Zierrat, sondern das, woran der Empfaenger den Absender erkennt.
+ * Nur die Beschreibung - gelesen wird sie nicht hier. Bis v3.0.0 stand beides
+ * in einer Datei; mit v4.0.0 ist das Lesen und Vermessen einer fremden Vorlage
+ * zum Produkt gezogen, und geblieben ist, was der Renderer braucht: die Form,
+ * in der ein Bogen hereingereicht wird, und das Zeichnen daraus.
  *
- * ## Warum das ueberhaupt geht
- *
- * Nachgemessen an einer gestalteten Fremdrechnung: Die gesamte Gestaltung
- * bestand aus **keinem einzigen Bildpunkt**. Der rote Kreis oben rechts ist
- * eine Bezierkurve, die Trennlinien sind Striche, die Hausfarbe ist ein
- * Zahlentripel im Inhaltsstrom. So gesetzte Gestaltung laesst sich ablesen und
- * neu zeichnen - massgenau, in Vektoren, ohne ein Bild einzubetten.
- *
- * Das ist der ganze Unterschied zu einem eingebetteten Briefpapier-PDF: Wir
- * uebernehmen **Zahlen**, keine fremden Seiten. Deshalb bleibt die
- * Konformitaet unberuehrt - die Fremddatei mischt CMYK und ICC-RGB, unser
- * Ergebnis kennt nur den sRGB-Ausgabe-Intent des eigenen Dokuments.
- *
- * ## Was hier bewusst nicht versucht wird
- *
- * **Fotos, Verlaeufe, gesetzte Illustrationen.** Sie erscheinen im Befund als
- * ungedeutet und werden gemeldet, nicht nachgebaut. Ein halb nachgezeichnetes
- * Firmenzeichen waere schlimmer als gar keins.
- *
- * **Die fremde Schrift.** Sie steckt zwar als Teilmenge in der Datei, aber sie
- * gehoert dem Nutzer nicht, nur weil er eine Rechnung damit bekommen hat. Wer
- * nachzeichnet, nimmt seine eigene Schrift.
+ * Wer einen eigenen Leser schreibt, erfuellt diese Typen und kann den Bogen
+ * dann an `renderZugferdPdf` uebergeben - Farben, Striche, Kreise, Pfade und
+ * Textlaeufe in Punkten, wie sie PDF selbst misst.
  */
 interface Farbe {
     /** Jeweils 0 bis 1. */
@@ -724,66 +706,6 @@ interface Briefpapier {
         };
     };
 }
-declare function alsHex(farbe: Farbe): string;
-interface Grenzzeile {
-    y: number;
-    text: string;
-    hoehe: number;
-}
-/**
- * Findet die Hoehe, oberhalb derer alles Briefpapier ist.
- *
- * Die Regel kommt aus DIN 5008: Das Anschriftenfeld des Empfaengers sitzt in
- * einem festen Fenster, und **ueber** ihm steht nichts, was zur einzelnen
- * Rechnung gehoert - dort ist Briefkopf. Die Grenze aus dem Anschriftenfeld
- * abzuleiten ist deshalb nicht geraten, sondern die Definition.
- *
- * Warum nicht einfach die oberste Postleitzahl genommen wird: Die eigene
- * Anschrift des Absenders steht meist noch weiter oben im Briefkopf und sieht
- * genauso aus. Nachgemessen an einer Fremdrechnung stand "01796
- * Pirna-Altstadt" - der Absender - bei y=802 und "01796 Pirna" - der
- * Empfaenger - bei y=623. Nur das Fenster unterscheidet die beiden.
- */
-declare function findeGrenze(zeilen: Grenzzeile[], seitenhoehe: number): number;
-/**
- * Findet die Hoehe, unterhalb derer alles zur Fusszeile des Bogens gehoert.
- *
- * Das Merkmal ist der **Abstand**, nicht die Hoehe. Eine Fusszeile steht nicht
- * einfach unten, sie steht *abgesetzt*: Zwischen ihr und dem Ende der Rechnung
- * klafft eine Luecke, die ein Vielfaches des Zeilenabstands misst. Nachgemessen
- * an einer Fremdrechnung endet der Summenblock bei y=267 und der Fusstext
- * beginnt bei y=50 - 217 Punkte dazwischen, bei sieben Punkt Schriftgroesse.
- *
- * Waere stattdessen eine feste Hoehe genommen, schnitte sie bei einer langen
- * Rechnung mitten in die letzten Positionen.
- *
- * Null bedeutet: keine Fusszeile gefunden. Das ist der richtige Ausgang, wenn
- * die Rechnung bis unten laeuft - lieber nichts uebernehmen als den letzten
- * Rechnungsposten zum Briefpapier erklaeren.
- */
-declare function findeFussgrenze(zeilen: Grenzzeile[], seitenhoehe: number): number;
-declare function liesBriefpapier(bytes: Uint8Array, seite?: number): Promise<Briefpapier>;
-/**
- * Welche Strichstaerken die Vorlage in ihrem Inhalt benutzt.
- *
- * Die haeufigste gilt als die gewoehnliche, die groesste als die betonte.
- * Sind beide gleich, zieht die Vorlage alle Linien gleich - dann gibt es
- * nichts zu uebernehmen, und es bleibt bei unseren Vorgaben.
- */
-declare function findeStrichstaerken(pfade: Pfad[], inhaltszeilen?: {
-    y: number;
-}[]): {
-    inhaltStriche?: {
-        fein: number;
-        stark: number;
-        abstand?: number;
-        farbe?: {
-            r: number;
-            g: number;
-            b: number;
-        };
-    };
-};
 
 /**
  * Die Beschriftungen auf der Rechnung - einstellbar, aber nicht abschaltbar.
@@ -1105,6 +1027,15 @@ interface RenderOptions {
     /** Datum ohne fuehrende Nullen. */
     datumOhneNullen?: boolean;
     steuergrundlage?: boolean;
+    /**
+     * Den Zahlungsblock zeigen. Ohne Angabe: ja.
+     *
+     * Bis v3.0.0 entschied das die Bibliothek selbst - sie sah im uebernommenen
+     * Briefbogen nach, ob dort schon eine Bankverbindung steht, und liess den
+     * Block dann weg. Das Nachsehen ist mit dem Vorlagenleser zum Produkt
+     * gezogen; wer einen Bogen hereingibt, entscheidet deshalb selbst. Sonst
+     * stehen die Kontodaten zweimal auf der Seite.
+     */
     zahlungsblock?: boolean;
     hinweise?: boolean;
     /** Fertiges CII-XML verwenden, statt es neu zu erzeugen */
@@ -1188,118 +1119,14 @@ declare function istPng(bytes: Uint8Array): boolean;
  * beschaedigte Datei frueh zu erkennen.
  */
 declare function pngFarbtyp(bytes: Uint8Array): number | undefined;
-
 /**
- * Ein Word-Dokument aufschluesseln.
+ * Eine gelesene Farbe als Hexzeichenfolge, etwa "#0F4C81".
  *
- * Wozu: Die Zielgruppe schreibt ihre Rechnungen heute in Word - das ist die
- * Ausgangslage, von der docs/monetarisierung.md ausgeht. Wer umsteigen soll,
- * darf nicht alles abtippen muessen. Der Empfang kennt bereits den Fall
- * "PDF ohne eingebettetes XML" und weist ihn ab; hier entsteht die Grundlage,
- * daraus statt einer Absage ein Angebot zu machen.
- *
- * **Was diese Datei tut und was nicht.** Sie holt heraus, was im Dokument
- * steht: Absaetze und Tabellen, in der Reihenfolge des Dokuments. Sie deutet
- * **nichts**. Welche Zahl die Rechnungsnummer ist und welche Spalte die Menge
- * enthaelt, entscheidet nicht dieser Code - eine falsch geratene Zahl ergaebe
- * eine falsche Rechnung, und das ist der eine Fehler, den dieses Produkt nicht
- * haben darf.
- *
- * Warum ausgerechnet Word und nicht das gewohnte PDF: Eine .docx ist ein ZIP
- * mit XML darin, und beides ist ohnehin an Bord. Ein PDF hat keinen Text,
- * sondern Zeichenanweisungen - Textextraktion hiesse Inhaltsstroeme parsen und
- * Zeichenkodierungen aufloesen. Dieses Projekt weiss, wie unangenehm das ist;
- * es erzeugt selbst Schriftteilmengen.
+ * Stand bis v3.0.0 beim Vorlagenleser. Geblieben ist sie, weil das Zeichnen
+ * eines uebernommenen Bogens sie braucht: Das SVG-Vorschaubild schreibt die
+ * Farben als Text.
  */
-interface WordAbsatz {
-    art: 'absatz';
-    text: string;
-}
-interface WordTabelle {
-    art: 'tabelle';
-    /** Zeilen mit Zellen, jede Zelle als reiner Text. */
-    zeilen: string[][];
-}
-type WordBlock = WordAbsatz | WordTabelle;
-interface WordDokument {
-    /** Absaetze und Tabellen in der Reihenfolge des Dokuments. */
-    bloecke: WordBlock[];
-    /** Alle Absaetze aneinandergehaengt - fuer eine schnelle Suche. */
-    text: string;
-    /** Nur die Tabellen, weil dort die Positionen stehen. */
-    tabellen: WordTabelle[];
-}
-declare function liesWordDokument(bytes: Uint8Array): WordDokument;
-
-/**
- * Aus einer Word-Tabelle werden Rechnungspositionen.
- *
- * Der Leser nebenan (word.ts) holt heraus, was im Dokument steht; er deutet
- * nichts. Hier passiert die Deutung - aber **nicht allein**: Die Zuordnung der
- * Spalten kommt vom Nutzer, diese Datei rechnet nur um.
- *
- * Warum im Kern und nicht in der App: Der Zahlenleser unten ist die
- * riskanteste Stelle des ganzen Umzugswegs. Eine Zelle "1.234,56", die als
- * 1,23456 gelesen wird, ergibt eine falsche Rechnung - und dagegen
- * widerspricht kein Empfaenger, anders als bei einem falschen XML. Hier ist er
- * pruefbar.
- */
-type Spaltenrolle = 'bezeichnung' | 'menge' | 'einheit' | 'einzelpreis' | 'ignorieren';
-declare const ROLLEN: Array<{
-    rolle: Spaltenrolle;
-    label: string;
-}>;
-/**
- * Eine Zahl aus einer Tabellenzelle.
- *
- * Deutsche Schreibweise, und das ist eine bewusste Festlegung: Komma trennt
- * die Nachkommastellen, Punkt die Tausender. "1.234,56" ergibt 1234,56.
- *
- * Der eine Zugestaendnisfall ist ein Punkt mit ein bis zwei Stellen dahinter
- * und keinem Komma - "95.00". Das schreibt niemand als Tausendertrennung, also
- * ist es gemeint als Dezimalpunkt.
- *
- * Bewusst `undefined` statt 0 bei leerer Zelle: Eine leere Menge ist keine
- * Menge null, sondern eine fehlende Angabe. Der Unterschied entscheidet
- * darueber, ob die Oberflaeche nachfragt oder stillschweigend eine Position
- * ueber 0,00 Euro anlegt.
- */
-declare function zahlAus(text: string): number | undefined;
-/**
- * Rät die Rollen aus der Kopfzeile.
- *
- * Nur ein Vorschlag. Trifft er daneben, ist das kein Fehler - der Nutzer sieht
- * die Zuordnung und aendert sie. Deshalb hier auch keine Klugheit, sondern
- * die Woerter, die auf deutschen Rechnungen tatsaechlich stehen.
- */
-declare function schlageZuordnungVor(kopfzeile: string[]): Spaltenrolle[];
-/**
- * Erkennungsmerkmal einer Vorlage.
- *
- * Die Kopfzeile ist das Stabilste an einer Rechnungsvorlage - der Inhalt
- * darunter aendert sich mit jeder Rechnung, die Ueberschriften nicht. Wer
- * dieselbe Vorlage ein zweites Mal einliest, soll die Spalten nicht erneut
- * zuordnen muessen.
- */
-declare function signaturVon(kopfzeile: string[]): string;
-type Position = NonNullable<InvoiceInput['lines']>[number];
-interface Uebernahme {
-    positionen: Position[];
-    /** Zeilen, aus denen nichts wurde - mit dem Grund, fuer die Anzeige. */
-    uebersprungen: Array<{
-        zeile: string[];
-        grund: string;
-    }>;
-}
-/**
- * Macht aus den Datenzeilen Positionen.
- *
- * `vorlage` liefert die Umsatzsteuerangabe - sie kommt aus dem Entwurf und
- * damit aus den Stammdaten, nicht aus dem Word-Dokument. Ein Steuersatz, den
- * man aus einer Tabelle liest, ist genau die Art Zahl, die man nicht raten
- * sollte.
- */
-declare function positionenAus(tabelle: WordTabelle, rollen: Spaltenrolle[], mitKopfzeile: boolean, vorlage: Position): Uebernahme;
+declare function alsHex(farbe: Farbe): string;
 
 /**
  * Text aus einem PDF holen.
@@ -1358,134 +1185,48 @@ interface PdfText {
     /** Kein einziges lesbares Zeichen - vermutlich ein Scan. */
     leer: boolean;
 }
+type Wert = number | string | number[] | Wert[];
+/**
+ * Ein kleiner Leser fuer den Seiteninhalt.
+ *
+ * Bewusst kein regulaerer Ausdruck: Zeichenketten duerfen Klammern,
+ * Fluchtzeichen und beliebige Bytes enthalten, und ein Ausdruck, der das
+ * ueberliest, verschluckt Text oder verschiebt Positionen. Das faellt bei
+ * einem Betrag erst auf, wenn er falsch in einer Rechnung steht.
+ */
+declare function leseInhalt(quelle: string, aufOperator: (operator: string, operanden: Wert[]) => void): void;
+/** Der Seiteninhalt als latin1-Text - dort stehen Positionen und Glyphen. */
+declare function seiteninhalt(doc: PDFDocument, seite: number): string;
 declare function liesPdfText(bytes: Uint8Array): Promise<PdfText>;
 
-/**
- * Aus Textzeilen eines PDF wird eine Tabelle.
- *
- * **Das hier ist die Raterei.** pdf-text.ts liest ab, was im Dokument steht -
- * die Koordinaten sind Tatsachen. Diese Datei schliesst daraus auf eine
- * Struktur, die im PDF nicht vorhanden ist, und das kann danebengehen. Sie
- * steht deshalb getrennt, damit man sie einzeln beurteilen kann.
- *
- * ## Wie geraten wird
- *
- * Die **Kopfzeile gibt die Spalten vor**. Ihre Textstuecke stehen an genau den
- * Stellen, an denen die Spalten beginnen - jedes Stueck einer Datenzeile
- * gehoert zu dem Kopfstueck, dem es am naechsten liegt.
- *
- * Warum nicht die x-Werte aller Zeilen zusammen gruppieren: Der Abstand
- * zwischen zwei Spalten ist nicht groesser als der innerhalb einer. Gemessen
- * an einer erzeugten Rechnung liegen "Pos." und "Bezeichnung" 26 Einheiten
- * auseinander, "Einzelpreis" und sein Wert 17 - eine feste Schwelle traefe
- * beides gleich und wuerde entweder Spalten verschmelzen oder sie zerreissen.
- *
- * Die Naehe zum Kopfstueck traegt auch bei rechtsbuendigen Zahlen: Ein Betrag
- * steht dann links von seiner Ueberschrift, aber immer noch naeher an ihr als
- * an der Nachbarspalte.
- *
- * ## Was sie nicht kann
- *
- * Verbundene Zellen, mehrzeilige Positionen und Tabellen ohne Kopfzeile. Eine
- * Fortsetzungszeile - "Frontend, Anbindung an das Abrechnungssystem" unter der
- * eigentlichen Position - erscheint als eigene Zeile mit nur einer gefuellten
- * Spalte. Sie wird gemeldet, nicht stillschweigend angehaengt.
- */
-interface Tabellenbefund {
-    tabelle: WordTabelle;
-    /**
-     * Zeilen, die nur eine Spalte gefuellt haben - meist Fortsetzungstext einer
-     * Position. Sie stehen in der Tabelle, aber der Aufrufer soll wissen, dass
-     * sie verdaechtig sind.
-     */
-    fortsetzungen: number[];
+interface Breiten {
+    /** Zwei Bytes je Code - bei Type0 der Normalfall. */
+    breit: boolean;
+    /** Breite eines Glyphen in Tausendstel Schriftgroesse. */
+    breite(code: number): number;
 }
 /**
- * Sucht die Zeile, die am ehesten eine Tabellenkopfzeile ist.
+ * Sammelt die Glyphenbreiten aller Schriften einer Seite.
  *
- * Genommen wird die Zeile mit den meisten Textstuecken - eine Kopfzeile hat
- * definitionsgemaess je Spalte eines. Bei Gleichstand die obere, weil
- * Rechnungen ihre Positionstabelle vor den Summen fuehren.
- *
- * Das ist ein **Vorschlag**. Welche Zeile die Kopfzeile ist, entscheidet der
- * Mensch - hier wird nur die Auswahl vorbelegt.
+ * Fehlt eine Angabe, kommt `MissingWidth` aus dem Schriftdeskriptor zum
+ * Zug und sonst null. Null ist die ehrlichere Vorgabe als ein geratener
+ * Mittelwert: Ein Stueck bleibt dann stehen, wo es stand, statt sich um einen
+ * erfundenen Betrag zu verschieben.
  */
-declare function schlageKopfzeileVor(zeilen: Textzeile[]): number;
+declare function liefereBreiten(doc: PDFDocument, seite: number): Map<string, Breiten>;
 /**
- * Baut aus den Zeilen ab `kopfzeile` eine Tabelle.
+ * Wie weit ein gesetzter Lauf die Schreibmarke weiterschiebt.
  *
- * Gelesen wird bis zur ersten Zeile, die nicht mehr passt - also weniger
- * Stuecke hat als das Mindestmass und auch keine Fortsetzung ist. Damit endet
- * die Tabelle dort, wo im Dokument der Fliesstext weitergeht, ohne dass
- * jemand eine Zeilenzahl angeben muesste.
+ * Die Rechnung steht so in der PDF-Spezifikation: Fuer jeden Glyphen
+ * `(w0/1000 * Tfs + Tc + Tw) * Th`, und eine Zahl im TJ-Feld zieht
+ * `Tj/1000 * Tfs * Th` wieder ab.
+ *
+ * `Tw` gilt nur fuer das Byte 32 und nur bei einfachen Schriften - bei
+ * zusammengesetzten waere 32 die Haelfte eines Codes und kein Leerzeichen.
+ * Diese Ausnahme steht ausdruecklich in der Spezifikation und ist genau die
+ * Sorte Regel, die man beim Nachbauen vergisst.
  */
-declare function tabelleAusZeilen(zeilen: Textzeile[], kopfzeile: number): Tabellenbefund;
-
-/**
- * Stammdaten aus einer fremden Rechnung herausholen.
- *
- * Der Anlass: Die erste Huerde der App ist nicht die Rechnung, sondern der
- * Absender. Ohne Firmenname, Anschrift und Steuernummer laesst sich keine
- * gueltige Rechnung erzeugen - und wer umsteigt, hat all das schon auf seiner
- * alten Rechnung stehen. Es abzutippen ist die unnoetigste Arbeit des ganzen
- * Umzugs.
- *
- * ## Nach Sicherheit getrennt, nicht nach Feld
- *
- * Eine IBAN traegt eine Pruefsumme: Was den Mod-97-Test besteht, ist keine
- * Vermutung, sondern ein Befund. Ein Firmenname dagegen ist die Zeile ueber der
- * Strasse - mehr nicht. Beides gleich zu behandeln waere der Fehler, der sich
- * hinterher in jeder erzeugten Rechnung wiederholt.
- *
- * Deshalb traegt jeder Fund seine Sicherheit und seinen Beleg mit sich, und die
- * Oberflaeche kann Gepruefte anders anbieten als Geratene.
- *
- * ## Was ausdruecklich nicht gesucht wird
- *
- * **Rechnungsnummer und Rechnungsdatum.** Beide vergibt die App selbst - die
- * Nummer beim Festschreiben aus dem eigenen Nummernkreis, das Datum ist heute.
- * Sie aus einer alten Rechnung zu uebernehmen waere nicht nur nutzlos, sondern
- * gefaehrlich: Eine doppelt vergebene Rechnungsnummer verstoesst gegen
- * Paragraf 14 Absatz 4 UStG.
- *
- * **Wer Absender und wer Empfaenger ist.** Auf einer Rechnung stehen beide
- * Anschriften, und welche welche ist, haengt am Aufbau der Vorlage. Diese Datei
- * gibt beide in der Reihenfolge des Dokuments zurueck; die Zuordnung trifft ein
- * Mensch. Eine Verwechslung waere der teuerste Fehler ueberhaupt - man
- * verschickte Rechnungen unter fremdem Namen.
- */
-type Sicherheit = 
-/** Ein Verfahren bestaetigt es - etwa die IBAN-Pruefsumme. */
-'geprueft'
-/** Die Form stimmt, geprueft ist sie nicht. */
- | 'muster'
-/** Aus der Umgebung geschlossen. */
- | 'geraten';
-type Feld = 'name'
-/** Die Person, an die adressiert ist - "Hr. Christian Ranacher". */
- | 'ansprechpartner' | 'strasse' | 'plz' | 'ort' | 'iban' | 'bic' | 'ustId' | 'steuernummer' | 'leitwegId';
-interface Fund {
-    feld: Feld;
-    wert: string;
-    sicherheit: Sicherheit;
-    /** Die Zeile, in der es stand - damit der Nutzer nachsehen kann. */
-    beleg: string;
-}
-interface Anschrift {
-    /** Die Zeilen, aus denen sie gebildet wurde. */
-    beleg: string[];
-    felder: Fund[];
-}
-interface Stammdatenfund {
-    /**
-     * Gefundene Anschriften in der Reihenfolge des Dokuments. Welche der
-     * eigenen ist, entscheidet der Nutzer.
-     */
-    anschriften: Anschrift[];
-    /** Kennungen, die zu keiner Anschrift gehoeren muessen - IBAN, Steuernummer. */
-    angaben: Fund[];
-}
-declare function findeStammdaten(zeilen: string[]): Stammdatenfund;
+declare function laufbreite(stuecke: (number[] | number)[], breiten: Breiten | undefined, groesse: number, zeichenabstand?: number, wortabstand?: number, streckung?: number): number;
 
 interface ExtractedAttachment {
     filename: string;
@@ -1709,765 +1450,6 @@ declare function setzeMitVorlagenschrift(zielSeite: PDFPage, papier: Briefpapier
 declare function schriftenImBriefkopf(laeufe: Textlauf[]): string[];
 
 /**
- * Das Absenderprofil - wer die Rechnung stellt, und wie sein Bogen aussieht.
- *
- * ## Ein Begriff, zwei Orte
- *
- * In der App hat ein Nutzer meist genau eines. Im Buero hat eine Agentur oder
- * ein Steuerbuero viele - eines je Mandant. Das ist aber **derselbe Begriff**,
- * nicht zwei: Ein Mandant ist ein Absenderprofil, von dem das Buero mehrere
- * haelt. Deshalb steht die Beschreibung hier, einmal und zentral, statt an
- * beiden Orten eigen zu wachsen.
- *
- * Der Nutzen ist kein aesthetischer: Ein Briefpapier, das im Buero angelegt
- * wurde, muss sich auf einem Geraet oeffnen lassen und umgekehrt. Zwei
- * Beschreibungen desselben Dings driften auseinander, und zwar genau dann,
- * wenn jemand sie braucht.
- *
- * ## Warum die Kennung aus der Identitaet kommt
- *
- * Sie wird nicht gewuerfelt, sondern aus Name, Ort und Steuernummer gebildet.
- * Damit ergibt dieselbe Firma auf zwei Geraeten dieselbe Kennung - ohne dass
- * die Geraete miteinander sprechen muessen. Eine zufaellige Kennung haette
- * denselben Bogen zweimal unter verschiedenem Namen abgelegt, und beim
- * naechsten Abgleich haette niemand mehr gewusst, welcher gilt.
- *
- * ## Warum das Briefpapier seine Herkunft traegt
- *
- * Ein Briefpapier wird aus einer fremden Rechnung gelesen, und auf einer
- * Rechnung stehen **zwei** Anschriften. Wer das Falsche uebernimmt, verschickt
- * kuenftig Rechnungen unter fremdem Briefkopf - der teuerste denkbare Fehler
- * dieses Programms. Deshalb merkt sich der Bogen, wessen Bogen er ist, und
- * `pruefeZuordnung` verweigert die Verwendung unter anderem Namen.
- */
-interface Identitaet {
-    /** Firmenname, wie er auf der Rechnung steht. */
-    name: string;
-    plz: string;
-    ort: string;
-    /** Umsatzsteuer-Identifikationsnummer, falls vorhanden. */
-    ustId?: string;
-    /** Steuernummer, falls keine USt-IdNr vorliegt. */
-    steuernummer?: string;
-}
-interface Herkunft {
-    /** Wie die Vorlage hiess, aus der gelesen wurde. */
-    quelle: string;
-    /** Tag des Auslesens, als ISO-Datum. */
-    gelesenAm: string;
-    /** Wen die Vorlage als Absender nannte. */
-    identitaet: Identitaet;
-}
-interface Absenderprofil {
-    /** Aus der Identitaet abgeleitet - siehe `kennungVon`. */
-    kennung: string;
-    identitaet: Identitaet;
-    briefpapier?: Briefpapier;
-    /** Nur gesetzt, wenn das Briefpapier aus einer Vorlage stammt. */
-    herkunft?: Herkunft;
-}
-/**
- * Die Kennung eines Absenderprofils.
- *
- * Bevorzugt die Steuernummer, weil sie eindeutig ist; ohne sie bleibt Name mit
- * Ort. Das ist schwaecher - zwei gleichnamige Firmen am selben Ort fielen
- * zusammen - aber immer noch besser als eine zufaellige Kennung, die
- * garantiert nicht wiedererkannt wird.
- */
-declare function kennungVon(identitaet: Identitaet): string;
-declare function profilAus(identitaet: Identitaet): Absenderprofil;
-type Zuordnung = 
-/** Der Bogen gehoert zu diesem Profil. */
-{
-    urteil: 'passt';
-}
-/** Der Bogen hat keine Herkunft - selbst gebaut statt ausgelesen. */
- | {
-    urteil: 'ohne-herkunft';
-}
-/** Der Bogen gehoert nachweislich zu jemand anderem. */
- | {
-    urteil: 'fremd';
-    gehoertZu: string;
-};
-/**
- * Darf dieses Briefpapier unter diesem Absender verwendet werden?
- *
- * Ein ausgelesener Bogen traegt die Identitaet, die in seiner Vorlage als
- * Absender stand. Stimmt sie nicht mit dem Profil ueberein, wird das gemeldet
- * statt stillschweigend hingenommen. Ein selbst gebauter Bogen ohne Herkunft
- * gilt nicht als fremd - er gehoert dem, der ihn baut.
- */
-declare function pruefeZuordnung(profil: Absenderprofil, herkunft?: Herkunft): Zuordnung;
-/**
- * Haengt ein ausgelesenes Briefpapier an ein Profil.
- *
- * Verweigert die Verbindung, wenn die Vorlage jemand anderen als Absender
- * nannte. Das ist die Stelle, an der ein Versehen aufgehalten wird: Wer die
- * Empfaengeranschrift statt der eigenen bestaetigt hat, bekommt hier eine
- * Absage statt spaeter fremde Rechnungen.
- */
-declare function uebernimmBriefpapier(profil: Absenderprofil, briefpapier: Briefpapier, herkunft: Herkunft): {
-    profil: Absenderprofil;
-} | {
-    fehler: Zuordnung;
-};
-
-interface Breiten {
-    /** Zwei Bytes je Code - bei Type0 der Normalfall. */
-    breit: boolean;
-    /** Breite eines Glyphen in Tausendstel Schriftgroesse. */
-    breite(code: number): number;
-}
-/**
- * Sammelt die Glyphenbreiten aller Schriften einer Seite.
- *
- * Fehlt eine Angabe, kommt `MissingWidth` aus dem Schriftdeskriptor zum
- * Zug und sonst null. Null ist die ehrlichere Vorgabe als ein geratener
- * Mittelwert: Ein Stueck bleibt dann stehen, wo es stand, statt sich um einen
- * erfundenen Betrag zu verschieben.
- */
-declare function liefereBreiten(doc: PDFDocument, seite: number): Map<string, Breiten>;
-/**
- * Wie weit ein gesetzter Lauf die Schreibmarke weiterschiebt.
- *
- * Die Rechnung steht so in der PDF-Spezifikation: Fuer jeden Glyphen
- * `(w0/1000 * Tfs + Tc + Tw) * Th`, und eine Zahl im TJ-Feld zieht
- * `Tj/1000 * Tfs * Th` wieder ab.
- *
- * `Tw` gilt nur fuer das Byte 32 und nur bei einfachen Schriften - bei
- * zusammengesetzten waere 32 die Haelfte eines Codes und kein Leerzeichen.
- * Diese Ausnahme steht ausdruecklich in der Spezifikation und ist genau die
- * Sorte Regel, die man beim Nachbauen vergisst.
- */
-declare function laufbreite(stuecke: (number[] | number)[], breiten: Breiten | undefined, groesse: number, zeichenabstand?: number, wortabstand?: number, streckung?: number): number;
-
-/**
- * Steht das Zahlungsziel schon fest im Briefpapier?
- *
- * ## Warum das eine Frage ist
- *
- * Ein uebernommener Briefbogen bringt oft seine eigene Zahlungsklausel mit.
- * Nachgemessen an einer Fremdrechnung steht im Fuss: "Bitte ueberweisen Sie den
- * oben genannten Betrag innerhalb von 8 Tagen ohne Abzug ... Nach Ablauf dieser
- * Frist gilt die Rechnung als anerkannt."
- *
- * Setzt unser Zahlungsblock dann noch einmal "Zahlbar ohne Abzug bis zum ...",
- * steht die Frist zweimal auf dem Blatt - und wenn beide auseinanderlaufen,
- * widersprechen sie sich. Welche gilt, muesste im Streitfall ein Gericht
- * klaeren; das ist kein Zustand, den ein Rechnungsprogramm herstellen sollte.
- *
- * ## Was das Weglassen nicht betrifft
- *
- * Nur die Anzeige im Rumpf. Das XML behaelt seine Angabe: EN 16931 verlangt
- * mit BR-CO-25 entweder ein Faelligkeitsdatum oder eine Zahlungsbedingung, und
- * maschinell gelesen wird ohnehin das XML. Auf dem Papier steht die Frist
- * weiterhin - einmal statt zweimal.
- *
- * ## Warum nur gemeldet und nicht selbst entschieden
- *
- * Ob eine gefundene Klausel wirklich fuer jede kuenftige Rechnung gelten soll,
- * weiss nur der Absender. Wer immer acht Tage einraeumt, will sie im Bogen;
- * wer je nach Kunde anders vereinbart, braucht sie im Rumpf. Diese Datei
- * findet die Stelle und zitiert sie - entscheiden muss ein Mensch.
- */
-interface Zahlungsklausel {
-    /** Die Zeile, in der sie steht - zum Vorzeigen, damit ein Mensch urteilen kann. */
-    beleg: string;
-    /** Die gefundene Frist in Tagen, falls eine genannt ist. */
-    tage?: number;
-    /** Woran sie erkannt wurde. */
-    merkmal: string;
-}
-/**
- * Sucht eine Zahlungsklausel im Text des Briefbogens.
- *
- * Gesucht wird ueber die zusammengesetzten Zeilen, nicht ueber die einzelnen
- * Stuecke: Eine Wendung wie "innerhalb von 8 Tagen" verteilt sich in einer
- * gesetzten Zeile leicht auf mehrere Stuecke und waere einzeln nicht zu finden.
- */
-declare function findeZahlungsklausel(zeilen: string[]): Zahlungsklausel | undefined;
-/**
- * Die Textstuecke eines Bogens zu Zeilen zusammenlegen.
- *
- * Noetig, weil eine gesetzte Zeile sich leicht auf mehrere Stuecke verteilt -
- * "innerhalb von 8 Tagen" kann in fuenf Teilen dastehen und waere einzeln in
- * keinem davon zu finden. Dasselbe gilt fuer eine Anschrift.
- */
-declare function zeilenImBogen(papier: Briefpapier): string[];
-/** Dasselbe fuer ein ausgelesenes Briefpapier. */
-declare function zahlungsklauselImBogen(papier: Briefpapier): Zahlungsklausel | undefined;
-/**
- * Steht die Bankverbindung schon im Briefbogen?
- *
- * Dann braucht die Rechnung keinen eigenen Zahlungsblock - die vermessene
- * Vorlage hat keinen: Ihre IBAN steht im Briefkopf, und der Fuss verweist mit
- * "auf unser oben stehendes Bankkonto" darauf.
- *
- * ## Warum nicht die Pruefsumme entscheidet
- *
- * Zuerst wurde eine IBAN verlangt, die Mod 97 besteht. Das schlug fehl, und
- * zwar aus dem richtigen Grund: Die Teilmengenschrift der Vorlage uebersetzt
- * einen Glyphen nicht zurueck, der IBAN fehlt beim Auslesen eine Ziffer, und
- * eine geprueft ungueltige IBAN anzubieten waere falsch.
- *
- * Nur ist das hier die falsche Frage. Es geht nicht darum, die Nummer zu
- * **benutzen**, sondern darum, ob sie auf dem Blatt schon **steht** - und sie
- * steht dort, vollstaendig und richtig, weil der Bogen mit den Glyphen der
- * Vorlage gesetzt wird. Was wir nicht entziffern koennen, kann der Empfaenger
- * trotzdem lesen.
- *
- * Deshalb genuegt die Beschriftung. Verlangt werden beide - IBAN und BIC -,
- * damit eine blosse Erwaehnung im Fliesstext nicht ausreicht.
- */
-declare function bankverbindungImBogen(papier: Briefpapier): boolean;
-
-/**
- * CCITT-Gruppe-4-Faxbilder entschluesseln (ITU-T T.6).
- *
- * ## Warum das hier steht
- *
- * Ein am Buerokopierer eingescanntes Blatt enthaelt keinen Text, sondern ein
- * Bild davon - lesbar nur mit Texterkennung. Und die braucht ein Bild.
- *
- * Nachgemessen an einem Scan aus einem Canon iR-ADV: Die Datei ist eine
- * gemischte Rasterdatei. Der ganzseitige JPEG-Hintergrund traegt die
- * Gestaltung - gruene Balken, Logo - aber **kein lesbares Wort**; der Text
- * steckt in einer 1888 x 2632 grossen Bildmaske daneben, faxcodiert. Wer nur
- * das JPEG an die Texterkennung gibt, bekommt nichts zurueck und weiss nicht
- * warum.
- *
- * Die Maske allein ist sogar das bessere Futter als eine zusammengesetzte
- * Seite: reines Schwarz auf Weiss, ohne Hintergrundrauschen.
- *
- * ## Warum selbst geschrieben
- *
- * Weil es sonst nichts kostet. Der Kern kommt ohne Abhaengigkeiten aus, und
- * derselbe Entschluesseler laeuft danach im Browser, in der App und in Node.
- * Eine Bibliothek dafuer waere auf jeder der drei Plattformen eine eigene
- * Frage gewesen.
- *
- * ## Was er kann und was nicht
- *
- * Nur K < 0, also reines zweidimensionales Gruppe-4. Das ist es, was Scanner
- * in PDF legen. Gruppe 3 (K >= 0) mit seinen Zeilensynchronisationen kommt
- * dort praktisch nicht vor und wird abgewiesen statt halb versucht.
- */
-interface CcittAngaben {
-    /** Bildbreite in Bildpunkten - im PDF die Angabe `Columns`. */
-    breite: number;
-    /** Bildhoehe. Fehlt sie, wird gelesen, bis die Daten enden. */
-    hoehe?: number;
-    /**
-     * Ist eine Eins schwarz? Im PDF `BlackIs1`, Vorgabe falsch.
-     *
-     * Die Vorgabe dreht die Bedeutung um: Ohne die Angabe steht die Null fuer
-     * Schwarz. Das Ergebnis dieser Datei ist davon unberuehrt - sie liefert
-     * immer 1 fuer Schwarz -, aber wer die Rohbits selbst deutet, faellt darauf
-     * herein.
-     */
-    schwarzIstEins?: boolean;
-}
-interface Fehlerbild {
-    breite: number;
-    hoehe: number;
-    /** Ein Byte je Bildpunkt: 0 = weiss, 1 = schwarz. */
-    punkte: Uint8Array;
-    /** Zeilen, die vorzeitig abbrachen - ein Mass fuer die Verlaesslichkeit. */
-    gestoerteZeilen: number;
-}
-/**
- * Entschluesselt ein Gruppe-4-Bild.
- *
- * Das Verfahren arbeitet zeilenweise gegen die Zeile darueber: Statt jeden
- * Bildpunkt zu nennen, beschreibt es, wo sich die Farbwechsel gegenueber der
- * Vorzeile verschieben. Die gedachte Zeile ueber der ersten ist ganz weiss.
- *
- * Gespeichert wird je Zeile nur die Liste der Wechselstellen. Das ist nicht
- * nur sparsam, sondern die Form, in der das Verfahren selbst denkt - mit
- * einem Punktfeld waere jede Suche nach dem naechsten Wechsel eine Schleife.
- */
-declare function entschluesseleCcitt(daten: Uint8Array, angaben: CcittAngaben): Fehlerbild;
-
-/**
- * Die Bilder einer Seite herausloesen - fuer die Texterkennung.
- *
- * ## Warum das noetig ist
- *
- * Ein eingescanntes Blatt enthaelt keinen Text, sondern ein Bild davon. Die
- * Texterkennung braucht dieses Bild, und aus einem PDF kommt man nur an zwei
- * Wegen daran: die Seite rastern - was einen vollstaendigen PDF-Zeichner
- * verlangt - oder die eingebetteten Bilder herausnehmen. Bei einem Scan ist
- * das zweite nicht nur billiger, sondern besser.
- *
- * ## Was ein Scanner tatsaechlich ablegt
- *
- * Nachgemessen an einem Canon iR-ADV: eine gemischte Rasterdatei. Ein
- * ganzseitiges JPEG traegt die Gestaltung - gruene Balken, Logo -, aber der
- * Text darin ist ausgewaschen und nicht zu lesen. Der Text steckt daneben in
- * einer faxcodierten Bildmaske, schwarz auf weiss.
- *
- * Deshalb wird die **Maske bevorzugt**: Sie ist das bessere Futter fuer die
- * Erkennung als die zusammengesetzte Seite, weil ihr das Hintergrundrauschen
- * fehlt. Wer stattdessen das JPEG nimmt, bekommt nichts zurueck und weiss
- * nicht, ob das Blatt leer war oder der Leser versagt hat.
- */
-type Bildart = 'jpeg' | 'png';
-interface Seitenbild {
-    /** Der Name der Ressource im Dokument, etwa "Obj9". */
-    name: string;
-    art: Bildart;
-    bytes: Uint8Array;
-    breite: number;
-    hoehe: number;
-    /**
-     * Eine Bildmaske - reiner Schwarzweissanteil, meist die Textebene eines
-     * Scans. Sie hat Vorrang vor dem Hintergrundbild.
-     */
-    istMaske: boolean;
-    /** Anteil der Seitenflaeche, den das Bild bedeckt - grob ueber die Masse. */
-    deckung: number;
-}
-/**
- * Alle Bilder einer Seite, in der Reihenfolge ihrer Eignung fuer die Erkennung.
- *
- * Ganzseitige Masken zuerst, dann ganzseitige Bilder, dann der Rest. Wer die
- * Liste von vorn abarbeitet, gibt der Erkennung zuerst das, worauf am ehesten
- * Text steht.
- */
-declare function liesSeitenbilder(bytes: Uint8Array, seite?: number): Promise<Seitenbild[]>;
-
-/**
- * Baut ein PNG aus einem Byte je Bildpunkt, 0 bis 255 in Grau.
- *
- * Jede Zeile bekommt ein fuehrendes Nullbyte - die Filterart "keine". PNG
- * erlaubt je Zeile eine andere Vorhersage, was Platz spart; darauf zu
- * verzichten kostet hier nichts, weil danach ohnehin komprimiert wird.
- */
-declare function alsGraustufenPng(breite: number, hoehe: number, grau: Uint8Array): Uint8Array;
-/** Eine Faxmaske in Graustufen: 1 bedeutet schwarz. */
-declare function maskeAlsGrau(punkte: Uint8Array): Uint8Array;
-
-/**
- * Wer im Briefkopf als Absender steht.
- *
- * ## Warum eine Liste und keine Antwort
- *
- * Weil auf einer Rechnung immer zwei Anschriften stehen: die des Ausstellers
- * und die des Empfaengers. Welche welche ist, laesst sich aus der Lage allein
- * nicht sicher sagen - manche Boegen setzen den Absender unten, manche
- * zweizeilig neben das Zeichen. Waehlen soll deshalb ein Mensch; wer hier
- * raet, laesst jemanden unter dem Briefkopf seines Kunden verschicken.
- *
- * ## Warum nur vollstaendige Anschriften
- *
- * Genommen wird nur, was Name, Postleitzahl und Ort traegt. Eine Anschrift
- * ohne Namen taugt nicht zur Zuordnung, und eine Auswahl anzubieten, die
- * hinterher abgewiesen wird, waere nur aergerlich.
- */
-declare function anschriftenAus(papier: Briefpapier): {
-    identitaet: Identitaet;
-    beleg: string;
-}[];
-
-/**
- * Die Schriften eines Briefkopfs, herausgeloest in eine eigene kleine Datei.
- *
- * ## Warum es das gibt
- *
- * Der Briefkopf einer uebernommenen Vorlage wird am besten **wiedergegeben**:
- * dieselben Glyphennummern, dieselben Vorschuebe, dieselbe Schrift. Dafuer
- * braucht es die Schriftobjekte der Quelldatei - und die lagen bisher nur im
- * Original-PDF. Die App hebt das nicht auf; sie liest es einmal und behaelt
- * die Messwerte.
- *
- * Ohne die Schriften wird der Briefkopf mit der Hausschrift nachgezeichnet
- * und je Textlauf auf seine gemessene Breite eingepasst. Anfang und Ende jeder
- * Zeile stimmen dann, die Wortabstaende dazwischen nicht. Nachgemessen an
- * einer Fremdrechnung, deren Fusszeile im **Blocksatz** steht: Ihre Deckung
- * fiel von 100 auf 44,6 Prozent, waehrend Rumpf und Kennzahlen unveraendert
- * blieben.
- *
- * ## Warum nicht das ganze PDF aufheben
- *
- * Weil darin die alte Rechnung steht - mit dem Namen eines Kunden, seinen
- * Positionen und Betraegen. Diese Daten in jedem Absenderprofil und in jeder
- * weitergegebenen Briefbogendatei mitzufuehren waere eine Datensammlung ohne
- * Zweck. Gebraucht werden die Schriften, nicht der Vorgang.
- *
- * Und es waere gross: Die Vorlage wiegt eine halbe Megabyte, ihre vier
- * Schriften zusammen fuenfzehn Kilobyte. Eingebettet ist naemlich nur eine
- * Teilmenge - die Zeichen, die auf jener einen Seite vorkamen.
- *
- * ## Was herauskommt
- *
- * Eine gueltige PDF-Datei mit **einer leeren Seite**, deren Schriftverzeichnis
- * dieselben Namen traegt wie das Original. Damit ist sie genau das, was
- * `bereiteVorlagenschrift` als Quelle erwartet - der Renderer braucht keine
- * Zeile Aenderung, und wer eine echte Vorlage hat, kann sie weiterhin
- * uebergeben.
- */
-/**
- * Loest die Schriften des Briefkopfs aus der Quelldatei.
- *
- * Genommen werden nur die, die seine Textlaeufe wirklich benutzen - eine
- * Rechnung bettet oft Schnitte ein, die nur im Rechnungsteil vorkommen, und
- * die gehoeren nicht zum Bogen.
- *
- * Gibt `undefined` zurueck, wenn nichts zu holen ist: kein Textlauf, keine
- * Schriftressource, oder die Datei laesst sich nicht lesen. Dann bleibt es
- * beim Nachzeichnen.
- */
-declare function schriftbogenAus(quelle: Uint8Array, papier: Briefpapier, quellseite?: number): Promise<Uint8Array | undefined>;
-
-/**
- * Wortwahl und Stellung aus einer alten Rechnung ablesen.
- *
- * ## Warum das geht
- *
- * Die Vorlage weiss beides schon. Nachgemessen an einer Fremdrechnung steht
- * auf halber Hoehe quer ueber der Seite:
- *
- *     y=539  [181, 337, 456]
- *     Rechnungs-Nr. 2026/7910   Kunden-Nr. 2008   Rechnungsdatum: 12.8.2026
- *
- * Darin steckt die Wortwahl - "Rechnungs-Nr." statt "Rechnungsnummer" - und
- * die Stellung: drei Angaben nebeneinander in einer Zeile, nicht
- * untereinander am rechten Rand.
- *
- * ## Warum nur ein Vorschlag
- *
- * Erkannt wird an Wendungen, und Wendungen taeuschen. "Rechnungsdatum" kann
- * auch mitten im Fliesstext stehen. Deshalb liefert diese Datei Vorschlaege
- * samt der Zeile, aus der sie stammen - bestaetigen muss ein Mensch.
- *
- * ## Was ausdruecklich nicht uebernommen wird
- *
- * Die **Werte**. Gesucht werden nur die Woerter davor. Eine Rechnungsnummer
- * aus einer alten Rechnung zu uebernehmen waere nicht bloss nutzlos, sondern
- * gefaehrlich - eine doppelt vergebene Nummer verstoesst gegen Paragraf 14
- * Absatz 4 UStG.
- */
-interface Vorlagenvorschlag {
-    /** Nur die Woerter, die von der Vorgabe abweichen. */
-    beschriftungen: Partial<Beschriftungen>;
-    /** Wo die Vorlage ihren Kennzahlenblock hat, falls erkennbar. */
-    kennzahlen?: Kennzahlenstellung;
-    /**
-     * Setzt die Vorlage Spaltenkoepfe ueber ihre Positionen?
-     *
-     * Erkannt daran, ob eines der Kopfwoerter ueberhaupt vorkommt. Die
-     * vermessene Vorlage hat keine - sie nennt eine Position und ihren Preis,
-     * mehr braucht es dort nicht.
-     */
-    tabellenkopf: boolean;
-    /**
-     * Welche Kennzahlen die Vorlage nennt - meist weniger als wir kennen, und
-     * in **ihrer** Reihenfolge: Die vermessene Vorlage setzt Nummer, Kundennummer,
-     * Datum; wir setzen Nummer, Datum, Kundennummer.
-     */
-    kennzahlenfelder: (keyof Beschriftungen)[];
-    /**
-     * Stehen Beschriftung und Wert nebeneinander?
-     *
-     * Die Vorlage setzt "Rechnungs-Nr. 2026/7910" als **ein** Stueck; wir setzen
-     * die Beschriftung ueber den Wert. Erkannt daran, ob hinter der gefundenen
-     * Beschriftung im selben Stueck noch etwas steht.
-     */
-    kennzahlenInline?: boolean;
-    /**
-     * Welche Kennzahlen die Vorlage fett setzt.
-     *
-     * Sie zeichnet nicht alle gleich aus: "Rechnungs-Nr. 2026/7910" und
-     * "Kunden-Nr. 2008" stehen halbfett, "Rechnungsdatum: 12.8.2026" mager -
-     * alle drei in derselben Zeile. Wer das einebnet, setzt drei gleichrangige
-     * Angaben, wo die Vorlage zwei betont.
-     */
-    kennzahlenFett: (keyof Beschriftungen)[];
-    /**
-     * Wie die Vorlage Datumsangaben schreibt.
-     *
-     * "12.8.2026" ohne fuehrende Nullen gegen "12.08.2026". Eine Anzeigefrage;
-     * im XML steht ohnehin das ISO-Datum.
-     */
-    datumOhneNullen?: boolean;
-    /**
-     * Nennt die Steuerzeile ihre Bemessungsgrundlage?
-     *
-     * "zzgl. 19 % MwSt. auf 10.381,50" gegen "zzgl. 19 % MwSt.". Undefiniert,
-     * wenn die Vorlage gar keine Steuerzeile hat - dann bleibt es bei unserer
-     * Vorgabe, statt aus dem Nichts zu schliessen.
-     */
-    steuergrundlage?: boolean;
-    /**
-     * Wie weit die Vorlage ihre Positionen vom linken Satzrand einrueckt.
-     *
-     * Die vermessene Vorlage setzt ihren Fliesstext bei 181,4 und die
-     * Positionen bei 215,4 - dazwischen liegt eine leere Spalte von 34 Punkten,
-     * in der auf **dieser** Rechnung nichts steht. Sie zu streichen, weil sie
-     * leer aussieht, ruecken die Positionen an den Satzrand und nichts fluchtet
-     * mehr mit dem Rest des Blattes. Die Spalte gehoert zum Raster, nicht zu
-     * ihrem Inhalt.
-     */
-    positionsEinzug?: number;
-    /**
-     * Zeichnet die Vorlage den Namen einer Position aus?
-     *
-     * Unser eigener Entwurf setzt ihn fett und seine Beschreibung kleiner und
-     * grau. Die vermessene Vorlage setzt beides gleich - gleiche Schrift,
-     * gleiche Groesse, gleiche Farbe - und trennt allein durch eine Leerzeile.
-     *
-     * Abgelesen an der Strichstaerke, nicht an der Farbe: Aus dem Text laesst
-     * sich der Schnitt ablesen, ein Grauwert nicht. Wo kein Schnitt betont
-     * wird, wird auch nicht eingefaerbt - die beiden Mittel gehoeren zusammen,
-     * und eine graue Beschreibung unter einem mageren Namen saehe nach Fehler
-     * aus.
-     */
-    positionsauszeichnung?: boolean;
-    /**
-     * Steht der Betrag einer Position auf ihrer letzten Zeile?
-     *
-     * Die vermessene Vorlage setzt ihn dorthin: Name, Beschreibung, und auf
-     * Hoehe der letzten Beschreibungszeile der Betrag. Wir setzen ihn neben die
-     * erste. Bei einzeiligen Positionen faellt das nicht auf, bei vierzeiligen
-     * steht der Betrag drei Zeilen zu hoch.
-     */
-    betragUnten?: boolean;
-    /**
-     * Auf welcher Hoehe die Vorlage ihre Kennzahlenzeile setzt.
-     *
-     * Als **absolute** Hoehe auf ihrer Seite, nicht als Abstand zu irgendetwas.
-     * Unser Satz stellte den Block auf 45 Millimeter unter die Oberkante des
-     * Anschriftenfeldes - ein rundes Mass, das sich niemand ausgedacht hat, um
-     * zu dieser Vorlage zu passen. Ihres sind 42,3, und die Differenz schob den
-     * ganzen Rumpf um neun Punkt.
-     */
-    kennzahlenOben?: number;
-    /**
-     * Und an welcher Kante jede Kennzahl beginnt.
-     *
-     * Unser Satz teilte die Satzbreite in gleiche Spalten. Die Vorlage tut das
-     * nicht: Ihre erste Spalte ist 156 Punkt breit, die zweite 118. Bei
-     * gleichen Dritteln blieben je 130, und "Rechnungs-Nr. 2026/7910" passte
-     * nicht mehr hinein - gerendert stand da "Rechnungs-Nr. 2026/7...". Eine
-     * Rechnungsnummer, die nicht vollstaendig auf der Rechnung steht, ist kein
-     * Schoenheitsfehler.
-     */
-    kennzahlenSpalten?: Partial<Record<keyof Beschriftungen, number>>;
-    /**
-     * An welcher Kante die Beschriftungen des Summenblocks enden.
-     *
-     * Sie stehen rechtsbuendig, alle drei auf 423,8. Unser Satz leitete diese
-     * Kante aus der Breite der Betragsspalte ab und landete 31 Punkt weiter
-     * rechts - die Beschriftungen rutschten unter die Betraege der Positionen
-     * statt darunter zu stehen.
-     */
-    summenlabelRechts?: number;
-    /**
-     * Setzt die Vorlage ihre Summenbeschriftungen in einem eigenen Schnitt?
-     *
-     * Die vermessene benutzt drei: National Light fuer den Fliesstext, National
-     * Book fuer "Gesamtbetrag netto" und "zzgl. 19 % MwSt.", National Semibold
-     * fuer die Auszeichnung. Wir kannten zwei und setzten die beiden Zeilen
-     * mager - drei Prozent zu schmal, sichtbar in jeder Ueberlagerung.
-     *
-     * Erkannt am Schnittnamen: Traegt die Beschriftung einen anderen als der
-     * Fliesstext und ist sie nicht schon als fett erkannt, ist es ein dritter.
-     */
-    summenlabelKraeftig?: boolean;
-    /**
-     * Welche Schnitte die Vorlage in ihrem Rechnungsteil ueberhaupt benutzt.
-     *
-     * Damit einem Nutzer gesagt werden kann, **welche** Dateien er hinterlegen
-     * muss. "Vielleicht mehrere" ist keine Auskunft; "National Light, National
-     * Book und National Semibold" ist eine.
-     */
-    schnitte?: string[];
-    /**
-     * Und wo ihr Fliesstext beginnt - die erste Zeile unter dem
-     * Kennzahlenblock.
-     *
-     * Der zweite Anker. Zwischen Kennzahlen und Anschreiben liegen bei ihr 56
-     * Punkt; das ist kein Vielfaches ihres Rasters, sondern schlicht die Stelle,
-     * an der der Gestalter den Brief beginnen liess. So etwas laesst sich nicht
-     * herleiten, nur ablesen.
-     *
-     * Alles darunter ergibt sich dann aus dem Raster - Zeile fuer Zeile, ohne
-     * weiteren Anker.
-     */
-    textOben?: number;
-    /** Die Zeilen, aus denen geschlossen wurde - zum Nachsehen. */
-    belege: string[];
-}
-/**
- * Liest Wortwahl und Stellung aus einer Seite.
- *
- * `seitenhoehe` wird gebraucht, um "oberhalb des Anschriftenfeldes" von
- * "darunter" zu unterscheiden - ohne sie waeren die Hoehen nur Zahlen.
- */
-declare function schlageVorlageVor(seite: Textseite, seitenhoehe: number, inhaltLinks?: number): Vorlagenvorschlag;
-/**
- * Die Schalter, die eine Vorlage mitbringt - in der Form, die der Renderer
- * erwartet.
- *
- * ## Warum als ein Stueck
- *
- * Weil sie sonst einzeln durch drei Schichten wandern muessten: Profil,
- * App-Bruecke, Renderdienst. Als ich sie einzeln durchreichte, kamen sechs
- * von neun in der App gar nicht an - sie wirkten nur in den Pruefskripten,
- * und die Rechnung aus der App sah anders aus als die aus dem Test. Ein
- * Buendel kann man vergessen; neun einzelne vergisst man garantiert.
- *
- * ## Was hier bewusst fehlt
- *
- * Wortwahl und Stellung des Kennzahlenblocks. Beide sind im Profil
- * einstellbar - ein Mensch darf sie nach dem Uebernehmen aendern. Sie hier
- * mitzufuehren hiesse, zwei Quellen fuer dieselbe Angabe zu haben, und beim
- * naechsten Import gewaenne die gemessene gegen die von Hand gesetzte.
- */
-interface Vorlagenschalter {
-    tabellenkopf?: boolean;
-    kennzahlenfelder?: (keyof Beschriftungen)[];
-    kennzahlenInline?: boolean;
-    kennzahlenFett?: (keyof Beschriftungen)[];
-    positionsnummern?: boolean;
-    positionsEinzug?: number;
-    positionsauszeichnung?: boolean;
-    betragUnten?: boolean;
-    datumOhneNullen?: boolean;
-    steuergrundlage?: boolean;
-    /**
-     * Die senkrechten Anker, in Hoehen **ihrer** Seite.
-     *
-     * Umgerechnet wird erst beim Setzen, weil erst dort feststeht, um wie viel
-     * der Bogen auf unser A4 verschoben wird.
-     */
-    kennzahlenOben?: number;
-    textOben?: number;
-    kennzahlenSpalten?: Partial<Record<keyof Beschriftungen, number>>;
-    summenlabelRechts?: number;
-    summenlabelKraeftig?: boolean;
-}
-/**
- * Macht aus einem Vorschlag die Schalter, die gespeichert und gesendet werden.
- *
- * Was die Vorlage nicht hergab, bleibt weg statt auf einem geratenen Wert zu
- * stehen: Ein fehlender Schalter faellt auf unsere Vorgabe zurueck, ein
- * falsch gesetzter nicht.
- */
-declare function schalterAusVorschlag(vorschlag: Vorlagenvorschlag): Vorlagenschalter;
-
-/**
- * Der Briefbogen eines Absenders als eine Datei.
- *
- * ## Warum es das gibt
- *
- * Bis hierher entstand alles auf dem Geraet: Der Nutzer waehlt eine alte
- * Rechnung, sie wird vermessen, und das Ergebnis liegt in seinem Profil.
- * Damit ist es an dieses eine Geraet gebunden. Wer sein Telefon wechselt,
- * faengt von vorn an; wer am Rechner und am Telefon abrechnet, hat zwei
- * verschiedene Briefbogen; und wem die Uebernahme nicht gelingt, dem kann
- * niemand helfen, weil es nichts gibt, das man ihm schicken koennte.
- *
- * Diese Datei ist das fehlende Stueck: alles Gemessene an einer Stelle,
- * lesbar, uebertragbar, ersetzbar.
- *
- * ## Warum sie die Identitaet mitfuehrt
- *
- * Weil eine Briefbogendatei sonst das perfekte Werkzeug waere, um unter
- * fremdem Namen Rechnungen zu stellen. Sie traegt deshalb dieselbe Herkunft
- * wie das Profil, und beim Einlesen wird sie gegen den eigenen Absender
- * geprueft - genau so, wie es beim Uebernehmen aus einer fremden Rechnung
- * geschieht. Wer die Datei eines anderen einliest, bekommt eine Warnung und
- * keinen Briefkopf.
- *
- * ## Warum JSON und kein eigenes Format
- *
- * Weil ein Mensch hineinsehen koennen soll. Was hier gemessen wurde, ist
- * nicht offensichtlich - Einzuege, Rasterabstaende, Fluchtlinien -, und die
- * einzige Beschwerde, die dazu je kommen wird, lautet "das steht falsch".
- * Dann muss man nachsehen und aendern koennen, ohne uns zu fragen.
- */
-/** Die Kennung im Kopf der Datei. */
-declare const BOGENDATEI_ART = "erechnung-briefbogen";
-/**
- * Die Fassung des Formats.
- *
- * Steigt, sobald sich die Bedeutung eines Feldes aendert - nicht, wenn eines
- * hinzukommt. Fehlende Felder fallen beim Lesen auf ihre Vorgabe zurueck; ein
- * umgedeutetes Feld waere dagegen still falsch.
- */
-declare const BOGENDATEI_FASSUNG = 1;
-interface Bogendatei {
-    art: typeof BOGENDATEI_ART;
-    fassung: number;
-    /** Wann sie geschrieben wurde - als Datum, nicht als Zeitpunkt. */
-    erzeugtAm: string;
-    /** Wie das Profil heisst, aus dem sie stammt. */
-    bezeichnung?: string;
-    /** Wessen Bogen das ist. Ohne diese Angabe wird nichts uebernommen. */
-    herkunft: Herkunft;
-    briefpapier: Briefpapier;
-    beschriftungen?: Partial<Beschriftungen>;
-    kennzahlen?: Kennzahlenstellung;
-    vorlage?: Vorlagenschalter;
-    /**
-     * Die Hausschrift, als base64.
-     *
-     * Sie macht die Datei gross - zwei Schnitte sind schnell ein halbes
-     * Megabyte. Sie wegzulassen waere trotzdem falsch: Ohne sie sieht die
-     * Rechnung auf dem neuen Geraet anders aus als auf dem alten, und genau
-     * das soll die Datei ja verhindern.
-     */
-    schrift?: {
-        name?: string;
-        regular: string;
-        fett?: string;
-        kraeftig?: string;
-    };
-}
-/** Was ein Profil an uebertragbarer Gestaltung mitbringt. */
-interface Bogenquelle {
-    bezeichnung?: string;
-    briefpapierHerkunft?: Herkunft;
-    briefpapier?: Briefpapier;
-    beschriftungen?: Partial<Beschriftungen>;
-    kennzahlen?: Kennzahlenstellung;
-    vorlage?: Vorlagenschalter;
-    schriftName?: string;
-    schriftRegular?: string;
-    schriftFett?: string;
-    schriftKraeftig?: string;
-}
-/**
- * Schreibt die Datei aus einem Profil.
- *
- * Gibt `undefined` zurueck, wenn es nichts zu schreiben gibt: ohne Bogen und
- * ohne Herkunft waere die Datei ein leeres Versprechen, und beim Einlesen
- * liesse sich nicht pruefen, wem sie gehoert.
- */
-declare function alsBogendatei(quelle: Bogenquelle, heute: string): Bogendatei | undefined;
-/** Warum eine Datei nicht angenommen wurde. */
-type Bogenmangel = 'kein-json' | 'fremde-art' | 'zu-neu' | 'unvollstaendig';
-interface Bogenbefund {
-    datei?: Bogendatei;
-    mangel?: Bogenmangel;
-    /** Ob die Datei zum eigenen Absender passt - nur bei fehlerfreier Datei. */
-    zuordnung?: Zuordnung;
-}
-/**
- * Liest eine Briefbogendatei und ordnet sie dem eigenen Absender zu.
- *
- * Beides in einem Schritt, weil das eine ohne das andere nichts wert ist: Eine
- * gueltige Datei, die einem fremden Absender gehoert, darf nicht uebernommen
- * werden, und die Frage laesst sich nur hier beantworten - danach ist die
- * Herkunft nur noch ein Feld unter vielen.
- */
-declare function liesBogendatei(text: string, eigene: Identitaet): Bogenbefund;
-/** Was dem Nutzer zu einem Mangel gesagt wird. */
-declare function bogenmangelText(mangel: Bogenmangel): string;
-
-/**
  * Die eigene Hausschrift eines Absenders - pruefen, bevor sie gesetzt wird.
  *
  * ## Warum es das gibt
@@ -2569,89 +1551,6 @@ declare function schriftmangelText(befund: {
 }): string | undefined;
 
 /**
- * Passt der Kennzahlenblock neben den uebernommenen Briefbogen?
- *
- * ## Warum das geprueft werden muss
- *
- * Der Bogen kommt aus einer fremden Rechnung und weiss nichts von unserem
- * Aufbau. Wo bei uns Rechnungsnummer und Datum stehen, hat er womoeglich sein
- * Firmenzeichen. Gedruckt sieht man das sofort - aber dann ist die Rechnung
- * schon beim Empfaenger.
- *
- * Die Angaben dafuer liegen bereits vor: Jeder Pfad des Bogens traegt sein
- * umschliessendes Rechteck, jedes Textstueck seine gemessene Breite. Es fehlt
- * nur der Vergleich.
- *
- * ## Warum nicht einfach verschoben wird
- *
- * Weil eine automatische Ausweichstellung den Nutzer ueberraschen wuerde: Er
- * hat den Block bewusst dorthin gesetzt, wo seine alte Rechnung ihn hatte.
- * Diese Datei meldet den Zusammenstoss und nennt die freien Stellungen -
- * waehlen soll ein Mensch.
- *
- * ## Der Massstab
- *
- * Der Bogen wird auf A4 gesetzt und dabei um die halbe Groessendifferenz
- * verschoben, weil Druckvorlagen einen Beschnittrand tragen. Dieselbe
- * Verschiebung gilt hier - sonst prueft man gegen Stellen, an denen nichts
- * gedruckt wird.
- */
-interface Rahmen {
-    x1: number;
-    y1: number;
-    x2: number;
-    y2: number;
-}
-interface Stellungsbefund {
-    stellung: Kennzahlenstellung;
-    frei: boolean;
-    /** Die groesste Ueberschneidung in Quadratpunkten - null, wenn frei. */
-    ueberschneidung: number;
-    /**
-     * Wie viel vom Kennzahlenblock verdeckt waere, als Anteil.
-     *
-     * Aussagekraeftiger als die blosse Flaeche: Ein Zusammenstoss mit einer
-     * Haarlinie ist etwas anderes als einer mit einem Firmenzeichen.
-     */
-    anteil: number;
-    /**
-     * Der gepruefte Rahmen.
-     *
-     * Mitgegeben, damit niemand die Rechnung nachbauen muss, um zu wissen, wo
-     * geprueft wurde - weder eine Oberflaeche, die es anzeigen will, noch ein
-     * Test, der ein Hindernis genau dorthin legt. Eine nachgebaute Rechnung
-     * waere die Stelle, an der Pruefung und Test gemeinsam danebenliegen, ohne
-     * dass es auffiele.
-     */
-    rahmen: Rahmen;
-}
-/**
- * Die belegten Flaechen eines Bogens, bereits auf A4 verschoben.
- *
- * Textstuecke bekommen ihre gemessene Breite und eine Hoehe aus der
- * Schriftgroesse. Das ist etwas grosszuegig - Unterlaengen zaehlen mit -, und
- * grosszuegig ist hier die richtige Richtung: Lieber einmal zu viel warnen
- * als eine ueberdruckte Rechnung.
- */
-declare function belegteFlaechen(papier: Briefpapier): Rahmen[];
-/**
- * Prueft eine einzelne Stellung gegen den Bogen.
- *
- * `zeilen` ist die Zahl der gefuellten Kennzahlen - sie bestimmt, wie tief der
- * Block reicht. Wer hier grosszuegig schaetzt, prueft gegen einen groesseren
- * Block als gedruckt wird, und das ist die richtige Richtung.
- */
-declare function pruefeStellung(papier: Briefpapier, stellung: Kennzahlenstellung, zeilen: number, flaechen?: Rahmen[]): Stellungsbefund;
-/**
- * Prueft alle Stellungen und ordnet sie nach Eignung.
- *
- * Die freieste zuerst. Der Aufrufer kann damit sowohl warnen ("die gewaehlte
- * ist belegt") als auch vorschlagen ("diese waere frei"), ohne selbst zu
- * rechnen.
- */
-declare function pruefeAlleStellungen(papier: Briefpapier, zeilen: number): Stellungsbefund[];
-
-/**
  * @erechnung/core - isomorphe Kernbibliothek fuer deutsche E-Rechnungen.
  *
  * Alles hier laeuft unveraendert in Node (Cloud-Rendering), im Browser
@@ -2670,4 +1569,4 @@ declare function buildInvoiceXml(invoice: Invoice): {
     filename: string;
 };
 
-export { A4, type Absenderprofil, type Anschrift, BOGENDATEI_ART, BOGENDATEI_FASSUNG, BUNDLED_SPECIFICATIONS, type Beschriftung, type Beschriftungen, type Bildart, type Bogenbefund, type Bogendatei, type Bogenmangel, type Bogenquelle, type Breiten, type Briefpapier, type CcittAngaben, type CiiOptions, DEFAULT_THEME, type DeclaredTotals, EAS, EInvoiceError, type EInvoiceErrorCode, type ExtractedAttachment, type FacturXConformanceLevel, type Farbe, type Fehlerbild, type Feld, type Flaeche, type Folgeart, type Fund, type Herkunft, INVOICE_TYPE_CODES, type Identitaet, Invoice, InvoiceInput, type InvoiceSyntax, type InvoiceTotals, type InvoiceTypeCode, type IsoDate, type Kennzahlenstellung, type Kreis, Line, MAX_SCHRIFT_BYTES, PAYMENT_MEANS, PROFILE_ID, type ParsedInvoice, type PaymentMeansCode, type PdfText, type Pfad, RECHNUNGSZEICHEN, ROLLEN, type Rahmen, type ReceivedInvoice, type RenderAssets, type RenderOptions, type RenderResult, STANDARD_BESCHRIFTUNGEN, type Schriftbefund, type Schriftmangel, type Seitenbild, type Severity, type Sicherheit, type SourceKind, type Spaltenrolle, type SpecificationAge, type SpecificationEntry, SpecificationError, type SpecificationSet, type Stammdatenfund, type Stellungsbefund, type Strich, type Tabellenbefund, type Textlauf, type Textseite, type Textstueck, type Textzeile, type Theme, UNIT, type UblOptions, type Uebernahme, type UnitCode, VAT_CATEGORY, type ValidationIssue, type ValidationResult, Vat, type VatBreakdownEntry, type VatCategoryCode, type Vorlagenbefund, type Vorlagenschalter, type Vorlagenvorschlag, type WordAbsatz, type WordBlock, type WordDokument, type WordTabelle, XmlWriter, type XmpOptions, ZERO_RATE_CATEGORIES, type Zahlungsklausel, type Zeichenbefund, ZeichenvorratFehler, type Zuordnung, activeSpecifications, addDays, alsBogendatei, alsGraustufenPng, alsHex, alsSvg, anschriftenAus, bankverbindungImBogen, belegteFlaechen, beschriftungenMit, bogenmangelText, buildCii, buildInvoiceXml, buildUbl, buildXmp, computeTotals, decimal, detectKind, entschluesseleCcitt, escapeXml, extractAttachments, extractInvoiceXml, familienkern, farbeAusHex, findeFussgrenze, findeGrenze, findeStammdaten, findeStrichstaerken, findeZahlungsklausel, folgedokument, formatAmount, formatDate, formatQuantity, fromBase64, isIsoDate, isPlausibleIban, isPlausibleLeitwegId, isPlausibleVatId, istBrauchbareBeschriftung, istKleinunternehmerRechnung, istPng, kennungVon, kennzahlenrahmen, laufbreite, liefereBreiten, liesBogendatei, liesBriefpapier, liesPdfText, liesSeitenbilder, liesWordDokument, lineNetAmount, maskeAlsGrau, nurAbweichungen, ohneUnsichtbare, parseInvoiceXml, parseSpecificationSet, pngFarbtyp, positionenAus, profilAus, pruefeAlleStellungen, pruefeSchrift, pruefeSchriftpaar, pruefeStellung, pruefeZuordnung, readEInvoice, renderZugferdPdf, resetSpecifications, round, sanitizeXmlText, schalterAusVorschlag, schlageKopfzeileVor, schlageVorlageVor, schlageZuordnungVor, schriftbogenAus, schriftenImBriefkopf, schriftmangelText, setActiveSpecifications, setzeMitVorlagenschrift, signaturVon, specificationAge, sum, summarizeTotals, tabelleAusZeilen, themaMitAkzent, toBase64, toCiiDate, uebernimmBriefpapier, utf8Decode, utf8Encode, validateInvoice, wrapText, xmpDate, zahlAus, zahlungsklauselImBogen, zeichneBriefpapier, zeilenImBogen };
+export { A4, BUNDLED_SPECIFICATIONS, type Beschriftung, type Beschriftungen, type Breiten, type Briefpapier, type CiiOptions, DEFAULT_THEME, type DeclaredTotals, EAS, EInvoiceError, type EInvoiceErrorCode, type ExtractedAttachment, type FacturXConformanceLevel, type Farbe, type Flaeche, type Folgeart, INVOICE_TYPE_CODES, Invoice, InvoiceInput, type InvoiceSyntax, type InvoiceTotals, type InvoiceTypeCode, type IsoDate, type Kennzahlenstellung, type Kreis, Line, MAX_SCHRIFT_BYTES, PAYMENT_MEANS, PROFILE_ID, type ParsedInvoice, type PaymentMeansCode, type PdfText, type Pfad, RECHNUNGSZEICHEN, type ReceivedInvoice, type RenderAssets, type RenderOptions, type RenderResult, STANDARD_BESCHRIFTUNGEN, type Schriftbefund, type Schriftmangel, type Severity, type SourceKind, type SpecificationAge, type SpecificationEntry, SpecificationError, type SpecificationSet, type Strich, type Textlauf, type Textseite, type Textstueck, type Textzeile, type Theme, UNIT, type UblOptions, type UnitCode, VAT_CATEGORY, type ValidationIssue, type ValidationResult, Vat, type VatBreakdownEntry, type VatCategoryCode, type Vorlagenbefund, type Wert, XmlWriter, type XmpOptions, ZERO_RATE_CATEGORIES, type Zeichenbefund, ZeichenvorratFehler, activeSpecifications, addDays, alsHex, alsSvg, beschriftungenMit, buildCii, buildInvoiceXml, buildUbl, buildXmp, computeTotals, decimal, detectKind, escapeXml, extractAttachments, extractInvoiceXml, familienkern, farbeAusHex, folgedokument, formatAmount, formatDate, formatQuantity, fromBase64, isIsoDate, isPlausibleIban, isPlausibleLeitwegId, isPlausibleVatId, istBrauchbareBeschriftung, istKleinunternehmerRechnung, istPng, kennzahlenrahmen, laufbreite, leseInhalt, liefereBreiten, liesPdfText, lineNetAmount, nurAbweichungen, ohneUnsichtbare, parseInvoiceXml, parseSpecificationSet, pngFarbtyp, pruefeSchrift, pruefeSchriftpaar, readEInvoice, renderZugferdPdf, resetSpecifications, round, sanitizeXmlText, schriftenImBriefkopf, schriftmangelText, seiteninhalt, setActiveSpecifications, setzeMitVorlagenschrift, specificationAge, sum, summarizeTotals, themaMitAkzent, toBase64, toCiiDate, utf8Decode, utf8Encode, validateInvoice, wrapText, xmpDate, zeichneBriefpapier };

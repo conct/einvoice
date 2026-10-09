@@ -18,10 +18,9 @@ import { buildCii } from '../xml/cii';
 import { utf8Encode } from '../util/base64';
 import { formatDate } from '../util/date';
 import { formatAmount } from '../util/money';
-import type { Briefpapier } from '../parse/pdf-gestaltung';
+import type { Briefpapier } from './briefpapier-typen';
 import { zeichneBriefpapier } from './briefpapier';
 import type { Beschriftungen } from './beschriftungen';
-import { bankverbindungImBogen } from '../absender/zahlungsklausel';
 import { themaMitAkzent } from './gestaltung';
 import { A4, DEFAULT_THEME, drawInvoice, type Kennzahlenstellung, type Theme } from './layout';
 import { bereiteVorlagenschrift } from './vorlagenschrift';
@@ -168,6 +167,15 @@ export interface RenderOptions {
   /** Datum ohne fuehrende Nullen. */
   datumOhneNullen?: boolean;
   steuergrundlage?: boolean;
+  /**
+   * Den Zahlungsblock zeigen. Ohne Angabe: ja.
+   *
+   * Bis v3.0.0 entschied das die Bibliothek selbst - sie sah im uebernommenen
+   * Briefbogen nach, ob dort schon eine Bankverbindung steht, und liess den
+   * Block dann weg. Das Nachsehen ist mit dem Vorlagenleser zum Produkt
+   * gezogen; wer einen Bogen hereingibt, entscheidet deshalb selbst. Sonst
+   * stehen die Kontodaten zweimal auf der Seite.
+   */
   zahlungsblock?: boolean;
   hinweise?: boolean;
   /** Fertiges CII-XML verwenden, statt es neu zu erzeugen */
@@ -649,7 +657,7 @@ export async function renderZugferdPdf(
      * nirgends sonst auf dem Blatt stehen koennte, und eine Rechnung ohne
      * Kontoangabe waere fuer den Empfaenger nicht zu bezahlen.
      */
-    zahlungsblock: options.zahlungsblock ?? (bogen ? !bankverbindungImBogen(bogen) : true),
+    zahlungsblock: options.zahlungsblock ?? true,
     zahlungszielImBriefpapier: options.zahlungszielImBriefpapier,
   });
   pruefung.wirfBeiLuecken();

@@ -1,6 +1,7 @@
 import { rgb } from 'pdf-lib';
 
 import { DEFAULT_THEME, type Theme } from './layout';
+import type { Farbe } from './briefpapier-typen';
 
 /**
  * Gestaltung der Rechnung, soweit sie sich gefahrlos einstellen laesst.
@@ -76,4 +77,20 @@ export function pngFarbtyp(bytes: Uint8Array): number | undefined {
   if (bytes.length <= stelle) return undefined;
   if (String.fromCharCode(...bytes.subarray(12, 16)) !== 'IHDR') return undefined;
   return bytes[stelle];
+}
+
+/**
+ * Eine gelesene Farbe als Hexzeichenfolge, etwa "#0F4C81".
+ *
+ * Stand bis v3.0.0 beim Vorlagenleser. Geblieben ist sie, weil das Zeichnen
+ * eines uebernommenen Bogens sie braucht: Das SVG-Vorschaubild schreibt die
+ * Farben als Text.
+ */
+export function alsHex(farbe: Farbe): string {
+  const teil = (v: number) =>
+    Math.max(0, Math.min(255, Math.round(v * 255)))
+      .toString(16)
+      .padStart(2, '0')
+      .toUpperCase();
+  return `#${teil(farbe.r)}${teil(farbe.g)}${teil(farbe.b)}`;
 }

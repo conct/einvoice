@@ -10,7 +10,9 @@ dasselbe tut: in Node, im Browser und in React Native.
 - **PDF/A-3** mit eingebetteter Rechnung, Briefkopf, Tabelle und Summenblock
 - **Empfang**: Anhänge aus einem hybriden PDF holen, XML einlesen, Summen
   nachrechnen, statt sie zu glauben
-- **Übernahme** aus Word und aus fremden PDF-Rechnungen, samt Briefbogen
+- **Briefbogen zeichnen**: Wer einen Bogen beschreibt — Farben, Striche,
+  Textläufe —, bekommt ihn unter jeder Seite gesetzt
+- **Text und Breiten** aus einem PDF lesen, als Handwerkszeug für eigene Leser
 
 Kein Zugriff auf Dateisystem, DOM oder plattformeigene Krypto. Binärdaten —
 Schriften, Farbprofil, Logo — reicht die aufrufende Schicht herein. Genau
@@ -19,7 +21,7 @@ deshalb läuft derselbe Code in der App und auf dem Server.
 ## Einbinden
 
 ```bash
-npm install github:conct/einvoice#v3.0.0
+npm install github:conct/einvoice#v4.0.0
 ```
 
 Keine Registry im Spiel, und **`dist/` liegt im Repository** — Installieren
@@ -27,7 +29,7 @@ heißt klonen, nicht bauen. Ohne SSH-Schlüssel auf dem Rechner geht es über
 HTTPS:
 
 ```bash
-npm install git+https://github.com/conct/einvoice.git#v3.0.0
+npm install git+https://github.com/conct/einvoice.git#v4.0.0
 ```
 
 Der erste Versuch ging den üblichen Weg: `prepare` baut beim Installieren.
@@ -47,7 +49,7 @@ const { pdf, xml } = await renderZugferdPdf(rechnung, { assets });
 
 | Unterpfad | Inhalt |
 |---|---|
-| `@erechnung/core` | Modell, XML, PDF, Empfang, Übernahme |
+| `@erechnung/core` | Modell, XML, PDF, Empfang |
 | `@erechnung/core/fixtures` | Beispielrechnungen für Tests und Vorschauen |
 | `@erechnung/core/assets` | sRGB-Profil, Pfade der Schriftdateien |
 | `@erechnung/core/assets/node` | derselbe Satz, aus dem Dateisystem geladen |
@@ -64,6 +66,18 @@ const SCHRIFTEN = {
 
 ## Was hier **nicht** liegt
 
+**Die Übernahme aus fremden Dokumenten.** Eine vorhandene Rechnung
+auslesen und vermessen — Hausfarbe, Striche, Fluchtlinien, Satzspiegel, Raster
+—, eine Word-Datei in Positionen übersetzen, Stammdaten aus einem fremden
+Beleg holen, einen eingescannten Beleg zugänglich machen: Das lag bis v3.0.0
+hier und ist mit v4.0.0 beim Produkt. Es ist der Teil, für den Leute zahlen.
+
+Was davon offen bleibt, ist die andere Hälfte: **einen beschriebenen Bogen
+zeichnen**. `renderZugferdPdf` nimmt ihn als Angabe entgegen und setzt ihn
+unter jede Seite; die Typen dafür stehen in `pdf/briefpapier-typen.ts`, und mit
+`liesPdfText`, `liefereBreiten` und `leseInhalt` liegt auch das Handwerkszeug
+bereit, um selbst einen Leser zu schreiben.
+
 **Der DATEV-Buchungsstapel.** Er lag bis v2.0.0 hier und ist mit v3.0.0
 herausgenommen: Ein Buchungsstapel ist kein E-Rechnungsformat, sondern eine
 Leistung des Produkts. Wer ihn braucht, baut ihn aus dem Datenmodell dieser
@@ -76,7 +90,7 @@ Vergleichsläufe gegen fremde Rechnungen bleiben in
 Prüfregelsätze und etliche Megabyte Testbestand dran. Wer an der Ausgabe
 dieses Pakets etwas ändert, prüft dort nach.
 
-Mitgekommen ist nur, was ohne Zubehör läuft: 206 Tests über 20 Dateien, die
+Mitgekommen ist nur, was ohne Zubehör läuft: 77 Tests über 9 Dateien, die
 jeden Weg einmal gehen, und `npm run probe` — eine Rechnung durch XML, PDF,
 Anhang und zurück ins Modell, gegen das **gebaute** Paket.
 
@@ -84,7 +98,7 @@ Anhang und zurück ins Modell, gegen das **gebaute** Paket.
 
 ```bash
 npm install
-npm test          # vitest, 206 Tests
+npm test          # vitest, 77 Tests
 npm run typecheck # zwei Durchgänge, siehe unten
 npm run build     # tsup -> dist/ (ESM + Typdeklarationen)
 npm run probe     # die gebaute Fassung in nacktem Node
@@ -179,6 +193,12 @@ Zwei Fassungen und ihr Grund:
 - **v3.0.0** nimmt den DATEV-Stapel heraus, samt Kontenrahmen und der
   CP1252-Kodierung, die nur er brauchte. Dieselbe Überlegung: Format offen,
   Buchhaltung beim Produkt.
+- **v4.0.0** nimmt die Übernahme heraus — Vorlagenleser, Word-Import,
+  Stammdatenerkennung, Scanaufbereitung und die Absenderprofile. Dafür waren
+  drei kleine Nähte zu bauen: die Typen des Bogens stehen jetzt in
+  `pdf/briefpapier-typen.ts`, `alsHex` bei den Farbhilfen, und der
+  Zahlungsblock wird nicht mehr von der Bibliothek entschieden — wer einen
+  Bogen mit Bankverbindung hereingibt, setzt `zahlungsblock: false` selbst.
 
 ## Lizenz
 

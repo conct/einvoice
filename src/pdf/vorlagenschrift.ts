@@ -11,7 +11,7 @@ import {
   PDFRef,
 } from 'pdf-lib';
 
-import type { Briefpapier, Farbe, Textlauf } from '../parse/pdf-gestaltung';
+import type { Briefpapier, Farbe, Textlauf } from './briefpapier-typen';
 
 /**
  * Den Briefkopftext mit der Schrift der Vorlage setzen.

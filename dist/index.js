@@ -1355,9 +1355,9 @@ function writeAddressBody(w, address) {
 import {
   rgb as rgb4,
   AFRelationship,
-  PDFDocument as PDFDocument4,
+  PDFDocument as PDFDocument2,
   PDFHexString as PDFHexString2,
-  PDFName as PDFName4,
+  PDFName as PDFName2,
   PDFString
 } from "pdf-lib";
 import fontkit3 from "@pdf-lib/fontkit";
@@ -1449,1231 +1449,14 @@ function zeichneGekernt(seite, text2, x, y, schrift, groesse, farbe2) {
 }
 
 // src/pdf/briefpapier.ts
-import { PDFNumber as PDFNumber2, PDFOperator as PDFOperator2, PDFOperatorNames as PDFOperatorNames2, rgb } from "pdf-lib";
-
-// src/parse/pdf-gestaltung.ts
-import { PDFDocument as PDFDocument2 } from "pdf-lib";
-
-// src/parse/pdf-breiten.ts
-import { PDFArray, PDFDict, PDFName, PDFNumber } from "pdf-lib";
-var DW_VORGABE = 1e3;
-function leseW(feld) {
-  const breiten = /* @__PURE__ */ new Map();
-  if (!feld) return breiten;
-  const werte = feld.asArray();
-  let i = 0;
-  while (i < werte.length) {
-    const erstes = werte[i];
-    if (!(erstes instanceof PDFNumber)) break;
-    const von = erstes.asNumber();
-    const zweites = werte[i + 1];
-    if (zweites instanceof PDFArray) {
-      for (const [versatz, wert] of zweites.asArray().entries()) {
-        if (wert instanceof PDFNumber) breiten.set(von + versatz, wert.asNumber());
-      }
-      i += 2;
-      continue;
-    }
-    const drittes = werte[i + 2];
-    if (zweites instanceof PDFNumber && drittes instanceof PDFNumber) {
-      const bis = zweites.asNumber();
-      const wert = drittes.asNumber();
-      for (let code = von; code <= bis && code - von < 65536; code += 1) {
-        breiten.set(code, wert);
-      }
-      i += 3;
-      continue;
-    }
-    break;
-  }
-  return breiten;
-}
-function zahl(dict, name) {
-  const wert = dict?.lookupMaybe(PDFName.of(name), PDFNumber);
-  return wert ? wert.asNumber() : void 0;
-}
-function liefereBreiten(doc, seite) {
-  const alle = /* @__PURE__ */ new Map();
-  const ressourcen = doc.getPage(seite).node.Resources();
-  const fonts = ressourcen?.lookupMaybe(PDFName.of("Font"), PDFDict);
-  if (!fonts) return alle;
-  for (const [name] of fonts.asMap()) {
-    const dict = fonts.lookupMaybe(name, PDFDict);
-    if (!dict) continue;
-    const art = dict.lookupMaybe(PDFName.of("Subtype"), PDFName)?.asString();
-    const schluessel2 = name.asString().replace(/^\//, "");
-    if (art === "/Type0") {
-      const nachfahren = dict.lookupMaybe(PDFName.of("DescendantFonts"), PDFArray);
-      const kind = nachfahren ? doc.context.lookupMaybe(nachfahren.get(0), PDFDict) : void 0;
-      const vorgabe = zahl(kind, "DW") ?? DW_VORGABE;
-      const tabelle2 = leseW(kind?.lookupMaybe(PDFName.of("W"), PDFArray));
-      alle.set(schluessel2, {
-        breit: true,
-        breite: (code) => tabelle2.get(code) ?? vorgabe
-      });
-      continue;
-    }
-    const ersterCode = zahl(dict, "FirstChar") ?? 0;
-    const liste = dict.lookupMaybe(PDFName.of("Widths"), PDFArray);
-    const deskriptor = dict.lookupMaybe(PDFName.of("FontDescriptor"), PDFDict);
-    const fehlend = zahl(deskriptor, "MissingWidth") ?? 0;
-    const tabelle = /* @__PURE__ */ new Map();
-    for (const [versatz, wert] of liste?.asArray().entries() ?? []) {
-      if (wert instanceof PDFNumber) tabelle.set(ersterCode + versatz, wert.asNumber());
-    }
-    alle.set(schluessel2, {
-      breit: false,
-      breite: (code) => tabelle.get(code) ?? fehlend
-    });
-  }
-  return alle;
-}
-function laufbreite(stuecke, breiten, groesse, zeichenabstand = 0, wortabstand = 0, streckung = 1) {
-  if (!breiten) return 0;
-  let summe = 0;
-  for (const teil of stuecke) {
-    if (typeof teil === "number") {
-      summe -= teil / 1e3 * groesse * streckung;
-      continue;
-    }
-    const schritt = breiten.breit ? 2 : 1;
-    for (let i = 0; i + schritt <= teil.length; i += schritt) {
-      const code = breiten.breit ? (teil[i] ?? 0) << 8 | (teil[i + 1] ?? 0) : teil[i] ?? 0;
-      const wort = !breiten.breit && code === 32 ? wortabstand : 0;
-      summe += (breiten.breite(code) / 1e3 * groesse + zeichenabstand + wort) * streckung;
-    }
-  }
-  return summe;
-}
-
-// src/parse/pdf-text.ts
-import { PDFArray as PDFArray2, PDFDict as PDFDict2, PDFDocument, PDFName as PDFName2, PDFRawStream, decodePDFRawStream } from "pdf-lib";
-function leseToUnicode(text2) {
-  const karte = /* @__PURE__ */ new Map();
-  for (const block of text2.matchAll(/beginbfchar([\s\S]*?)endbfchar/g)) {
-    for (const eintrag of (block[1] ?? "").matchAll(/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g)) {
-      const ziel = eintrag[2] ?? "";
-      let zeichen = "";
-      for (let i = 0; i + 4 <= ziel.length; i += 4) {
-        zeichen += String.fromCodePoint(parseInt(ziel.slice(i, i + 4), 16));
-      }
-      karte.set(parseInt(eintrag[1] ?? "0", 16), zeichen);
-    }
-  }
-  for (const block of text2.matchAll(/beginbfrange([\s\S]*?)endbfrange/g)) {
-    for (const eintrag of (block[1] ?? "").matchAll(
-      /<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g
-    )) {
-      const von = parseInt(eintrag[1] ?? "0", 16);
-      const bis = parseInt(eintrag[2] ?? "0", 16);
-      const ziel = parseInt((eintrag[3] ?? "").slice(0, 4), 16);
-      for (let i = von; i <= bis && i - von < 8192; i += 1) {
-        karte.set(i, String.fromCodePoint(ziel + (i - von)));
-      }
-    }
-  }
-  return karte;
-}
-var FETTE_SCHNITTE = /bold|semibold|black|heavy|extrabold|demibold|medium/i;
-function lieferSchriften(doc, seite) {
-  const schriften = /* @__PURE__ */ new Map();
-  const ressourcen = doc.getPage(seite).node.Resources();
-  const fonts = ressourcen?.lookupMaybe(PDFName2.of("Font"), PDFDict2);
-  if (!fonts) return schriften;
-  for (const [name, verweis] of fonts.asMap()) {
-    const dict = doc.context.lookupMaybe(verweis, PDFDict2);
-    if (!dict) continue;
-    const subtype = dict.lookupMaybe(PDFName2.of("Subtype"), PDFName2)?.asString();
-    const roh = dict.lookup(PDFName2.of("ToUnicode"));
-    const strom = roh instanceof PDFRawStream ? roh : void 0;
-    const grundname = dict.lookupMaybe(PDFName2.of("BaseFont"), PDFName2)?.asString() ?? "";
-    schriften.set(name.asString().replace(/^\//, ""), {
-      breit: subtype === "/Type0",
-      fett: FETTE_SCHNITTE.test(grundname),
-      name: grundname.replace(/^\//, "").replace(/^[A-Z]{6}\+/, ""),
-      ...strom ? { karte: leseToUnicode(latin1(decodePDFRawStream(strom).decode())) } : {}
-    });
-  }
-  return schriften;
-}
-var latin1 = (bytes) => {
-  let text2 = "";
-  for (let i = 0; i < bytes.length; i += 8192) {
-    text2 += String.fromCharCode(...bytes.subarray(i, i + 8192));
-  }
-  return text2;
-};
-var UNLESBAR = "\uFFFD";
-function entschluessle(roh, schrift) {
-  if (!schrift) return roh.map((byte) => String.fromCharCode(byte)).join("");
-  if (schrift.breit) {
-    let text2 = "";
-    for (let i = 0; i + 1 < roh.length; i += 2) {
-      const code = (roh[i] ?? 0) << 8 | (roh[i + 1] ?? 0);
-      text2 += schrift.karte?.get(code) ?? UNLESBAR;
-    }
-    return text2;
-  }
-  return roh.map((byte) => schrift.karte?.get(byte) ?? String.fromCharCode(byte)).join("");
-}
-function leseInhalt(quelle, aufOperator) {
-  let i = 0;
-  let operanden = [];
-  const istLeer = (zeichen) => " 	\r\n\f\0".includes(zeichen);
-  const istTrenner = (zeichen) => "()<>[]{}/%".includes(zeichen);
-  const leseZeichenkette = () => {
-    const bytes = [];
-    let tiefe = 1;
-    i += 1;
-    while (i < quelle.length && tiefe > 0) {
-      const zeichen = quelle[i] ?? "";
-      if (zeichen === "\\") {
-        const naechstes = quelle[i + 1] ?? "";
-        const einfach = { n: 10, r: 13, t: 9, b: 8, f: 12 };
-        if (naechstes in einfach) {
-          bytes.push(einfach[naechstes]);
-          i += 2;
-        } else if (naechstes >= "0" && naechstes <= "7") {
-          let oktal = "";
-          i += 1;
-          while (oktal.length < 3 && (quelle[i] ?? "") >= "0" && (quelle[i] ?? "") <= "7") {
-            oktal += quelle[i];
-            i += 1;
-          }
-          bytes.push(parseInt(oktal, 8) & 255);
-        } else {
-          bytes.push(naechstes.charCodeAt(0));
-          i += 2;
-        }
-        continue;
-      }
-      if (zeichen === "(") tiefe += 1;
-      if (zeichen === ")") {
-        tiefe -= 1;
-        if (tiefe === 0) {
-          i += 1;
-          break;
-        }
-      }
-      bytes.push(zeichen.charCodeAt(0));
-      i += 1;
-    }
-    return bytes;
-  };
-  const leseHex = () => {
-    i += 1;
-    let ziffern = "";
-    while (i < quelle.length && quelle[i] !== ">") {
-      const zeichen = quelle[i] ?? "";
-      if (/[0-9A-Fa-f]/.test(zeichen)) ziffern += zeichen;
-      i += 1;
-    }
-    i += 1;
-    if (ziffern.length % 2 === 1) ziffern += "0";
-    const bytes = [];
-    for (let stelle = 0; stelle < ziffern.length; stelle += 2) {
-      bytes.push(parseInt(ziffern.slice(stelle, stelle + 2), 16));
-    }
-    return bytes;
-  };
-  while (i < quelle.length) {
-    const zeichen = quelle[i] ?? "";
-    if (istLeer(zeichen)) {
-      i += 1;
-      continue;
-    }
-    if (zeichen === "%") {
-      while (i < quelle.length && quelle[i] !== "\n") i += 1;
-      continue;
-    }
-    if (zeichen === "(") {
-      operanden.push(leseZeichenkette());
-      continue;
-    }
-    if (zeichen === "<") {
-      if (quelle[i + 1] === "<") {
-        let tiefe = 0;
-        while (i < quelle.length) {
-          if (quelle[i] === "<" && quelle[i + 1] === "<") {
-            tiefe += 1;
-            i += 2;
-            continue;
-          }
-          if (quelle[i] === ">" && quelle[i + 1] === ">") {
-            tiefe -= 1;
-            i += 2;
-            if (tiefe === 0) break;
-            continue;
-          }
-          i += 1;
-        }
-        continue;
-      }
-      operanden.push(leseHex());
-      continue;
-    }
-    if (zeichen === "[") {
-      i += 1;
-      operanden.push("[");
-      continue;
-    }
-    if (zeichen === "]") {
-      i += 1;
-      const inhalt = [];
-      while (operanden.length > 0 && operanden[operanden.length - 1] !== "[") {
-        inhalt.unshift(operanden.pop());
-      }
-      operanden.pop();
-      operanden.push(inhalt);
-      continue;
-    }
-    if (zeichen === "/") {
-      i += 1;
-      let name = "";
-      while (i < quelle.length && !istLeer(quelle[i] ?? "") && !istTrenner(quelle[i] ?? "")) {
-        name += quelle[i];
-        i += 1;
-      }
-      operanden.push(`/${name}`);
-      continue;
-    }
-    let wort = "";
-    while (i < quelle.length && !istLeer(quelle[i] ?? "") && !istTrenner(quelle[i] ?? "")) {
-      wort += quelle[i];
-      i += 1;
-    }
-    if (!wort) {
-      i += 1;
-      continue;
-    }
-    if (/^[-+.\d]/.test(wort) && Number.isFinite(Number(wort))) {
-      operanden.push(Number(wort));
-      continue;
-    }
-    aufOperator(wort, operanden);
-    operanden = [];
-  }
-}
-function seiteninhalt(doc, seite) {
-  const inhalt = doc.getPage(seite).node.Contents();
-  if (!inhalt) return "";
-  const stroeme = inhalt instanceof PDFArray2 ? inhalt.asArray().map((verweis) => doc.context.lookup(verweis)) : [inhalt];
-  let roh = "";
-  for (const strom of stroeme) {
-    if (strom instanceof PDFRawStream) roh += latin1(decodePDFRawStream(strom).decode());
-  }
-  return roh;
-}
-var ZEILENTOLERANZ = 3;
-var WORTLUECKE = 0.2;
-async function liesPdfText(bytes) {
-  const doc = await PDFDocument.load(bytes, { throwOnInvalidObject: false });
-  const seiten = [];
-  for (let nummer = 0; nummer < doc.getPageCount(); nummer += 1) {
-    const schriften = lieferSchriften(doc, nummer);
-    const stuecke = [];
-    let schrift;
-    let ma = 1;
-    let mb = 0;
-    let mc = 0;
-    let md = 1;
-    let tx = 0;
-    let ty = 0;
-    let zx = 0;
-    let zy = 0;
-    let durchschuss = 0;
-    let schriftgroesse = 0;
-    let zeichenabstand = 0;
-    let wortabstand = 0;
-    let streckung = 1;
-    const breitenTabelle = liefereBreiten(doc, nummer);
-    let breiten;
-    const messe = (teile) => laufbreite(teile, breiten, schriftgroesse, zeichenabstand, wortabstand, streckung) * ma;
-    const schiebe = (schub) => {
-      tx += schub;
-      ty += schub / (ma || 1) * mb;
-    };
-    const ruecke = (dx, dy) => {
-      zx += dx * ma + dy * mc;
-      zy += dx * mb + dy * md;
-      tx = zx;
-      ty = zy;
-    };
-    const zeige = (roh, breite) => {
-      const text3 = entschluessle(roh, schrift);
-      if (text3.trim()) {
-        stuecke.push({
-          x: tx,
-          y: ty,
-          groesse: schriftgroesse * (md || 1),
-          breite,
-          fett: schrift?.fett === true,
-          schnitt: schrift?.name ?? "",
-          text: text3
-        });
-      }
-    };
-    leseInhalt(seiteninhalt(doc, nummer), (operator, operanden) => {
-      switch (operator) {
-        case "BT":
-          tx = zx = 0;
-          ty = zy = 0;
-          ma = md = 1;
-          mb = mc = 0;
-          break;
-        case "Tc":
-          zeichenabstand = Number(operanden[operanden.length - 1] ?? 0);
-          break;
-        case "Tw":
-          wortabstand = Number(operanden[operanden.length - 1] ?? 0);
-          break;
-        case "Tz":
-          streckung = Number(operanden[operanden.length - 1] ?? 100) / 100;
-          break;
-        case "Tf": {
-          schriftgroesse = Number(operanden[operanden.length - 1] ?? 0);
-          const name = String(operanden[operanden.length - 2] ?? "").replace(/^\//, "");
-          schrift = schriften.get(name);
-          breiten = breitenTabelle.get(name);
-          break;
-        }
-        case "TL":
-          durchschuss = Number(operanden[operanden.length - 1] ?? 0);
-          break;
-        case "Td":
-        case "TD": {
-          const [dx, dy] = operanden.slice(-2).map(Number);
-          if (operator === "TD") durchschuss = -(dy ?? 0);
-          ruecke(dx ?? 0, dy ?? 0);
-          break;
-        }
-        case "Tm": {
-          const werte = operanden.slice(-6).map(Number);
-          ma = werte[0] ?? 1;
-          mb = werte[1] ?? 0;
-          mc = werte[2] ?? 0;
-          md = werte[3] ?? 1;
-          zx = tx = werte[4] ?? 0;
-          zy = ty = werte[5] ?? 0;
-          break;
-        }
-        case "T*":
-          ruecke(0, -durchschuss);
-          break;
-        case "Tj":
-        case "'":
-        case '"': {
-          if (operator !== "Tj") ruecke(0, -durchschuss);
-          const letzte = operanden[operanden.length - 1];
-          if (Array.isArray(letzte)) {
-            const schub = messe([letzte]);
-            zeige(letzte, schub);
-            schiebe(schub);
-          }
-          break;
-        }
-        case "TJ": {
-          const liste = operanden[operanden.length - 1];
-          if (!Array.isArray(liste)) break;
-          const roh = [];
-          for (const teil of liste) {
-            if (Array.isArray(teil)) roh.push(...teil);
-          }
-          const schub = messe(
-            liste.filter((teil) => Array.isArray(teil) || typeof teil === "number")
-          );
-          zeige(roh, schub);
-          schiebe(schub);
-          break;
-        }
-        default:
-          break;
-      }
-    });
-    seiten.push({ zeilen: zuZeilen(stuecke) });
-  }
-  const text2 = seiten.flatMap((seite) => seite.zeilen.map((zeile) => zeile.text)).join("\n");
-  return { seiten, text: text2, leer: text2.trim().length === 0 };
-}
-function zuZeilen(stuecke) {
-  const zeilen = [];
-  for (const stueck of [...stuecke].sort((a, b) => b.y - a.y || a.x - b.x)) {
-    const passend = zeilen.find((zeile) => Math.abs(zeile.y - stueck.y) <= ZEILENTOLERANZ);
-    if (passend) passend.stuecke.push(stueck);
-    else zeilen.push({ y: stueck.y, stuecke: [stueck], text: "" });
-  }
-  for (const zeile of zeilen) {
-    zeile.stuecke.sort((a, b) => a.x - b.x);
-    let text2 = "";
-    let ende;
-    for (const stueck of zeile.stuecke) {
-      const inhalt = stueck.text;
-      if (!inhalt.trim()) continue;
-      if (text2 && ende !== void 0) {
-        const luecke = stueck.x - ende;
-        if (luecke > Math.max(stueck.groesse, 1) * WORTLUECKE) text2 += " ";
-      }
-      text2 += inhalt;
-      ende = stueck.x + stueck.breite;
-    }
-    zeile.text = text2.replace(/\s+/g, " ").trim();
-  }
-  return zeilen.filter((zeile) => zeile.text.length > 0);
-}
-
-// src/parse/pdf-gestaltung.ts
-var grau = (v) => ({ r: v, g: v, b: v });
-var ausCmyk = (c, m, y, k) => ({
-  r: 1 - Math.min(1, c + k),
-  g: 1 - Math.min(1, m + k),
-  b: 1 - Math.min(1, y + k)
-});
-function farbeAus(werte) {
-  if (werte.length === 1) return grau(werte[0] ?? 0);
-  if (werte.length === 3) return { r: werte[0] ?? 0, g: werte[1] ?? 0, b: werte[2] ?? 0 };
-  if (werte.length === 4) {
-    return ausCmyk(werte[0] ?? 0, werte[1] ?? 0, werte[2] ?? 0, werte[3] ?? 0);
-  }
-  return void 0;
-}
-function alsHex(farbe2) {
-  const teil = (v) => Math.max(0, Math.min(255, Math.round(v * 255))).toString(16).padStart(2, "0").toUpperCase();
-  return `#${teil(farbe2.r)}${teil(farbe2.g)}${teil(farbe2.b)}`;
-}
-function istGrau(farbe2) {
-  const max = Math.max(farbe2.r, farbe2.g, farbe2.b);
-  const min = Math.min(farbe2.r, farbe2.g, farbe2.b);
-  return max - min < 0.08;
-}
-var EINHEIT = [1, 0, 0, 1, 0, 0];
-function malmal(m, n) {
-  return [
-    m[0] * n[0] + m[1] * n[2],
-    m[0] * n[1] + m[1] * n[3],
-    m[2] * n[0] + m[3] * n[2],
-    m[2] * n[1] + m[3] * n[3],
-    m[4] * n[0] + m[5] * n[2] + n[4],
-    m[4] * n[1] + m[5] * n[3] + n[5]
-  ];
-}
-var wende = (m, x, y) => [
-  m[0] * x + m[2] * y + m[4],
-  m[1] * x + m[3] * y + m[5]
-];
-var massstab = (m) => Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2])) || 1;
-var KREISTOLERANZ = 0.02;
-var RANDMARKE_BIS = 60;
-var VOLLE_SATZBREITE = 0.9;
-var SATZBREITE_AB = 0.6;
-function alsKreis(punkte, boegen) {
-  if (boegen < 3 || punkte.length < 4) return void 0;
-  const xs = punkte.map((p) => p.x);
-  const ys = punkte.map((p) => p.y);
-  const breite = Math.max(...xs) - Math.min(...xs);
-  const hoehe = Math.max(...ys) - Math.min(...ys);
-  if (breite < 1 || Math.abs(breite - hoehe) / breite > KREISTOLERANZ) return void 0;
-  return {
-    x: (Math.min(...xs) + Math.max(...xs)) / 2,
-    y: (Math.min(...ys) + Math.max(...ys)) / 2,
-    r: breite / 2
-  };
-}
-var PLZ_ZEILE = /^(\d{5})\s+[A-Za-zÄÖÜäöüß]/;
-var STRASSENZEILE = /[A-Za-zÄÖÜäöüß.]\s+\d+\s?[a-zA-Z]?$/;
-function findeGrenze(zeilen, seitenhoehe) {
-  const unten = seitenhoehe * 0.6;
-  const oben = seitenhoehe * 0.88;
-  const sortiert = [...zeilen].sort((a, b) => b.y - a.y);
-  for (const [stelle, zeile] of sortiert.entries()) {
-    if (zeile.y < unten || zeile.y > oben) continue;
-    if (!PLZ_ZEILE.test(zeile.text)) continue;
-    let kopf = zeile;
-    let hoch = stelle - 1;
-    while (hoch >= 0) {
-      const darueber = sortiert[hoch];
-      if (!darueber || darueber.y - kopf.y > kopf.hoehe * 2.2) break;
-      kopf = darueber;
-      hoch -= 1;
-    }
-    if (kopf === zeile && !STRASSENZEILE.test(zeile.text)) continue;
-    return kopf.y + kopf.hoehe;
-  }
-  return seitenhoehe * 0.8;
-}
-var FUSSZONE = 0.22;
-var FUSSBLOCK = 2.5;
-var FUSSABSTAND = 4;
-var SEITENZAHL = /^\s*(Seite\s+\d+(\s*(von|\/)\s*\d+)?|\d+\s*\/\s*\d+)\s*$/i;
-function findeFussgrenze(zeilen, seitenhoehe) {
-  const sortiert = [...zeilen].filter((zeile) => !SEITENZAHL.test(zeile.text)).sort((a, b) => a.y - b.y);
-  const unterste = sortiert[0];
-  if (!unterste || unterste.y > seitenhoehe * FUSSZONE) return 0;
-  let kopf = unterste;
-  let stelle = 1;
-  while (stelle < sortiert.length) {
-    const naechste = sortiert[stelle];
-    if (!naechste || naechste.y - kopf.y > kopf.hoehe * FUSSBLOCK) break;
-    kopf = naechste;
-    stelle += 1;
-  }
-  const darueber = sortiert[stelle];
-  if (!darueber) return 0;
-  const luecke = darueber.y - kopf.y;
-  if (luecke < kopf.hoehe * FUSSABSTAND) return 0;
-  return kopf.y + kopf.hoehe;
-}
-async function liesBriefpapier(bytes, seite = 0) {
-  const doc = await PDFDocument2.load(bytes, { throwOnInvalidObject: false });
-  const blatt = doc.getPage(seite);
-  const { width: breite, height: hoehe } = blatt.getSize();
-  const gelesen = await liesPdfText(bytes);
-  const zeilen = (gelesen.seiten[seite]?.zeilen ?? []).map((z) => ({
-    y: z.y,
-    text: z.text,
-    hoehe: Math.max(...z.stuecke.map((s) => Math.abs(s.groesse)), 8)
-  }));
-  const grenze = findeGrenze(zeilen, hoehe);
-  const fussgrenze = findeFussgrenze(zeilen, hoehe);
-  const imBriefpapier = (y) => y > grenze || fussgrenze > 0 && y < fussgrenze;
-  const pfade = [];
-  const striche = [];
-  const kreise = [];
-  const flaechen = [];
-  let ungedeutet = 0;
-  let zustand = {
-    matrix: EINHEIT,
-    fuellung: grau(0),
-    strichfarbe: grau(0),
-    staerke: 1
-  };
-  const stapel = [];
-  let punkte = [];
-  let boegen = 0;
-  let rechteck;
-  let d = "";
-  let letzt = [0, 0];
-  let anstehenderBeschnitt;
-  const laeufe = [];
-  const breitenTabelle = liefereBreiten(doc, seite);
-  let tm = EINHEIT;
-  let zm = EINHEIT;
-  let schriftname = "";
-  let schriftgroesse = 0;
-  let durchschuss = 0;
-  let zeichenabstand = 0;
-  let wortabstand = 0;
-  let streckung = 1;
-  let breiten;
-  leseInhalt(seiteninhalt(doc, seite), (operator, operanden) => {
-    const z = (wieviel) => operanden.slice(-wieviel).map(Number);
-    const nurZahlen = () => operanden.filter((w) => typeof w === "number");
-    const insSvg = (x, y) => {
-      const [px, py] = wende(zustand.matrix, x, y);
-      return `${px.toFixed(2)} ${(hoehe - py).toFixed(2)}`;
-    };
-    switch (operator) {
-      case "q":
-        stapel.push({ ...zustand });
-        break;
-      case "Q":
-        zustand = stapel.pop() ?? zustand;
-        break;
-      case "cm":
-        zustand.matrix = malmal(z(6), zustand.matrix);
-        break;
-      case "w":
-        zustand.staerke = z(1)[0] ?? 1;
-        break;
-      case "g":
-      case "rg":
-      case "k":
-      case "sc":
-      case "scn": {
-        const farbe2 = farbeAus(nurZahlen());
-        if (farbe2) zustand.fuellung = farbe2;
-        break;
-      }
-      case "G":
-      case "RG":
-      case "K":
-      case "SC":
-      case "SCN": {
-        const farbe2 = farbeAus(nurZahlen());
-        if (farbe2) zustand.strichfarbe = farbe2;
-        break;
-      }
-      case "W":
-      case "W*":
-        anstehenderBeschnitt = rechteck ? { x: rechteck.x, y: rechteck.y, breite: rechteck.breite, hoehe: rechteck.hoehe } : void 0;
-        break;
-      case "m":
-      case "l": {
-        const [x, y] = z(2);
-        d += `${operator === "m" ? " M " : " L "}${insSvg(x ?? 0, y ?? 0)}`;
-        letzt = [x ?? 0, y ?? 0];
-        const [px, py] = wende(zustand.matrix, x ?? 0, y ?? 0);
-        punkte.push({ x: px, y: py });
-        break;
-      }
-      case "c":
-      case "v":
-      case "y": {
-        const w = z(operator === "c" ? 6 : 4);
-        const ziel = [w[w.length - 2] ?? 0, w[w.length - 1] ?? 0];
-        const eins = operator === "v" ? letzt : [w[0] ?? 0, w[1] ?? 0];
-        const zwei = operator === "y" ? ziel : [w[w.length - 4] ?? 0, w[w.length - 3] ?? 0];
-        d += ` C ${insSvg(eins[0], eins[1])} ${insSvg(zwei[0], zwei[1])} ${insSvg(ziel[0], ziel[1])}`;
-        letzt = ziel;
-        const [px, py] = wende(zustand.matrix, ziel[0], ziel[1]);
-        punkte.push({ x: px, y: py });
-        boegen += 1;
-        break;
-      }
-      case "h":
-        d += " Z";
-        break;
-      case "re": {
-        const [x, y, b, h] = z(4);
-        d += ` M ${insSvg(x ?? 0, y ?? 0)} L ${insSvg((x ?? 0) + (b ?? 0), y ?? 0)} L ${insSvg((x ?? 0) + (b ?? 0), (y ?? 0) + (h ?? 0))} L ${insSvg(x ?? 0, (y ?? 0) + (h ?? 0))} Z`;
-        letzt = [x ?? 0, y ?? 0];
-        const [x1, y1] = wende(zustand.matrix, x ?? 0, y ?? 0);
-        const [x2, y2] = wende(zustand.matrix, (x ?? 0) + (b ?? 0), (y ?? 0) + (h ?? 0));
-        rechteck = {
-          x: Math.min(x1, x2),
-          y: Math.min(y1, y2),
-          breite: Math.abs(x2 - x1),
-          hoehe: Math.abs(y2 - y1),
-          farbe: zustand.fuellung
-        };
-        punkte.push({ x: x1, y: y1 }, { x: x2, y: y2 });
-        break;
-      }
-      case "S":
-      case "s":
-      case "f":
-      case "F":
-      case "f*":
-      case "B":
-      case "B*":
-      case "b":
-      case "b*":
-      case "n": {
-        const gefuellt = /^[fFBb]/.test(operator);
-        const gestrichen = /^[SsBb]/.test(operator);
-        const staerke = zustand.staerke * massstab(zustand.matrix);
-        const kreis = alsKreis(punkte, boegen);
-        if (d.trim() && (gefuellt || gestrichen) && punkte.length > 0) {
-          const xs = punkte.map((punkt) => punkt.x);
-          const ys = punkte.map((punkt) => punkt.y);
-          pfade.push({
-            d: d.trim(),
-            fuellung: gefuellt ? zustand.fuellung : void 0,
-            strich: gestrichen ? zustand.strichfarbe : void 0,
-            staerke,
-            rahmen: {
-              x1: Math.min(...xs),
-              y1: Math.min(...ys),
-              x2: Math.max(...xs),
-              y2: Math.max(...ys)
-            },
-            ...zustand.beschnitt ? { beschnitt: zustand.beschnitt } : {}
-          });
-        }
-        if (kreis && (gefuellt || gestrichen)) {
-          kreise.push({
-            ...kreis,
-            farbe: gefuellt ? zustand.fuellung : zustand.strichfarbe,
-            gefuellt
-          });
-        } else if (rechteck && gefuellt) {
-          flaechen.push({ ...rechteck, farbe: zustand.fuellung });
-        } else if (punkte.length === 2 && gestrichen) {
-          const anfang = punkte[0];
-          const ende = punkte[1];
-          striche.push({
-            x1: anfang.x,
-            y1: anfang.y,
-            x2: ende.x,
-            y2: ende.y,
-            staerke,
-            farbe: zustand.strichfarbe
-          });
-        } else if (operator !== "n" && punkte.length > 0) {
-          ungedeutet += 1;
-        }
-        if (anstehenderBeschnitt) {
-          zustand.beschnitt = anstehenderBeschnitt;
-          anstehenderBeschnitt = void 0;
-        }
-        punkte = [];
-        boegen = 0;
-        rechteck = void 0;
-        d = "";
-        break;
-      }
-      // --- Text ---------------------------------------------------------
-      //
-      // Dieselbe Buchfuehrung wie im Textleser, aber die Bytes bleiben roh.
-      // Erst zusammen mit der Grundmatrix ergibt die Textmatrix die Stelle
-      // auf dem Blatt, deshalb steht das hier und nicht dort.
-      case "BT":
-        tm = zm = EINHEIT;
-        zeichenabstand = 0;
-        wortabstand = 0;
-        streckung = 1;
-        break;
-      case "Tf":
-        schriftname = String(operanden[operanden.length - 2] ?? "").replace(/^\//, "");
-        schriftgroesse = Number(operanden[operanden.length - 1] ?? 0);
-        breiten = breitenTabelle.get(schriftname);
-        break;
-      case "Tc":
-        zeichenabstand = z(1)[0] ?? 0;
-        break;
-      case "Tw":
-        wortabstand = z(1)[0] ?? 0;
-        break;
-      case "Tz":
-        streckung = (z(1)[0] ?? 100) / 100;
-        break;
-      case "TL":
-        durchschuss = z(1)[0] ?? 0;
-        break;
-      case "Tm":
-        tm = zm = z(6);
-        break;
-      case "Td":
-      case "TD": {
-        const [dx, dy] = z(2);
-        if (operator === "TD") durchschuss = -(dy ?? 0);
-        zm = malmal([1, 0, 0, 1, dx ?? 0, dy ?? 0], zm);
-        tm = zm;
-        break;
-      }
-      case "T*":
-        zm = malmal([1, 0, 0, 1, 0, -durchschuss], zm);
-        tm = zm;
-        break;
-      case "Tj":
-      case "TJ":
-      case "'":
-      case '"': {
-        if (operator === "'" || operator === '"') {
-          zm = malmal([1, 0, 0, 1, 0, -durchschuss], zm);
-          tm = zm;
-        }
-        const letzte = operanden[operanden.length - 1];
-        const stuecke = operator === "TJ" && Array.isArray(letzte) ? letzte.filter(
-          (teil) => Array.isArray(teil) || typeof teil === "number"
-        ) : Array.isArray(letzte) ? [letzte] : [];
-        const gesamt = malmal(tm, zustand.matrix);
-        if (stuecke.length > 0 && imBriefpapier(gesamt[5])) {
-          laeufe.push({
-            schrift: schriftname,
-            stuecke,
-            matrix: gesamt,
-            groesse: schriftgroesse,
-            farbe: zustand.fuellung,
-            zeichenabstand,
-            wortabstand,
-            streckung
-          });
-        }
-        const schub = laufbreite(
-          stuecke,
-          breiten,
-          schriftgroesse,
-          zeichenabstand,
-          wortabstand,
-          streckung
-        );
-        if (schub !== 0) tm = malmal([1, 0, 0, 1, schub, 0], tm);
-        break;
-      }
-      default:
-        break;
-    }
-  });
-  const texte = [];
-  for (const zeile of gelesen.seiten[seite]?.zeilen ?? []) {
-    if (!imBriefpapier(zeile.y)) continue;
-    for (const stueck of zeile.stuecke) {
-      texte.push({
-        x: stueck.x,
-        y: stueck.y,
-        groesse: Math.abs(stueck.groesse) || 8,
-        breite: stueck.breite,
-        text: stueck.text
-      });
-    }
-  }
-  const briefkopfpfade = pfade.filter((pfad) => gehoertZumBriefkopf(pfad, imBriefpapier, pfade));
-  const inhaltspfade = pfade.filter((pfad) => !briefkopfpfade.includes(pfad));
-  return {
-    seite: { breite, hoehe },
-    akzent: findeAkzent(striche, kreise, flaechen),
-    pfade: briefkopfpfade,
-    laeufe,
-    striche,
-    kreise,
-    flaechen,
-    texte,
-    falzmarken: findeFalzmarken(striche),
-    grenze,
-    fussgrenze,
-    ungedeutet,
-    ausgelassen: inhaltspfade.length,
-    inhaltFuellungen: inhaltspfade.filter((pfad) => pfad.fuellung).length,
-    inhaltSchrift: messeInhaltsschrift(gelesen.seiten[seite]?.zeilen ?? [], grenze, fussgrenze),
-    inhaltRaster: messeRaster(gelesen.seiten[seite]?.zeilen ?? [], grenze, fussgrenze),
-    inhaltProben: sammleProben(gelesen.seiten[seite]?.zeilen ?? [], grenze, fussgrenze),
-    ...findeSatzspiegel(briefkopfpfade, breite) ?? {},
-    ...findeInhaltskante(gelesen.seiten[seite]?.zeilen ?? [], grenze, fussgrenze),
-    ...findeWaehrungswort(gelesen.seiten[seite]?.zeilen ?? [], grenze, fussgrenze),
-    ...findeStrichstaerken(
-      inhaltspfade,
-      (gelesen.seiten[seite]?.zeilen ?? []).filter(
-        (zeile) => zeile.y <= grenze && (fussgrenze <= 0 || zeile.y >= fussgrenze)
-      )
-    ),
-    ...findeAnschriftzeile(gelesen.seiten[seite]?.zeilen ?? [], grenze, fussgrenze),
-    ...findeTextfarbe(laeufe)
-  };
-}
-function findeTextfarbe(laeufe) {
-  let dunkelster;
-  let dunkelheit = -1;
-  for (const lauf of laeufe) {
-    const wert = 1 - (0.299 * lauf.farbe.r + 0.587 * lauf.farbe.g + 0.114 * lauf.farbe.b);
-    if (wert > dunkelheit) {
-      dunkelheit = wert;
-      dunkelster = lauf.farbe;
-    }
-  }
-  return dunkelster && dunkelheit >= 0.33 ? { textfarbe: { r: dunkelster.r, g: dunkelster.g, b: dunkelster.b } } : {};
-}
-function findeAnschriftzeile(zeilen, grenze, fussgrenze) {
-  const oberste = zeilen.filter(
-    (zeile) => zeile.y <= grenze && (fussgrenze <= 0 || zeile.y >= fussgrenze) && zeile.text.trim().length > 0
-  ).sort((eins, zwei) => zwei.y - eins.y)[0];
-  return oberste ? { anschriftZeile: Math.round(oberste.y * 100) / 100 } : {};
-}
-function findeInhaltskante(zeilen, grenze, fussgrenze) {
-  const zaehler = /* @__PURE__ */ new Map();
-  for (const zeile of zeilen) {
-    if (zeile.y > grenze || fussgrenze > 0 && zeile.y < fussgrenze) continue;
-    const x = zeile.stuecke[0]?.x;
-    if (x === void 0) continue;
-    const fach = Math.round(x / 5) * 5;
-    const bisher = zaehler.get(fach);
-    zaehler.set(fach, { anzahl: (bisher?.anzahl ?? 0) + 1, x: Math.min(bisher?.x ?? x, x) });
-  }
-  const kanten = [...zaehler.values()].filter((eintrag) => eintrag.anzahl >= 2).sort((eins, zwei) => eins.x - zwei.x);
-  const inhalt = kanten[1];
-  return inhalt ? { inhaltLinks: inhalt.x } : {};
-}
-function findeStrichstaerken(pfade, inhaltszeilen = []) {
-  const staerken = pfade.filter((pfad) => pfad.strich).map((pfad) => pfad.staerke);
-  if (staerken.length < 2) return {};
-  const zaehler = /* @__PURE__ */ new Map();
-  for (const staerke of staerken) {
-    const fach = Math.round(staerke * 100) / 100;
-    zaehler.set(fach, (zaehler.get(fach) ?? 0) + 1);
-  }
-  const haeufigste = [...zaehler.entries()].sort((eins, zwei) => zwei[1] - eins[1])[0]?.[0];
-  const groesste = Math.max(...staerken);
-  if (haeufigste === void 0 || groesste <= haeufigste) return {};
-  const breiteste = pfade.filter((pfad) => pfad.strich).sort((eins, zwei) => zwei.rahmen.x2 - zwei.rahmen.x1 - (eins.rahmen.x2 - eins.rahmen.x1))[0];
-  const darunter = breiteste ? inhaltszeilen.filter((zeile) => zeile.y < breiteste.rahmen.y1).sort((eins, zwei) => zwei.y - eins.y)[0] : void 0;
-  const abstand = breiteste && darunter ? Math.round((breiteste.rahmen.y1 - darunter.y) * 10) / 10 : void 0;
-  let ton;
-  let dunkelheit = -1;
-  for (const pfad of pfade) {
-    if (!pfad.strich) continue;
-    const wert = 1 - (0.299 * pfad.strich.r + 0.587 * pfad.strich.g + 0.114 * pfad.strich.b);
-    if (wert > dunkelheit) {
-      dunkelheit = wert;
-      ton = pfad.strich;
-    }
-  }
-  return {
-    inhaltStriche: {
-      fein: haeufigste,
-      stark: groesste,
-      ...ton && dunkelheit >= 0.33 ? { farbe: { r: ton.r, g: ton.g, b: ton.b } } : {},
-      // Nur wenn es plausibel ist: ein halber bis zwei Zeilenabstaende.
-      ...abstand !== void 0 && abstand > 4 && abstand < 40 ? { abstand } : {}
-    }
-  };
-}
-function findeWaehrungswort(zeilen, grenze, fussgrenze) {
-  for (const zeile of zeilen) {
-    if (zeile.y > grenze || fussgrenze > 0 && zeile.y < fussgrenze) continue;
-    const treffer = /\d[\d.]*,\d{2}\s*(Euro|EUR|€)(?![A-Za-z])/.exec(zeile.text);
-    if (treffer?.[1]) return { waehrungswort: treffer[1] };
-  }
-  return {};
-}
-var MIN_ZEILE = 6;
-var MAX_ABSATZ = 60;
-function messeInhaltsschrift(zeilen, grenze, fussgrenze) {
-  const groessen = [];
-  for (const zeile of zeilen) {
-    if (zeile.y > grenze || fussgrenze > 0 && zeile.y < fussgrenze) continue;
-    for (const stueck of zeile.stuecke) groessen.push(Math.abs(stueck.groesse));
-  }
-  if (groessen.length === 0) return { median: 0, groesste: 0 };
-  groessen.sort((eins, zwei) => eins - zwei);
-  return {
-    median: groessen[Math.floor(groessen.length / 2)] ?? 0,
-    groesste: groessen[groessen.length - 1] ?? 0
-  };
-}
-var PROBE_MINDESTLAENGE = 6;
-var PROBE_HOECHSTZAHL = 20;
-function sammleProben(zeilen, grenze, fussgrenze) {
-  const proben = [];
-  for (const zeile of zeilen) {
-    if (zeile.y > grenze || fussgrenze > 0 && zeile.y < fussgrenze) continue;
-    for (const stueck of zeile.stuecke) {
-      if (proben.length >= PROBE_HOECHSTZAHL) return proben;
-      const text2 = stueck.text.trim();
-      if (text2.length < PROBE_MINDESTLAENGE || stueck.breite <= 0 || stueck.groesse <= 0) continue;
-      proben.push({
-        text: text2,
-        breite: stueck.breite,
-        groesse: Math.abs(stueck.groesse),
-        fett: stueck.fett
-      });
-    }
-  }
-  return proben;
-}
-function messeRaster(zeilen, grenze, fussgrenze) {
-  const hoehen = zeilen.filter((z) => z.y <= grenze && (fussgrenze <= 0 || z.y >= fussgrenze) && z.stuecke.length > 0).map((z) => z.y).sort((eins, zwei) => zwei - eins);
-  const zaehler = /* @__PURE__ */ new Map();
-  for (let i = 1; i < hoehen.length; i += 1) {
-    const abstand = Math.round((hoehen[i - 1] - hoehen[i]) * 2) / 2;
-    if (abstand < MIN_ZEILE || abstand > MAX_ABSATZ) continue;
-    zaehler.set(abstand, (zaehler.get(abstand) ?? 0) + 1);
-  }
-  const mehrfach = [...zaehler.entries()].filter(([, anzahl]) => anzahl >= 2).map(([abstand]) => abstand).sort((eins, zwei) => eins - zwei);
-  const zeile = mehrfach[0];
-  if (zeile === void 0) return {};
-  const absatz = mehrfach.find(
-    (kandidat) => kandidat > zeile && Math.abs(kandidat / zeile - Math.round(kandidat / zeile)) < 0.05
-  );
-  return { zeile, ...absatz !== void 0 ? { absatz } : {} };
-}
-function findeSatzspiegel(pfade, seitenbreite) {
-  let beste;
-  for (const pfad of pfade) {
-    const breite = pfad.rahmen.x2 - pfad.rahmen.x1;
-    if (breite < seitenbreite * SATZBREITE_AB) continue;
-    if (!beste || breite > beste.rahmen.x2 - beste.rahmen.x1) beste = pfad;
-  }
-  return beste ? { satzspiegel: { links: beste.rahmen.x1, rechts: beste.rahmen.x2 } } : void 0;
-}
-function gehoertZumBriefkopf(pfad, imBriefpapier, alle) {
-  if (imBriefpapier(pfad.rahmen.y1) && imBriefpapier(pfad.rahmen.y2)) return true;
-  const breite = pfad.rahmen.x2 - pfad.rahmen.x1;
-  if (pfad.rahmen.x2 < RANDMARKE_BIS && breite < 30) return true;
-  const breiteste = Math.max(...alle.map((p) => p.rahmen.x2 - p.rahmen.x1));
-  return breiteste > 0 && breite >= breiteste * VOLLE_SATZBREITE;
-}
-function findeAkzent(striche, kreise, flaechen) {
-  const bewerbungen = [
-    ...kreise.map((k) => ({ flaeche: Math.PI * k.r * k.r, farbe: k.farbe })),
-    ...flaechen.map((f) => ({ flaeche: f.breite * f.hoehe, farbe: f.farbe })),
-    ...striche.map((s) => ({
-      flaeche: Math.hypot(s.x2 - s.x1, s.y2 - s.y1) * s.staerke,
-      farbe: s.farbe
-    }))
-  ].filter((b) => !istGrau(b.farbe));
-  bewerbungen.sort((a, b) => b.flaeche - a.flaeche);
-  const beste = bewerbungen[0];
-  return beste ? alsHex(beste.farbe) : void 0;
-}
-function findeFalzmarken(striche) {
-  return striche.filter(
-    (s) => s.x1 < 60 && Math.abs(s.y2 - s.y1) < 1 && Math.abs(s.x2 - s.x1) > 2 && Math.abs(s.x2 - s.x1) < 30
-  ).map((s) => s.y1).sort((a, b) => b - a);
-}
-
-// src/pdf/briefpapier.ts
-var farbe = (f) => rgb(f.r, f.g, f.b);
-var gedreht = (y, hoehe) => hoehe - y;
-var geschuetzt = (text2) => text2.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-function alsSvg(papier, schriftfamilie = "Inter, Helvetica, sans-serif") {
-  const { breite, hoehe } = papier.seite;
-  const zeilen = [];
-  zeilen.push(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${breite.toFixed(2)}" height="${hoehe.toFixed(2)}" viewBox="0 0 ${breite.toFixed(2)} ${hoehe.toFixed(2)}">`
-  );
-  zeilen.push(`  <rect width="${breite.toFixed(2)}" height="${hoehe.toFixed(2)}" fill="#FFFFFF"/>`);
-  for (const p of papier.pfade) {
-    const fuellung = p.fuellung ? `fill="${alsHex(p.fuellung)}"` : 'fill="none"';
-    const strich = p.strich ? ` stroke="${alsHex(p.strich)}" stroke-width="${Math.max(0.1, p.staerke).toFixed(2)}"` : "";
-    zeilen.push(`  <path d="${p.d}" ${fuellung}${strich}/>`);
-  }
-  for (const t of papier.texte) {
-    const mass = t.breite > 0 ? ` textLength="${t.breite.toFixed(2)}" lengthAdjust="spacing"` : "";
-    zeilen.push(
-      `  <text x="${t.x.toFixed(2)}" y="${gedreht(t.y, hoehe).toFixed(2)}" font-family="${schriftfamilie}" font-size="${t.groesse.toFixed(2)}"${mass}>${geschuetzt(t.text)}</text>`
-    );
-  }
-  zeilen.push("</svg>");
-  return zeilen.join("\n");
-}
-function zeichneBriefpapier(seite, papier, schrift, versatz = { x: 0, y: 0 }) {
-  const ursprung = { x: versatz.x, y: papier.seite.hoehe + versatz.y };
-  for (const p of papier.pfade) {
-    if (p.beschnitt) {
-      seite.pushOperators(
-        PDFOperator2.of(PDFOperatorNames2.PushGraphicsState),
-        PDFOperator2.of(PDFOperatorNames2.AppendRectangle, [
-          PDFNumber2.of(p.beschnitt.x + versatz.x),
-          PDFNumber2.of(p.beschnitt.y + versatz.y),
-          PDFNumber2.of(p.beschnitt.breite),
-          PDFNumber2.of(p.beschnitt.hoehe)
-        ]),
-        PDFOperator2.of(PDFOperatorNames2.ClipNonZero),
-        PDFOperator2.of(PDFOperatorNames2.EndPath)
-      );
-    }
-    seite.drawSvgPath(p.d, {
-      ...ursprung,
-      color: p.fuellung ? farbe(p.fuellung) : void 0,
-      borderColor: p.strich ? farbe(p.strich) : void 0,
-      borderWidth: p.strich ? Math.max(0.1, p.staerke) : void 0
-    });
-    if (p.beschnitt) {
-      seite.pushOperators(PDFOperator2.of(PDFOperatorNames2.PopGraphicsState));
-    }
-  }
-  const fehlend = /* @__PURE__ */ new Set();
-  const zeichenbar = (text2) => {
-    let sauber = "";
-    for (const zeichen of text2) {
-      try {
-        schrift.widthOfTextAtSize(zeichen, 10);
-        sauber += zeichen;
-      } catch {
-        fehlend.add(zeichen);
-      }
-    }
-    return sauber;
-  };
-  const schluessel2 = seite.node.newFontDictionaryKey(schrift.name);
-  seite.node.setFontDictionary(schluessel2, schrift.ref);
-  const befehle = [];
-  let gezeichnet = 0;
-  let gestreckt = 0;
-  for (const t of papier.texte) {
-    const text2 = zeichenbar(t.text);
-    if (!text2.trim()) continue;
-    const groesse = Math.max(1, t.groesse);
-    const ist = schrift.widthOfTextAtSize(text2, groesse);
-    let streckung = 100;
-    if (t.breite > 0 && ist > 0) {
-      const verhaeltnis = t.breite / ist * 100;
-      if (verhaeltnis >= 50 && verhaeltnis <= 200) {
-        streckung = verhaeltnis;
-        gestreckt += 1;
-      }
-    }
-    befehle.push(
-      PDFOperator2.of(PDFOperatorNames2.PushGraphicsState),
-      PDFOperator2.of(PDFOperatorNames2.BeginText),
-      PDFOperator2.of(PDFOperatorNames2.SetFontAndSize, [schluessel2, PDFNumber2.of(groesse)]),
-      PDFOperator2.of(PDFOperatorNames2.SetTextHorizontalScaling, [
-        PDFNumber2.of(Number(streckung.toFixed(3)))
-      ]),
-      PDFOperator2.of(PDFOperatorNames2.SetTextMatrix, [
-        PDFNumber2.of(1),
-        PDFNumber2.of(0),
-        PDFNumber2.of(0),
-        PDFNumber2.of(1),
-        PDFNumber2.of(Number((t.x + versatz.x).toFixed(3))),
-        PDFNumber2.of(Number((t.y + versatz.y).toFixed(3)))
-      ]),
-      PDFOperator2.of(PDFOperatorNames2.ShowText, [schrift.encodeText(text2)]),
-      PDFOperator2.of(PDFOperatorNames2.EndText),
-      PDFOperator2.of(PDFOperatorNames2.PopGraphicsState)
-    );
-    gezeichnet += 1;
-  }
-  seite.pushOperators(...befehle);
-  return {
-    pfade: papier.pfade.length,
-    texte: gezeichnet,
-    eingepasst: gestreckt,
-    fehlendeZeichen: [...fehlend]
-  };
-}
-
-// src/absender/zahlungsklausel.ts
-var WENDUNGEN = [
-  { muster: /innerhalb\s+von\s+(\d{1,3})\s+(?:Kalender|Werk)?tagen/i, merkmal: "Frist in Tagen" },
-  { muster: /binnen\s+(\d{1,3})\s+(?:Kalender|Werk)?tagen/i, merkmal: "Frist in Tagen" },
-  { muster: /(\d{1,3})\s+Tage[n]?\s+(?:netto|rein\s+netto|ohne\s+Abzug)/i, merkmal: "Nettofrist" },
-  { muster: /Zahlungsziel\s*:?\s*(\d{1,3})?/i, merkmal: "Zahlungsziel benannt" },
-  { muster: /zahlbar\s+(?:sofort|netto|ohne\s+Abzug|innerhalb|bis)/i, merkmal: "Zahlbar-Klausel" },
-  { muster: /(?:sofort|netto)\s+(?:rein\s+)?netto\s+ohne\s+Abzug/i, merkmal: "Nettoklausel" },
-  { muster: /(\d{1,2})\s*%\s*Skonto/i, merkmal: "Skontoklausel" }
-];
-function findeZahlungsklausel(zeilen) {
-  for (const zeile of zeilen) {
-    for (const { muster, merkmal } of WENDUNGEN) {
-      const treffer = muster.exec(zeile);
-      if (!treffer) continue;
-      const zahl4 = treffer[1] ? Number(treffer[1]) : void 0;
-      return {
-        beleg: zeile.trim(),
-        ...zahl4 !== void 0 && Number.isFinite(zahl4) ? { tage: zahl4 } : {},
-        merkmal
-      };
-    }
-  }
-  return void 0;
-}
-function zeilenImBogen(papier) {
-  const nachHoehe = /* @__PURE__ */ new Map();
-  for (const stueck of papier.texte) {
-    const schluessel2 = Math.round(stueck.y);
-    nachHoehe.set(schluessel2, [...nachHoehe.get(schluessel2) ?? [], stueck]);
-  }
-  return [...nachHoehe.entries()].sort((eins, zwei) => zwei[0] - eins[0]).map(([, stuecke]) => zeileAus(stuecke)).filter(Boolean);
-}
-function zeileAus(stuecke) {
-  const sortiert = [...stuecke].sort((eins, zwei) => eins.x - zwei.x);
-  let text2 = "";
-  let ende;
-  for (const stueck of sortiert) {
-    if (!stueck.text.trim()) continue;
-    if (text2 && ende !== void 0 && stueck.x - ende > Math.max(stueck.groesse, 1) * WORTLUECKE2) {
-      text2 += " ";
-    }
-    text2 += stueck.text;
-    ende = stueck.x + stueck.breite;
-  }
-  return text2.replace(/\s+/g, " ").trim();
-}
-var WORTLUECKE2 = 0.2;
-function zahlungsklauselImBogen(papier) {
-  return findeZahlungsklausel(zeilenImBogen(papier));
-}
-function bankverbindungImBogen(papier) {
-  const text2 = zeilenImBogen(papier).join(" ");
-  return /\bIBAN\b/i.test(text2) && /\b(?:BIC|SWIFT)\b/i.test(text2);
-}
+import { PDFNumber, PDFOperator as PDFOperator3, PDFOperatorNames as PDFOperatorNames3, rgb as rgb3 } from "pdf-lib";
 
 // src/pdf/gestaltung.ts
-import { rgb as rgb3 } from "pdf-lib";
+import { rgb as rgb2 } from "pdf-lib";
 
 // src/pdf/layout.ts
 import {
-  rgb as rgb2
+  rgb
 } from "pdf-lib";
 
 // src/pdf/beschriftungen.ts
@@ -2734,11 +1517,11 @@ function nurAbweichungen(eigene) {
 var A4 = { width: 595.28, height: 841.89 };
 var MM = 2.834645669;
 var DEFAULT_THEME = {
-  accent: rgb2(0.06, 0.32, 0.55),
-  text: rgb2(0.11, 0.12, 0.14),
-  muted: rgb2(0.42, 0.45, 0.5),
-  hairline: rgb2(0.82, 0.84, 0.87),
-  zebra: rgb2(0.965, 0.972, 0.98)
+  accent: rgb(0.06, 0.32, 0.55),
+  text: rgb(0.11, 0.12, 0.14),
+  muted: rgb(0.42, 0.45, 0.5),
+  hairline: rgb(0.82, 0.84, 0.87),
+  zebra: rgb(0.965, 0.972, 0.98)
 };
 var satzLinks = (ctx) => ctx.satzspiegel?.links ?? PAGE.left;
 var satzRechts = (ctx) => ctx.satzspiegel?.rechts ?? PAGE.right;
@@ -3093,7 +1876,7 @@ function drawTableHead(cursor, ctx) {
     const options = {
       font: ctx.fonts.bold,
       size: 8,
-      color: schlicht ? ctx.theme.text : rgb2(1, 1, 1)
+      color: schlicht ? ctx.theme.text : rgb(1, 1, 1)
     };
     if (column.align === "right") {
       drawRight(page, column.label, column.x + column.width - ZELLENLUFT, cursor.y + 1, options);
@@ -3602,7 +2385,7 @@ function farbeAusHex(hex) {
   const voll = sauber.length === 3 ? sauber.split("").map((z) => z + z).join("") : sauber;
   if (!/^[0-9a-fA-F]{6}$/.test(voll)) return void 0;
   const wert = parseInt(voll, 16);
-  return rgb3((wert >> 16 & 255) / 255, (wert >> 8 & 255) / 255, (wert & 255) / 255);
+  return rgb2((wert >> 16 & 255) / 255, (wert >> 8 & 255) / 255, (wert & 255) / 255);
 }
 function themaMitAkzent(hex) {
   if (!hex) return DEFAULT_THEME;
@@ -3620,30 +2403,146 @@ function pngFarbtyp(bytes) {
   if (String.fromCharCode(...bytes.subarray(12, 16)) !== "IHDR") return void 0;
   return bytes[stelle];
 }
+function alsHex(farbe2) {
+  const teil = (v) => Math.max(0, Math.min(255, Math.round(v * 255))).toString(16).padStart(2, "0").toUpperCase();
+  return `#${teil(farbe2.r)}${teil(farbe2.g)}${teil(farbe2.b)}`;
+}
+
+// src/pdf/briefpapier.ts
+var farbe = (f) => rgb3(f.r, f.g, f.b);
+var gedreht = (y, hoehe) => hoehe - y;
+var geschuetzt = (text2) => text2.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+function alsSvg(papier, schriftfamilie = "Inter, Helvetica, sans-serif") {
+  const { breite, hoehe } = papier.seite;
+  const zeilen = [];
+  zeilen.push(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${breite.toFixed(2)}" height="${hoehe.toFixed(2)}" viewBox="0 0 ${breite.toFixed(2)} ${hoehe.toFixed(2)}">`
+  );
+  zeilen.push(`  <rect width="${breite.toFixed(2)}" height="${hoehe.toFixed(2)}" fill="#FFFFFF"/>`);
+  for (const p of papier.pfade) {
+    const fuellung = p.fuellung ? `fill="${alsHex(p.fuellung)}"` : 'fill="none"';
+    const strich = p.strich ? ` stroke="${alsHex(p.strich)}" stroke-width="${Math.max(0.1, p.staerke).toFixed(2)}"` : "";
+    zeilen.push(`  <path d="${p.d}" ${fuellung}${strich}/>`);
+  }
+  for (const t of papier.texte) {
+    const mass = t.breite > 0 ? ` textLength="${t.breite.toFixed(2)}" lengthAdjust="spacing"` : "";
+    zeilen.push(
+      `  <text x="${t.x.toFixed(2)}" y="${gedreht(t.y, hoehe).toFixed(2)}" font-family="${schriftfamilie}" font-size="${t.groesse.toFixed(2)}"${mass}>${geschuetzt(t.text)}</text>`
+    );
+  }
+  zeilen.push("</svg>");
+  return zeilen.join("\n");
+}
+function zeichneBriefpapier(seite, papier, schrift, versatz = { x: 0, y: 0 }) {
+  const ursprung = { x: versatz.x, y: papier.seite.hoehe + versatz.y };
+  for (const p of papier.pfade) {
+    if (p.beschnitt) {
+      seite.pushOperators(
+        PDFOperator3.of(PDFOperatorNames3.PushGraphicsState),
+        PDFOperator3.of(PDFOperatorNames3.AppendRectangle, [
+          PDFNumber.of(p.beschnitt.x + versatz.x),
+          PDFNumber.of(p.beschnitt.y + versatz.y),
+          PDFNumber.of(p.beschnitt.breite),
+          PDFNumber.of(p.beschnitt.hoehe)
+        ]),
+        PDFOperator3.of(PDFOperatorNames3.ClipNonZero),
+        PDFOperator3.of(PDFOperatorNames3.EndPath)
+      );
+    }
+    seite.drawSvgPath(p.d, {
+      ...ursprung,
+      color: p.fuellung ? farbe(p.fuellung) : void 0,
+      borderColor: p.strich ? farbe(p.strich) : void 0,
+      borderWidth: p.strich ? Math.max(0.1, p.staerke) : void 0
+    });
+    if (p.beschnitt) {
+      seite.pushOperators(PDFOperator3.of(PDFOperatorNames3.PopGraphicsState));
+    }
+  }
+  const fehlend = /* @__PURE__ */ new Set();
+  const zeichenbar = (text2) => {
+    let sauber = "";
+    for (const zeichen of text2) {
+      try {
+        schrift.widthOfTextAtSize(zeichen, 10);
+        sauber += zeichen;
+      } catch {
+        fehlend.add(zeichen);
+      }
+    }
+    return sauber;
+  };
+  const schluessel2 = seite.node.newFontDictionaryKey(schrift.name);
+  seite.node.setFontDictionary(schluessel2, schrift.ref);
+  const befehle = [];
+  let gezeichnet = 0;
+  let gestreckt = 0;
+  for (const t of papier.texte) {
+    const text2 = zeichenbar(t.text);
+    if (!text2.trim()) continue;
+    const groesse = Math.max(1, t.groesse);
+    const ist = schrift.widthOfTextAtSize(text2, groesse);
+    let streckung = 100;
+    if (t.breite > 0 && ist > 0) {
+      const verhaeltnis = t.breite / ist * 100;
+      if (verhaeltnis >= 50 && verhaeltnis <= 200) {
+        streckung = verhaeltnis;
+        gestreckt += 1;
+      }
+    }
+    befehle.push(
+      PDFOperator3.of(PDFOperatorNames3.PushGraphicsState),
+      PDFOperator3.of(PDFOperatorNames3.BeginText),
+      PDFOperator3.of(PDFOperatorNames3.SetFontAndSize, [schluessel2, PDFNumber.of(groesse)]),
+      PDFOperator3.of(PDFOperatorNames3.SetTextHorizontalScaling, [
+        PDFNumber.of(Number(streckung.toFixed(3)))
+      ]),
+      PDFOperator3.of(PDFOperatorNames3.SetTextMatrix, [
+        PDFNumber.of(1),
+        PDFNumber.of(0),
+        PDFNumber.of(0),
+        PDFNumber.of(1),
+        PDFNumber.of(Number((t.x + versatz.x).toFixed(3))),
+        PDFNumber.of(Number((t.y + versatz.y).toFixed(3)))
+      ]),
+      PDFOperator3.of(PDFOperatorNames3.ShowText, [schrift.encodeText(text2)]),
+      PDFOperator3.of(PDFOperatorNames3.EndText),
+      PDFOperator3.of(PDFOperatorNames3.PopGraphicsState)
+    );
+    gezeichnet += 1;
+  }
+  seite.pushOperators(...befehle);
+  return {
+    pfade: papier.pfade.length,
+    texte: gezeichnet,
+    eingepasst: gestreckt,
+    fehlendeZeichen: [...fehlend]
+  };
+}
 
 // src/pdf/vorlagenschrift.ts
 import {
-  PDFDict as PDFDict3,
-  PDFDocument as PDFDocument3,
+  PDFDict,
+  PDFDocument,
   PDFHexString,
-  PDFName as PDFName3,
-  PDFNumber as PDFNumber3,
+  PDFName,
+  PDFNumber as PDFNumber2,
   PDFObjectCopier,
   PDFOperator as PDFOperator4,
   PDFOperatorNames as PDFOperatorNames4,
   PDFRef
 } from "pdf-lib";
-var zahl2 = (wert) => PDFNumber3.of(Number(wert.toFixed(4)));
+var zahl = (wert) => PDFNumber2.of(Number(wert.toFixed(4)));
 var alsHexString = (bytes) => PDFHexString.of(bytes.map((b) => (b & 255).toString(16).padStart(2, "0")).join(""));
 async function bereiteVorlagenschrift(zielDoc, papier, quelle, quellseite = 0) {
-  const quellDoc = await PDFDocument3.load(quelle, { throwOnInvalidObject: false });
+  const quellDoc = await PDFDocument.load(quelle, { throwOnInvalidObject: false });
   const quellRessourcen = quellDoc.getPage(quellseite).node.Resources();
-  const quellSchriften = quellRessourcen?.lookupMaybe(PDFName3.of("Font"), PDFDict3);
+  const quellSchriften = quellRessourcen?.lookupMaybe(PDFName.of("Font"), PDFDict);
   const kopierer = PDFObjectCopier.for(quellDoc.context, zielDoc.context);
   const verweise = /* @__PURE__ */ new Map();
   const namen = [];
   for (const name of new Set(papier.laeufe.map((lauf) => lauf.schrift))) {
-    const verweis = quellSchriften?.get(PDFName3.of(name));
+    const verweis = quellSchriften?.get(PDFName.of(name));
     if (!verweis) continue;
     const kopie = kopierer.copy(verweis);
     verweise.set(name, kopie instanceof PDFRef ? kopie : zielDoc.context.register(kopie));
@@ -3675,9 +2574,9 @@ function setzeAufSeite(seite, papier, verweise, versatz) {
     if (!letzteFarbe || letzteFarbe.r !== lauf.farbe.r || letzteFarbe.g !== lauf.farbe.g || letzteFarbe.b !== lauf.farbe.b) {
       befehle.push(
         PDFOperator4.of(PDFOperatorNames4.NonStrokingColorRgb, [
-          zahl2(lauf.farbe.r),
-          zahl2(lauf.farbe.g),
-          zahl2(lauf.farbe.b)
+          zahl(lauf.farbe.r),
+          zahl(lauf.farbe.g),
+          zahl(lauf.farbe.b)
         ])
       );
       letzteFarbe = lauf.farbe;
@@ -3687,21 +2586,21 @@ function setzeAufSeite(seite, papier, verweise, versatz) {
     matrix[5] = (matrix[5] ?? 0) + versatz.y;
     befehle.push(
       PDFOperator4.of(PDFOperatorNames4.BeginText),
-      PDFOperator4.of(PDFOperatorNames4.SetFontAndSize, [schrift, zahl2(lauf.groesse)]),
+      PDFOperator4.of(PDFOperatorNames4.SetFontAndSize, [schrift, zahl(lauf.groesse)]),
       /*
        * Zeichen- und Wortabstand muessen mit, sonst geht der Blocksatz
        * verloren: Die Vorlage gleicht ihre Fusszeile ueber `Tw` aus, und ohne
        * ihn endet die Zeile zu frueh - der Trennstrich am rechten Rand steht
        * dann frei.
        */
-      PDFOperator4.of(PDFOperatorNames4.SetCharacterSpacing, [zahl2(lauf.zeichenabstand)]),
-      PDFOperator4.of(PDFOperatorNames4.SetWordSpacing, [zahl2(lauf.wortabstand)]),
-      PDFOperator4.of(PDFOperatorNames4.SetTextHorizontalScaling, [zahl2(lauf.streckung * 100)]),
-      PDFOperator4.of(PDFOperatorNames4.SetTextMatrix, matrix.map(zahl2)),
+      PDFOperator4.of(PDFOperatorNames4.SetCharacterSpacing, [zahl(lauf.zeichenabstand)]),
+      PDFOperator4.of(PDFOperatorNames4.SetWordSpacing, [zahl(lauf.wortabstand)]),
+      PDFOperator4.of(PDFOperatorNames4.SetTextHorizontalScaling, [zahl(lauf.streckung * 100)]),
+      PDFOperator4.of(PDFOperatorNames4.SetTextMatrix, matrix.map(zahl)),
       PDFOperator4.of(PDFOperatorNames4.ShowTextAdjusted, [
         seite.doc.context.obj(
           lauf.stuecke.map(
-            (teil) => Array.isArray(teil) ? alsHexString(teil) : zahl2(teil)
+            (teil) => Array.isArray(teil) ? alsHexString(teil) : zahl(teil)
           )
         )
       ]),
@@ -3934,7 +2833,7 @@ async function renderZugferdPdf(invoice, options) {
   const attachmentName = options.attachmentName ?? "factur-x.xml";
   const producer = options.producer ?? DEFAULT_PRODUCER;
   const creatorTool = options.creatorTool ?? producer;
-  const doc = await PDFDocument4.create();
+  const doc = await PDFDocument2.create();
   doc.registerFontkit(fontkit3);
   const subset = options.subsetFonts ?? false;
   const merkmale = ["tnum"];
@@ -4088,7 +2987,7 @@ async function renderZugferdPdf(invoice, options) {
      * nirgends sonst auf dem Blatt stehen koennte, und eine Rechnung ohne
      * Kontoangabe waere fuer den Empfaenger nicht zu bezahlen.
      */
-    zahlungsblock: options.zahlungsblock ?? (bogen ? !bankverbindungImBogen(bogen) : true),
+    zahlungsblock: options.zahlungsblock ?? true,
     zahlungszielImBriefpapier: options.zahlungszielImBriefpapier
   });
   pruefung.wirfBeiLuecken();
@@ -4153,7 +3052,7 @@ function addOutputIntent(doc, iccProfile) {
     RegistryName: PDFString.of("http://www.color.org"),
     DestOutputProfile: profileRef
   });
-  doc.catalog.set(PDFName4.of("OutputIntents"), doc.context.obj([outputIntent]));
+  doc.catalog.set(PDFName2.of("OutputIntents"), doc.context.obj([outputIntent]));
 }
 function addXmpMetadata(doc, options) {
   const xmp = buildXmp(options);
@@ -4161,7 +3060,7 @@ function addXmpMetadata(doc, options) {
     Type: "Metadata",
     Subtype: "XML"
   });
-  doc.catalog.set(PDFName4.of("Metadata"), doc.context.register(stream));
+  doc.catalog.set(PDFName2.of("Metadata"), doc.context.register(stream));
 }
 function ensureFileIdentifier(doc, seed) {
   const id = PDFHexString2.of(hash128(seed));
@@ -4181,420 +3080,477 @@ function hash128(seed) {
   return out.toUpperCase();
 }
 
-// src/parse/word.ts
-import { unzipSync } from "fflate";
-import { XMLParser } from "fast-xml-parser";
+// src/parse/pdf-text.ts
+import { PDFArray as PDFArray2, PDFDict as PDFDict3, PDFDocument as PDFDocument3, PDFName as PDFName4, PDFRawStream, decodePDFRawStream } from "pdf-lib";
 
-// src/parse/error.ts
-var EInvoiceError = class extends Error {
-  constructor(message, code, detail) {
-    super(message);
-    this.code = code;
-    this.detail = detail;
-    this.name = "EInvoiceError";
+// src/parse/pdf-breiten.ts
+import { PDFArray, PDFDict as PDFDict2, PDFName as PDFName3, PDFNumber as PDFNumber3 } from "pdf-lib";
+var DW_VORGABE = 1e3;
+function leseW(feld) {
+  const breiten = /* @__PURE__ */ new Map();
+  if (!feld) return breiten;
+  const werte = feld.asArray();
+  let i = 0;
+  while (i < werte.length) {
+    const erstes = werte[i];
+    if (!(erstes instanceof PDFNumber3)) break;
+    const von = erstes.asNumber();
+    const zweites = werte[i + 1];
+    if (zweites instanceof PDFArray) {
+      for (const [versatz, wert] of zweites.asArray().entries()) {
+        if (wert instanceof PDFNumber3) breiten.set(von + versatz, wert.asNumber());
+      }
+      i += 2;
+      continue;
+    }
+    const drittes = werte[i + 2];
+    if (zweites instanceof PDFNumber3 && drittes instanceof PDFNumber3) {
+      const bis = zweites.asNumber();
+      const wert = drittes.asNumber();
+      for (let code = von; code <= bis && code - von < 65536; code += 1) {
+        breiten.set(code, wert);
+      }
+      i += 3;
+      continue;
+    }
+    break;
   }
+  return breiten;
+}
+function zahl2(dict, name) {
+  const wert = dict?.lookupMaybe(PDFName3.of(name), PDFNumber3);
+  return wert ? wert.asNumber() : void 0;
+}
+function liefereBreiten(doc, seite) {
+  const alle = /* @__PURE__ */ new Map();
+  const ressourcen = doc.getPage(seite).node.Resources();
+  const fonts = ressourcen?.lookupMaybe(PDFName3.of("Font"), PDFDict2);
+  if (!fonts) return alle;
+  for (const [name] of fonts.asMap()) {
+    const dict = fonts.lookupMaybe(name, PDFDict2);
+    if (!dict) continue;
+    const art = dict.lookupMaybe(PDFName3.of("Subtype"), PDFName3)?.asString();
+    const schluessel2 = name.asString().replace(/^\//, "");
+    if (art === "/Type0") {
+      const nachfahren = dict.lookupMaybe(PDFName3.of("DescendantFonts"), PDFArray);
+      const kind = nachfahren ? doc.context.lookupMaybe(nachfahren.get(0), PDFDict2) : void 0;
+      const vorgabe = zahl2(kind, "DW") ?? DW_VORGABE;
+      const tabelle2 = leseW(kind?.lookupMaybe(PDFName3.of("W"), PDFArray));
+      alle.set(schluessel2, {
+        breit: true,
+        breite: (code) => tabelle2.get(code) ?? vorgabe
+      });
+      continue;
+    }
+    const ersterCode = zahl2(dict, "FirstChar") ?? 0;
+    const liste = dict.lookupMaybe(PDFName3.of("Widths"), PDFArray);
+    const deskriptor = dict.lookupMaybe(PDFName3.of("FontDescriptor"), PDFDict2);
+    const fehlend = zahl2(deskriptor, "MissingWidth") ?? 0;
+    const tabelle = /* @__PURE__ */ new Map();
+    for (const [versatz, wert] of liste?.asArray().entries() ?? []) {
+      if (wert instanceof PDFNumber3) tabelle.set(ersterCode + versatz, wert.asNumber());
+    }
+    alle.set(schluessel2, {
+      breit: false,
+      breite: (code) => tabelle.get(code) ?? fehlend
+    });
+  }
+  return alle;
+}
+function laufbreite(stuecke, breiten, groesse, zeichenabstand = 0, wortabstand = 0, streckung = 1) {
+  if (!breiten) return 0;
+  let summe = 0;
+  for (const teil of stuecke) {
+    if (typeof teil === "number") {
+      summe -= teil / 1e3 * groesse * streckung;
+      continue;
+    }
+    const schritt = breiten.breit ? 2 : 1;
+    for (let i = 0; i + schritt <= teil.length; i += schritt) {
+      const code = breiten.breit ? (teil[i] ?? 0) << 8 | (teil[i + 1] ?? 0) : teil[i] ?? 0;
+      const wort = !breiten.breit && code === 32 ? wortabstand : 0;
+      summe += (breiten.breite(code) / 1e3 * groesse + zeichenabstand + wort) * streckung;
+    }
+  }
+  return summe;
+}
+
+// src/parse/pdf-text.ts
+function leseToUnicode(text2) {
+  const karte = /* @__PURE__ */ new Map();
+  for (const block of text2.matchAll(/beginbfchar([\s\S]*?)endbfchar/g)) {
+    for (const eintrag of (block[1] ?? "").matchAll(/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g)) {
+      const ziel = eintrag[2] ?? "";
+      let zeichen = "";
+      for (let i = 0; i + 4 <= ziel.length; i += 4) {
+        zeichen += String.fromCodePoint(parseInt(ziel.slice(i, i + 4), 16));
+      }
+      karte.set(parseInt(eintrag[1] ?? "0", 16), zeichen);
+    }
+  }
+  for (const block of text2.matchAll(/beginbfrange([\s\S]*?)endbfrange/g)) {
+    for (const eintrag of (block[1] ?? "").matchAll(
+      /<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g
+    )) {
+      const von = parseInt(eintrag[1] ?? "0", 16);
+      const bis = parseInt(eintrag[2] ?? "0", 16);
+      const ziel = parseInt((eintrag[3] ?? "").slice(0, 4), 16);
+      for (let i = von; i <= bis && i - von < 8192; i += 1) {
+        karte.set(i, String.fromCodePoint(ziel + (i - von)));
+      }
+    }
+  }
+  return karte;
+}
+var FETTE_SCHNITTE = /bold|semibold|black|heavy|extrabold|demibold|medium/i;
+function lieferSchriften(doc, seite) {
+  const schriften = /* @__PURE__ */ new Map();
+  const ressourcen = doc.getPage(seite).node.Resources();
+  const fonts = ressourcen?.lookupMaybe(PDFName4.of("Font"), PDFDict3);
+  if (!fonts) return schriften;
+  for (const [name, verweis] of fonts.asMap()) {
+    const dict = doc.context.lookupMaybe(verweis, PDFDict3);
+    if (!dict) continue;
+    const subtype = dict.lookupMaybe(PDFName4.of("Subtype"), PDFName4)?.asString();
+    const roh = dict.lookup(PDFName4.of("ToUnicode"));
+    const strom = roh instanceof PDFRawStream ? roh : void 0;
+    const grundname = dict.lookupMaybe(PDFName4.of("BaseFont"), PDFName4)?.asString() ?? "";
+    schriften.set(name.asString().replace(/^\//, ""), {
+      breit: subtype === "/Type0",
+      fett: FETTE_SCHNITTE.test(grundname),
+      name: grundname.replace(/^\//, "").replace(/^[A-Z]{6}\+/, ""),
+      ...strom ? { karte: leseToUnicode(latin1(decodePDFRawStream(strom).decode())) } : {}
+    });
+  }
+  return schriften;
+}
+var latin1 = (bytes) => {
+  let text2 = "";
+  for (let i = 0; i < bytes.length; i += 8192) {
+    text2 += String.fromCharCode(...bytes.subarray(i, i + 8192));
+  }
+  return text2;
 };
-function asEInvoiceError(fehler, message, code) {
-  if (fehler instanceof EInvoiceError) return fehler;
-  return new EInvoiceError(message, code, fehler instanceof Error ? fehler.message : void 0);
-}
-
-// src/parse/word.ts
-var parser = new XMLParser({
-  preserveOrder: true,
-  ignoreAttributes: false,
-  attributeNamePrefix: "",
-  trimValues: false,
-  parseTagValue: false
-});
-function kinder(knoten, name) {
-  const wert = knoten[name];
-  return Array.isArray(wert) ? wert : [];
-}
-function nameVon(knoten) {
-  return Object.keys(knoten).find((schluessel2) => schluessel2 !== ":@");
-}
-function textAus(knoten) {
-  let gesammelt = "";
-  for (const eintrag of knoten) {
-    const name = nameVon(eintrag);
-    if (!name) continue;
-    if (name === "w:t") {
-      for (const stueck of kinder(eintrag, "w:t")) {
-        const inhalt = stueck["#text"];
-        if (typeof inhalt === "string") gesammelt += inhalt;
-      }
-      continue;
+var UNLESBAR = "\uFFFD";
+function entschluessle(roh, schrift) {
+  if (!schrift) return roh.map((byte) => String.fromCharCode(byte)).join("");
+  if (schrift.breit) {
+    let text2 = "";
+    for (let i = 0; i + 1 < roh.length; i += 2) {
+      const code = (roh[i] ?? 0) << 8 | (roh[i + 1] ?? 0);
+      text2 += schrift.karte?.get(code) ?? UNLESBAR;
     }
-    if (name === "w:tab") {
-      gesammelt += "	";
-      continue;
-    }
-    if (name === "w:br" || name === "w:cr") {
-      gesammelt += "\n";
-      continue;
-    }
-    gesammelt += textAus(kinder(eintrag, name));
+    return text2;
   }
-  return gesammelt;
+  return roh.map((byte) => schrift.karte?.get(byte) ?? String.fromCharCode(byte)).join("");
 }
-function tabelleAus(tbl) {
+function leseInhalt(quelle, aufOperator) {
+  let i = 0;
+  let operanden = [];
+  const istLeer = (zeichen) => " 	\r\n\f\0".includes(zeichen);
+  const istTrenner = (zeichen) => "()<>[]{}/%".includes(zeichen);
+  const leseZeichenkette = () => {
+    const bytes = [];
+    let tiefe = 1;
+    i += 1;
+    while (i < quelle.length && tiefe > 0) {
+      const zeichen = quelle[i] ?? "";
+      if (zeichen === "\\") {
+        const naechstes = quelle[i + 1] ?? "";
+        const einfach = { n: 10, r: 13, t: 9, b: 8, f: 12 };
+        if (naechstes in einfach) {
+          bytes.push(einfach[naechstes]);
+          i += 2;
+        } else if (naechstes >= "0" && naechstes <= "7") {
+          let oktal = "";
+          i += 1;
+          while (oktal.length < 3 && (quelle[i] ?? "") >= "0" && (quelle[i] ?? "") <= "7") {
+            oktal += quelle[i];
+            i += 1;
+          }
+          bytes.push(parseInt(oktal, 8) & 255);
+        } else {
+          bytes.push(naechstes.charCodeAt(0));
+          i += 2;
+        }
+        continue;
+      }
+      if (zeichen === "(") tiefe += 1;
+      if (zeichen === ")") {
+        tiefe -= 1;
+        if (tiefe === 0) {
+          i += 1;
+          break;
+        }
+      }
+      bytes.push(zeichen.charCodeAt(0));
+      i += 1;
+    }
+    return bytes;
+  };
+  const leseHex = () => {
+    i += 1;
+    let ziffern = "";
+    while (i < quelle.length && quelle[i] !== ">") {
+      const zeichen = quelle[i] ?? "";
+      if (/[0-9A-Fa-f]/.test(zeichen)) ziffern += zeichen;
+      i += 1;
+    }
+    i += 1;
+    if (ziffern.length % 2 === 1) ziffern += "0";
+    const bytes = [];
+    for (let stelle = 0; stelle < ziffern.length; stelle += 2) {
+      bytes.push(parseInt(ziffern.slice(stelle, stelle + 2), 16));
+    }
+    return bytes;
+  };
+  while (i < quelle.length) {
+    const zeichen = quelle[i] ?? "";
+    if (istLeer(zeichen)) {
+      i += 1;
+      continue;
+    }
+    if (zeichen === "%") {
+      while (i < quelle.length && quelle[i] !== "\n") i += 1;
+      continue;
+    }
+    if (zeichen === "(") {
+      operanden.push(leseZeichenkette());
+      continue;
+    }
+    if (zeichen === "<") {
+      if (quelle[i + 1] === "<") {
+        let tiefe = 0;
+        while (i < quelle.length) {
+          if (quelle[i] === "<" && quelle[i + 1] === "<") {
+            tiefe += 1;
+            i += 2;
+            continue;
+          }
+          if (quelle[i] === ">" && quelle[i + 1] === ">") {
+            tiefe -= 1;
+            i += 2;
+            if (tiefe === 0) break;
+            continue;
+          }
+          i += 1;
+        }
+        continue;
+      }
+      operanden.push(leseHex());
+      continue;
+    }
+    if (zeichen === "[") {
+      i += 1;
+      operanden.push("[");
+      continue;
+    }
+    if (zeichen === "]") {
+      i += 1;
+      const inhalt = [];
+      while (operanden.length > 0 && operanden[operanden.length - 1] !== "[") {
+        inhalt.unshift(operanden.pop());
+      }
+      operanden.pop();
+      operanden.push(inhalt);
+      continue;
+    }
+    if (zeichen === "/") {
+      i += 1;
+      let name = "";
+      while (i < quelle.length && !istLeer(quelle[i] ?? "") && !istTrenner(quelle[i] ?? "")) {
+        name += quelle[i];
+        i += 1;
+      }
+      operanden.push(`/${name}`);
+      continue;
+    }
+    let wort = "";
+    while (i < quelle.length && !istLeer(quelle[i] ?? "") && !istTrenner(quelle[i] ?? "")) {
+      wort += quelle[i];
+      i += 1;
+    }
+    if (!wort) {
+      i += 1;
+      continue;
+    }
+    if (/^[-+.\d]/.test(wort) && Number.isFinite(Number(wort))) {
+      operanden.push(Number(wort));
+      continue;
+    }
+    aufOperator(wort, operanden);
+    operanden = [];
+  }
+}
+function seiteninhalt(doc, seite) {
+  const inhalt = doc.getPage(seite).node.Contents();
+  if (!inhalt) return "";
+  const stroeme = inhalt instanceof PDFArray2 ? inhalt.asArray().map((verweis) => doc.context.lookup(verweis)) : [inhalt];
+  let roh = "";
+  for (const strom of stroeme) {
+    if (strom instanceof PDFRawStream) roh += latin1(decodePDFRawStream(strom).decode());
+  }
+  return roh;
+}
+var ZEILENTOLERANZ = 3;
+var WORTLUECKE = 0.2;
+async function liesPdfText(bytes) {
+  const doc = await PDFDocument3.load(bytes, { throwOnInvalidObject: false });
+  const seiten = [];
+  for (let nummer = 0; nummer < doc.getPageCount(); nummer += 1) {
+    const schriften = lieferSchriften(doc, nummer);
+    const stuecke = [];
+    let schrift;
+    let ma = 1;
+    let mb = 0;
+    let mc = 0;
+    let md = 1;
+    let tx = 0;
+    let ty = 0;
+    let zx = 0;
+    let zy = 0;
+    let durchschuss = 0;
+    let schriftgroesse = 0;
+    let zeichenabstand = 0;
+    let wortabstand = 0;
+    let streckung = 1;
+    const breitenTabelle = liefereBreiten(doc, nummer);
+    let breiten;
+    const messe = (teile) => laufbreite(teile, breiten, schriftgroesse, zeichenabstand, wortabstand, streckung) * ma;
+    const schiebe = (schub) => {
+      tx += schub;
+      ty += schub / (ma || 1) * mb;
+    };
+    const ruecke = (dx, dy) => {
+      zx += dx * ma + dy * mc;
+      zy += dx * mb + dy * md;
+      tx = zx;
+      ty = zy;
+    };
+    const zeige = (roh, breite) => {
+      const text3 = entschluessle(roh, schrift);
+      if (text3.trim()) {
+        stuecke.push({
+          x: tx,
+          y: ty,
+          groesse: schriftgroesse * (md || 1),
+          breite,
+          fett: schrift?.fett === true,
+          schnitt: schrift?.name ?? "",
+          text: text3
+        });
+      }
+    };
+    leseInhalt(seiteninhalt(doc, nummer), (operator, operanden) => {
+      switch (operator) {
+        case "BT":
+          tx = zx = 0;
+          ty = zy = 0;
+          ma = md = 1;
+          mb = mc = 0;
+          break;
+        case "Tc":
+          zeichenabstand = Number(operanden[operanden.length - 1] ?? 0);
+          break;
+        case "Tw":
+          wortabstand = Number(operanden[operanden.length - 1] ?? 0);
+          break;
+        case "Tz":
+          streckung = Number(operanden[operanden.length - 1] ?? 100) / 100;
+          break;
+        case "Tf": {
+          schriftgroesse = Number(operanden[operanden.length - 1] ?? 0);
+          const name = String(operanden[operanden.length - 2] ?? "").replace(/^\//, "");
+          schrift = schriften.get(name);
+          breiten = breitenTabelle.get(name);
+          break;
+        }
+        case "TL":
+          durchschuss = Number(operanden[operanden.length - 1] ?? 0);
+          break;
+        case "Td":
+        case "TD": {
+          const [dx, dy] = operanden.slice(-2).map(Number);
+          if (operator === "TD") durchschuss = -(dy ?? 0);
+          ruecke(dx ?? 0, dy ?? 0);
+          break;
+        }
+        case "Tm": {
+          const werte = operanden.slice(-6).map(Number);
+          ma = werte[0] ?? 1;
+          mb = werte[1] ?? 0;
+          mc = werte[2] ?? 0;
+          md = werte[3] ?? 1;
+          zx = tx = werte[4] ?? 0;
+          zy = ty = werte[5] ?? 0;
+          break;
+        }
+        case "T*":
+          ruecke(0, -durchschuss);
+          break;
+        case "Tj":
+        case "'":
+        case '"': {
+          if (operator !== "Tj") ruecke(0, -durchschuss);
+          const letzte = operanden[operanden.length - 1];
+          if (Array.isArray(letzte)) {
+            const schub = messe([letzte]);
+            zeige(letzte, schub);
+            schiebe(schub);
+          }
+          break;
+        }
+        case "TJ": {
+          const liste = operanden[operanden.length - 1];
+          if (!Array.isArray(liste)) break;
+          const roh = [];
+          for (const teil of liste) {
+            if (Array.isArray(teil)) roh.push(...teil);
+          }
+          const schub = messe(
+            liste.filter((teil) => Array.isArray(teil) || typeof teil === "number")
+          );
+          zeige(roh, schub);
+          schiebe(schub);
+          break;
+        }
+        default:
+          break;
+      }
+    });
+    seiten.push({ zeilen: zuZeilen(stuecke) });
+  }
+  const text2 = seiten.flatMap((seite) => seite.zeilen.map((zeile) => zeile.text)).join("\n");
+  return { seiten, text: text2, leer: text2.trim().length === 0 };
+}
+function zuZeilen(stuecke) {
   const zeilen = [];
-  for (const eintrag of tbl) {
-    if (nameVon(eintrag) !== "w:tr") continue;
-    const zellen = [];
-    for (const zelle of kinder(eintrag, "w:tr")) {
-      if (nameVon(zelle) !== "w:tc") continue;
-      const absaetze = kinder(zelle, "w:tc").filter((teil) => nameVon(teil) === "w:p").map((teil) => textAus(kinder(teil, "w:p")).trim());
-      zellen.push(absaetze.filter(Boolean).join("\n"));
-    }
-    if (zellen.length > 0) zeilen.push(zellen);
+  for (const stueck of [...stuecke].sort((a, b) => b.y - a.y || a.x - b.x)) {
+    const passend = zeilen.find((zeile) => Math.abs(zeile.y - stueck.y) <= ZEILENTOLERANZ);
+    if (passend) passend.stuecke.push(stueck);
+    else zeilen.push({ y: stueck.y, stuecke: [stueck], text: "" });
   }
-  return { art: "tabelle", zeilen };
-}
-function bodyAus(baum) {
-  for (const eintrag of baum) {
-    const name = nameVon(eintrag);
-    if (!name) continue;
-    if (name === "w:body") return kinder(eintrag, "w:body");
-    const tiefer = bodyAus(kinder(eintrag, name));
-    if (tiefer) return tiefer;
-  }
-  return void 0;
-}
-function beginntMit(bytes, muster) {
-  return muster.every((byte, stelle) => bytes[stelle] === byte);
-}
-function erklaereFremdformat(bytes) {
-  if (beginntMit(bytes, [208, 207, 17, 224, 161, 177, 26, 225])) {
-    return 'Das ist eine Datei im alten .doc-Format aus Word 97 bis 2003. Sie laesst sich hier nicht lesen - dort gibt es Tabellen nicht als eigene Struktur, sondern nur als markierte Absaetze. In Word: "Speichern unter" und .docx waehlen, dann geht es.';
-  }
-  if (beginntMit(bytes, [37, 80, 68, 70])) {
-    return "Das ist ein PDF. Hier wird eine Word-Datei erwartet - eine .docx.";
-  }
-  if (beginntMit(bytes, [123, 92, 114, 116, 102])) {
-    return 'Das ist eine RTF-Datei. In Word: "Speichern unter" und .docx waehlen.';
-  }
-  if (beginntMit(bytes, [80, 75])) return void 0;
-  return "Diese Datei ist keine Word-Datei. Erwartet wird eine .docx.";
-}
-function liesWordDokument(bytes) {
-  const fremd = erklaereFremdformat(bytes);
-  if (fremd) throw new EInvoiceError(fremd, "unknown-format");
-  let dateien;
-  try {
-    dateien = unzipSync(bytes);
-  } catch {
-    throw new EInvoiceError(
-      "Diese Datei ist beschaedigt und laesst sich nicht entpacken.",
-      "unknown-format"
-    );
-  }
-  const dokument = dateien["word/document.xml"];
-  if (!dokument) {
-    throw new EInvoiceError(
-      "Die Datei ist zwar ein Archiv, enthaelt aber kein Word-Dokument.",
-      "unknown-format"
-    );
-  }
-  const baum = parser.parse(new TextDecoder().decode(dokument));
-  const body = bodyAus(baum);
-  if (!body) {
-    throw new EInvoiceError("Das Word-Dokument hat keinen lesbaren Inhalt.", "unknown-format");
-  }
-  const bloecke = [];
-  for (const eintrag of body) {
-    const name = nameVon(eintrag);
-    if (name === "w:p") {
-      const text2 = textAus(kinder(eintrag, "w:p")).trim();
-      if (text2) bloecke.push({ art: "absatz", text: text2 });
-      continue;
-    }
-    if (name === "w:tbl") {
-      const tabelle = tabelleAus(kinder(eintrag, "w:tbl"));
-      if (tabelle.zeilen.length > 0) bloecke.push(tabelle);
-    }
-  }
-  return {
-    bloecke,
-    text: bloecke.filter((block) => block.art === "absatz").map((block) => block.text).join("\n"),
-    tabellen: bloecke.filter((block) => block.art === "tabelle")
-  };
-}
-
-// src/parse/word-uebernahme.ts
-var ROLLEN = [
-  { rolle: "bezeichnung", label: "Bezeichnung" },
-  { rolle: "menge", label: "Menge" },
-  { rolle: "einheit", label: "Einheit" },
-  { rolle: "einzelpreis", label: "Einzelpreis" },
-  { rolle: "ignorieren", label: "ignorieren" }
-];
-function zahlAus(text2) {
-  const roh = text2.replace(/[^\d.,-]/g, "").trim();
-  if (!roh || roh === "-") return void 0;
-  let bereinigt;
-  if (roh.includes(",")) {
-    bereinigt = roh.replace(/\./g, "").replace(",", ".");
-  } else {
-    const punkte = roh.split(".").length - 1;
-    const nachkomma = roh.includes(".") ? roh.split(".").pop()?.length ?? 0 : 0;
-    bereinigt = punkte === 1 && nachkomma >= 1 && nachkomma <= 2 ? roh : roh.replace(/\./g, "");
-  }
-  const wert = Number(bereinigt);
-  return Number.isFinite(wert) ? wert : void 0;
-}
-function schlageZuordnungVor(kopfzeile) {
-  const vergeben = /* @__PURE__ */ new Set();
-  return kopfzeile.map((zelle) => {
-    const wort = zelle.toLowerCase().replace(/\s+/g, " ").trim();
-    const treffer = () => {
-      if (/(bezeichnung|leistung|beschreibung|artikel|position|text)/.test(wort)) return "bezeichnung";
-      if (/(menge|anzahl|stück|stueck|std|stunden)/.test(wort)) return "menge";
-      if (/(einheit|einh\.|me\b)/.test(wort)) return "einheit";
-      if (/(einzel|e-preis|preis|netto|betrag)/.test(wort) && !/(gesamt|summe)/.test(wort)) {
-        return "einzelpreis";
-      }
-      return "ignorieren";
-    };
-    const rolle = treffer();
-    if (rolle !== "ignorieren" && vergeben.has(rolle)) return "ignorieren";
-    if (rolle !== "ignorieren") vergeben.add(rolle);
-    return rolle;
-  });
-}
-function signaturVon(kopfzeile) {
-  return kopfzeile.map((zelle) => zelle.toLowerCase().replace(/\s+/g, " ").trim()).join("|");
-}
-function positionenAus(tabelle, rollen, mitKopfzeile, vorlage) {
-  const spalte = (rolle) => rollen.indexOf(rolle);
-  const zeilen = mitKopfzeile ? tabelle.zeilen.slice(1) : tabelle.zeilen;
-  const positionen = [];
-  const uebersprungen = [];
   for (const zeile of zeilen) {
-    const feld = (rolle) => {
-      const stelle = spalte(rolle);
-      return stelle >= 0 ? zeile[stelle] ?? "" : "";
-    };
-    const name = feld("bezeichnung").replace(/\s+/g, " ").trim();
-    const menge = zahlAus(feld("menge"));
-    const preis = zahlAus(feld("einzelpreis"));
-    if (!name) {
-      uebersprungen.push({ zeile, grund: "Keine Bezeichnung \u2014 vermutlich eine Summenzeile." });
-      continue;
-    }
-    if (preis === void 0) {
-      uebersprungen.push({ zeile, grund: "Kein Einzelpreis erkannt." });
-      continue;
-    }
-    positionen.push({
-      ...vorlage,
-      id: String(positionen.length + 1),
-      name,
-      quantity: menge ?? 1,
-      unitCode: feld("einheit").trim() || vorlage.unitCode,
-      unitPrice: preis
-    });
-  }
-  return { positionen, uebersprungen };
-}
-
-// src/parse/pdf-tabelle.ts
-var MINDESTSTUECKE = 2;
-var FUEHRENDE_SPALTEN = 2;
-var ABBRUCH_NACH = 2;
-function schlageKopfzeileVor(zeilen) {
-  let beste = -1;
-  let meiste = MINDESTSTUECKE - 1;
-  for (const [stelle, zeile] of zeilen.entries()) {
-    if (zeile.stuecke.length > meiste) {
-      meiste = zeile.stuecke.length;
-      beste = stelle;
-    }
-  }
-  return beste;
-}
-function tabelleAusZeilen(zeilen, kopfzeile) {
-  const kopf = zeilen[kopfzeile];
-  if (!kopf || kopf.stuecke.length < MINDESTSTUECKE) {
-    return { tabelle: { art: "tabelle", zeilen: [] }, fortsetzungen: [] };
-  }
-  const anker = kopf.stuecke.map((stueck) => stueck.x);
-  const spalten = anker.length;
-  const einordnen = (zeile) => {
-    const zellen = Array.from({ length: spalten }, () => "");
+    zeile.stuecke.sort((a, b) => a.x - b.x);
+    let text2 = "";
+    let ende;
     for (const stueck of zeile.stuecke) {
-      let naechste = 0;
-      let abstand = Infinity;
-      for (const [stelle, x] of anker.entries()) {
-        const gemessen = Math.abs(stueck.x - x);
-        if (gemessen < abstand) {
-          abstand = gemessen;
-          naechste = stelle;
-        }
+      const inhalt = stueck.text;
+      if (!inhalt.trim()) continue;
+      if (text2 && ende !== void 0) {
+        const luecke = stueck.x - ende;
+        if (luecke > Math.max(stueck.groesse, 1) * WORTLUECKE) text2 += " ";
       }
-      zellen[naechste] = zellen[naechste] ? `${zellen[naechste]} ${stueck.text}` : stueck.text;
+      text2 += inhalt;
+      ende = stueck.x + stueck.breite;
     }
-    return zellen;
-  };
-  const ausgabe = [einordnen(kopf)];
-  const fortsetzungen = [];
-  let ohneFuehrung = 0;
-  for (let stelle = kopfzeile + 1; stelle < zeilen.length; stelle += 1) {
-    const zeile = zeilen[stelle];
-    if (zeile.stuecke.length === 0) break;
-    const zellen = einordnen(zeile);
-    const fuehrend = zellen.slice(0, FUEHRENDE_SPALTEN).some((zelle) => zelle.trim().length > 0);
-    if (!fuehrend) {
-      ohneFuehrung += 1;
-      if (ohneFuehrung >= ABBRUCH_NACH) {
-        ausgabe.length -= ohneFuehrung - 1;
-        break;
-      }
-      ausgabe.push(zellen);
-      continue;
-    }
-    ohneFuehrung = 0;
-    if (zeile.stuecke.length < MINDESTSTUECKE) {
-      if (ausgabe.length === 1) break;
-      fortsetzungen.push(ausgabe.length);
-    }
-    ausgabe.push(zellen);
+    zeile.text = text2.replace(/\s+/g, " ").trim();
   }
-  return { tabelle: { art: "tabelle", zeilen: ausgabe }, fortsetzungen };
-}
-
-// src/parse/stammdaten.ts
-var PLZ_ORT = /\b(\d{5})\s+([A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß .\-/]{1,40}?)\s*$/;
-var STRASSE = /^(.*[A-Za-zÄÖÜäöüß.])\s+(\d+\s?[a-zA-Z]?(?:\s*[-/]\s*\d+\s?[a-zA-Z]?)?)$/;
-var IBAN_KANDIDAT = /\b([A-Z]{2}\d{2}[\dA-Z\s]{10,34})\b/g;
-var EU_LAENDER = "AT|BE|BG|CY|CZ|DE|DK|EE|EL|ES|FI|FR|HR|HU|IE|IT|LT|LU|LV|MT|NL|PL|PT|RO|SE|SI|SK|XI";
-var UST_KANDIDAT = new RegExp(`(?<![A-Za-z-])(${EU_LAENDER})\\s?(\\d{8,12})(?![\\d-])`, "g");
-var STEUERNUMMER = /Steuer(?:\s*-?\s*)?(?:nummer|nr\.?)\s*:?\s*([\d/.\s-]{8,20})/i;
-var LEITWEG = /Leitweg\s*-?\s*ID\s*:?\s*([\dA-Za-z-]{6,45})/i;
-var ANREDE = /^(?:z\.?\s*(?:Hd\.?|H\.?)|Herrn?|Hr\.?|Frau|Fr\.?|Familie|Fam\.?)\s+\S/i;
-function taugtAlsName(zeile) {
-  return zeile.length > 0 && zeile.length <= 70 && !PLZ_ORT.test(zeile) && !STRASSE.test(zeile);
-}
-function anschriftAusZeilen(zeilen, stelle) {
-  const zeile = zeilen[stelle] ?? "";
-  const treffer = PLZ_ORT.exec(zeile);
-  if (!treffer) return void 0;
-  const felder = [
-    { feld: "plz", wert: treffer[1], sicherheit: "muster", beleg: zeile },
-    {
-      feld: "ort",
-      wert: treffer[2].trim(),
-      sicherheit: "muster",
-      beleg: zeile
-    }
-  ];
-  const beleg = [zeile];
-  const davor = zeilen[stelle - 1]?.trim() ?? "";
-  const strasse = STRASSE.exec(davor);
-  if (strasse) {
-    felder.push({
-      feld: "strasse",
-      wert: davor,
-      sicherheit: "geraten",
-      beleg: davor
-    });
-    beleg.unshift(davor);
-    const zweite = zeilen[stelle - 2]?.trim() ?? "";
-    if (taugtAlsName(zweite)) {
-      if (ANREDE.test(zweite)) {
-        felder.push({
-          feld: "ansprechpartner",
-          wert: zweite,
-          sicherheit: "geraten",
-          beleg: zweite
-        });
-        beleg.unshift(zweite);
-        const dritte = zeilen[stelle - 3]?.trim() ?? "";
-        if (taugtAlsName(dritte) && !ANREDE.test(dritte)) {
-          felder.push({
-            feld: "name",
-            wert: dritte,
-            sicherheit: "geraten",
-            beleg: dritte
-          });
-          beleg.unshift(dritte);
-        }
-      } else {
-        felder.push({
-          feld: "name",
-          wert: zweite,
-          sicherheit: "geraten",
-          beleg: zweite
-        });
-        beleg.unshift(zweite);
-      }
-    }
-  }
-  return { beleg, felder };
-}
-var TRENNER = /\s+[-–—·•∙|/]\s+/;
-function anschriftAusEinerZeile(zeile) {
-  const teile = zeile.split(TRENNER).map((teil) => teil.trim()).filter(Boolean);
-  if (teile.length < 2) return void 0;
-  const gebaut = anschriftAusZeilen(teile, teile.length - 1);
-  if (!gebaut) return void 0;
-  const bisStrasse = teile.findIndex((teil) => STRASSE.test(teil));
-  const name = bisStrasse > 0 ? teile.slice(0, bisStrasse).join(" ") : void 0;
-  const felder = name ? [
-    ...gebaut.felder.filter((fund) => fund.feld !== "name"),
-    { feld: "name", wert: name, sicherheit: "geraten", beleg: zeile }
-  ] : gebaut.felder;
-  return { beleg: [zeile], felder };
-}
-function findeStammdaten(zeilen) {
-  const sauber = zeilen.map((zeile) => zeile.replace(/\s+/g, " ").trim()).filter(Boolean);
-  const anschriften = [];
-  const gesehen = /* @__PURE__ */ new Set();
-  for (const [stelle, zeile] of sauber.entries()) {
-    const gefunden = anschriftAusEinerZeile(zeile) ?? anschriftAusZeilen(sauber, stelle);
-    if (!gefunden) continue;
-    const schluessel2 = gefunden.felder.map((fund) => `${fund.feld}:${fund.wert.toLowerCase()}`).sort().join("|");
-    if (gesehen.has(schluessel2)) continue;
-    gesehen.add(schluessel2);
-    anschriften.push(gefunden);
-  }
-  const angaben = [];
-  const schon = /* @__PURE__ */ new Set();
-  const merke = (feld, wert, sicherheit, beleg) => {
-    const schluessel2 = `${feld}:${wert}`;
-    if (schon.has(schluessel2)) return;
-    schon.add(schluessel2);
-    angaben.push({ feld, wert, sicherheit, beleg });
-  };
-  for (const zeile of sauber) {
-    for (const treffer of zeile.matchAll(IBAN_KANDIDAT)) {
-      const kandidat = (treffer[1] ?? "").replace(/\s/g, "").toUpperCase();
-      if (isPlausibleIban(kandidat)) merke("iban", kandidat, "geprueft", zeile);
-    }
-    for (const treffer of zeile.matchAll(UST_KANDIDAT)) {
-      const kandidat = (treffer[1] ?? "").replace(/\s/g, "").toUpperCase();
-      if (isPlausibleVatId(kandidat) && !isPlausibleIban(kandidat) && kandidat.length <= 14) {
-        merke("ustId", kandidat, "muster", zeile);
-      }
-    }
-    const bic = /\b(?:BIC|SWIFT)(?:-?Code)?\s*:?\s*([A-Z]{6}[A-Z0-9]{2}(?:[A-Z0-9]{3})?)\b/.exec(
-      zeile
-    );
-    if (bic?.[1]) merke("bic", bic[1], "muster", zeile);
-    const steuer = STEUERNUMMER.exec(zeile);
-    if (steuer) merke("steuernummer", (steuer[1] ?? "").trim(), "muster", zeile);
-    const leitweg = LEITWEG.exec(zeile);
-    const leitwegWert = (leitweg?.[1] ?? "").trim();
-    if (leitwegWert && isPlausibleLeitwegId(leitwegWert)) {
-      merke("leitwegId", leitwegWert, "muster", zeile);
-    }
-  }
-  return { anschriften, angaben };
+  return zeilen.filter((zeile) => zeile.text.length > 0);
 }
 
 // src/parse/extract.ts
-import { PDFArray as PDFArray3, PDFDict as PDFDict4, PDFDocument as PDFDocument5, PDFName as PDFName5, PDFRawStream as PDFRawStream2, decodePDFRawStream as decodePDFRawStream2 } from "pdf-lib";
+import { PDFArray as PDFArray3, PDFDict as PDFDict4, PDFDocument as PDFDocument4, PDFName as PDFName5, PDFRawStream as PDFRawStream2, decodePDFRawStream as decodePDFRawStream2 } from "pdf-lib";
 var KNOWN_INVOICE_FILENAMES = [
   "factur-x.xml",
   "zugferd-invoice.xml",
@@ -4603,7 +3559,7 @@ var KNOWN_INVOICE_FILENAMES = [
   "order-x.xml"
 ];
 async function extractAttachments(pdf) {
-  const doc = await PDFDocument5.load(pdf, {
+  const doc = await PDFDocument4.load(pdf, {
     ignoreEncryption: true,
     updateMetadata: false,
     throwOnInvalidObject: false
@@ -4677,8 +3633,24 @@ function decodePdfText(value) {
 }
 
 // src/parse/xml.ts
-import { XMLParser as XMLParser2 } from "fast-xml-parser";
-var parser2 = new XMLParser2({
+import { XMLParser } from "fast-xml-parser";
+
+// src/parse/error.ts
+var EInvoiceError = class extends Error {
+  constructor(message, code, detail) {
+    super(message);
+    this.code = code;
+    this.detail = detail;
+    this.name = "EInvoiceError";
+  }
+};
+function asEInvoiceError(fehler, message, code) {
+  if (fehler instanceof EInvoiceError) return fehler;
+  return new EInvoiceError(message, code, fehler instanceof Error ? fehler.message : void 0);
+}
+
+// src/parse/xml.ts
+var parser = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: "@_",
   removeNSPrefix: true,
@@ -4687,7 +3659,7 @@ var parser2 = new XMLParser2({
   trimValues: true
 });
 function parseInvoiceXml(xml) {
-  const doc = parser2.parse(xml);
+  const doc = parser.parse(xml);
   if (doc.CrossIndustryInvoice) return parseCii(doc.CrossIndustryInvoice);
   if (doc.Invoice) return parseUbl(doc.Invoice, false);
   if (doc.CreditNote) return parseUbl(doc.CreditNote, true);
@@ -5139,696 +4111,6 @@ function detectKind(bytes) {
   return "unknown";
 }
 
-// src/absender/profil.ts
-function vereinheitliche(wert) {
-  return wert.toLowerCase().replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-}
-function kennungVon(identitaet) {
-  const steuer = identitaet.ustId ?? identitaet.steuernummer;
-  if (steuer) return `st-${vereinheitliche(steuer)}`;
-  const ort = vereinheitliche(`${identitaet.plz} ${identitaet.ort}`);
-  return `na-${vereinheitliche(identitaet.name)}-${ort}`;
-}
-function profilAus(identitaet) {
-  return { kennung: kennungVon(identitaet), identitaet };
-}
-function pruefeZuordnung(profil, herkunft) {
-  const zu = herkunft ?? profil.herkunft;
-  if (!zu) return { urteil: "ohne-herkunft" };
-  return gleicheFirma(profil.identitaet, zu.identitaet) ? { urteil: "passt" } : { urteil: "fremd", gehoertZu: kennungVon(zu.identitaet) };
-}
-function gleicheFirma(eine, andere) {
-  const steuerEine = eine.ustId ?? eine.steuernummer;
-  const steuerAndere = andere.ustId ?? andere.steuernummer;
-  if (steuerEine && steuerAndere) {
-    return vereinheitliche(steuerEine) === vereinheitliche(steuerAndere);
-  }
-  return vereinheitliche(eine.name) === vereinheitliche(andere.name) && vereinheitliche(`${eine.plz} ${eine.ort}`) === vereinheitliche(`${andere.plz} ${andere.ort}`);
-}
-function uebernimmBriefpapier(profil, briefpapier, herkunft) {
-  const urteil = pruefeZuordnung(profil, herkunft);
-  if (urteil.urteil === "fremd") return { fehler: urteil };
-  return { profil: { ...profil, briefpapier, herkunft } };
-}
-
-// src/parse/ccitt.ts
-var WEISS_ENDE = {
-  "00110101": 0,
-  "000111": 1,
-  "0111": 2,
-  "1000": 3,
-  "1011": 4,
-  "1100": 5,
-  "1110": 6,
-  "1111": 7,
-  "10011": 8,
-  "10100": 9,
-  "00111": 10,
-  "01000": 11,
-  "001000": 12,
-  "000011": 13,
-  "110100": 14,
-  "110101": 15,
-  "101010": 16,
-  "101011": 17,
-  "0100111": 18,
-  "0001100": 19,
-  "0001000": 20,
-  "0010111": 21,
-  "0000011": 22,
-  "0000100": 23,
-  "0101000": 24,
-  "0101011": 25,
-  "0010011": 26,
-  "0100100": 27,
-  "0011000": 28,
-  "00000010": 29,
-  "00000011": 30,
-  "00011010": 31,
-  "00011011": 32,
-  "00010010": 33,
-  "00010011": 34,
-  "00010100": 35,
-  "00010101": 36,
-  "00010110": 37,
-  "00010111": 38,
-  "00101000": 39,
-  "00101001": 40,
-  "00101010": 41,
-  "00101011": 42,
-  "00101100": 43,
-  "00101101": 44,
-  "00000100": 45,
-  "00000101": 46,
-  "00001010": 47,
-  "00001011": 48,
-  "01010010": 49,
-  "01010011": 50,
-  "01010100": 51,
-  "01010101": 52,
-  "00100100": 53,
-  "00100101": 54,
-  "01011000": 55,
-  "01011001": 56,
-  "01011010": 57,
-  "01011011": 58,
-  "01001010": 59,
-  "01001011": 60,
-  "00110010": 61,
-  "00110011": 62,
-  "00110100": 63
-};
-var WEISS_ZUSATZ = {
-  "11011": 64,
-  "10010": 128,
-  "010111": 192,
-  "0110111": 256,
-  "00110110": 320,
-  "00110111": 384,
-  "01100100": 448,
-  "01100101": 512,
-  "01101000": 576,
-  "01100111": 640,
-  "011001100": 704,
-  "011001101": 768,
-  "011010010": 832,
-  "011010011": 896,
-  "011010100": 960,
-  "011010101": 1024,
-  "011010110": 1088,
-  "011010111": 1152,
-  "011011000": 1216,
-  "011011001": 1280,
-  "011011010": 1344,
-  "011011011": 1408,
-  "010011000": 1472,
-  "010011001": 1536,
-  "010011010": 1600,
-  "011000": 1664,
-  "010011011": 1728
-};
-var SCHWARZ_ENDE = {
-  "0000110111": 0,
-  "010": 1,
-  "11": 2,
-  "10": 3,
-  "011": 4,
-  "0011": 5,
-  "0010": 6,
-  "00011": 7,
-  "000101": 8,
-  "000100": 9,
-  "0000100": 10,
-  "0000101": 11,
-  "0000111": 12,
-  "00000100": 13,
-  "00000111": 14,
-  "000011000": 15,
-  "0000010111": 16,
-  "0000011000": 17,
-  "0000001000": 18,
-  "00001100111": 19,
-  "00001101000": 20,
-  "00001101100": 21,
-  "00000110111": 22,
-  "00000101000": 23,
-  "00000010111": 24,
-  "00000011000": 25,
-  "000011001010": 26,
-  "000011001011": 27,
-  "000011001100": 28,
-  "000011001101": 29,
-  "000001101000": 30,
-  "000001101001": 31,
-  "000001101010": 32,
-  "000001101011": 33,
-  "000011010010": 34,
-  "000011010011": 35,
-  "000011010100": 36,
-  "000011010101": 37,
-  "000011010110": 38,
-  "000011010111": 39,
-  "000001101100": 40,
-  "000001101101": 41,
-  "000011011010": 42,
-  "000011011011": 43,
-  "000001010100": 44,
-  "000001010101": 45,
-  "000001010110": 46,
-  "000001010111": 47,
-  "000001100100": 48,
-  "000001100101": 49,
-  "000001010010": 50,
-  "000001010011": 51,
-  "000000100100": 52,
-  "000000110111": 53,
-  "000000111000": 54,
-  "000000100111": 55,
-  "000000101000": 56,
-  "000001011000": 57,
-  "000001011001": 58,
-  "000000101011": 59,
-  "000000101100": 60,
-  "000001011010": 61,
-  "000001100110": 62,
-  "000001100111": 63
-};
-var SCHWARZ_ZUSATZ = {
-  "0000001111": 64,
-  "000011001000": 128,
-  "000011001001": 192,
-  "000001011011": 256,
-  "000000110011": 320,
-  "000000110100": 384,
-  "000000110101": 448,
-  "0000001101100": 512,
-  "0000001101101": 576,
-  "0000001001010": 640,
-  "0000001001011": 704,
-  "0000001001100": 768,
-  "0000001001101": 832,
-  "0000001110010": 896,
-  "0000001110011": 960,
-  "0000001110100": 1024,
-  "0000001110101": 1088,
-  "0000001110110": 1152,
-  "0000001110111": 1216,
-  "0000001010010": 1280,
-  "0000001010011": 1344,
-  "0000001010100": 1408,
-  "0000001010101": 1472,
-  "0000001011010": 1536,
-  "0000001011011": 1600,
-  "0000001100100": 1664,
-  "0000001100101": 1728
-};
-var GEMEINSAM_ZUSATZ = {
-  "00000001000": 1792,
-  "00000001100": 1856,
-  "00000001101": 1920,
-  "000000010010": 1984,
-  "000000010011": 2048,
-  "000000010100": 2112,
-  "000000010101": 2176,
-  "000000010110": 2240,
-  "000000010111": 2304,
-  "000000011100": 2368,
-  "000000011101": 2432,
-  "000000011110": 2496,
-  "000000011111": 2560
-};
-var MAX_KODELAENGE = 14;
-var Bitstrom = class {
-  constructor(daten) {
-    this.daten = daten;
-    this.stelle = 0;
-  }
-  get amEnde() {
-    return this.stelle >= this.daten.length * 8;
-  }
-  naechstesBit() {
-    const byte = this.daten[this.stelle >> 3] ?? 0;
-    const bit = byte >> 7 - (this.stelle & 7) & 1;
-    this.stelle += 1;
-    return bit;
-  }
-  /** Setzt den Lesezeiger zurueck - noetig, wenn ein Kode nicht aufgeht. */
-  zurueck(bits) {
-    this.stelle -= bits;
-  }
-};
-function leseLauf(strom, schwarz) {
-  let summe = 0;
-  for (let runde = 0; runde < 64; runde += 1) {
-    let kode = "";
-    let gefunden;
-    while (kode.length < MAX_KODELAENGE) {
-      if (strom.amEnde) return void 0;
-      kode += String(strom.naechstesBit());
-      const ende = schwarz ? SCHWARZ_ENDE[kode] : WEISS_ENDE[kode];
-      if (ende !== void 0) return summe + ende;
-      const zusatz = (schwarz ? SCHWARZ_ZUSATZ[kode] : WEISS_ZUSATZ[kode]) ?? GEMEINSAM_ZUSATZ[kode];
-      if (zusatz !== void 0) {
-        gefunden = zusatz;
-        break;
-      }
-    }
-    if (gefunden === void 0) return void 0;
-    summe += gefunden;
-  }
-  return void 0;
-}
-function entschluesseleCcitt(daten, angaben) {
-  const breite = angaben.breite;
-  const strom = new Bitstrom(daten);
-  const zeilen = [];
-  let vorzeile = [];
-  let gestoerteZeilen = 0;
-  const hoechstens = angaben.hoehe ?? 1e5;
-  for (let zeile = 0; zeile < hoechstens; zeile += 1) {
-    if (strom.amEnde) break;
-    const wechsel = [];
-    let a0 = -1;
-    let schwarz = false;
-    let gestoert = false;
-    while (a0 < breite) {
-      let b1 = breite;
-      let b2 = breite;
-      for (let i = 0; i < vorzeile.length; i += 1) {
-        const stelle = vorzeile[i];
-        if (stelle > a0 && i % 2 === (schwarz ? 1 : 0)) {
-          b1 = stelle;
-          b2 = vorzeile[i + 1] ?? breite;
-          break;
-        }
-      }
-      const modus = leseModus(strom);
-      if (!modus) {
-        gestoert = true;
-        break;
-      }
-      if (modus.art === "ende") {
-        gestoert = wechsel.length === 0;
-        break;
-      }
-      if (modus.art === "pass") {
-        a0 = b2;
-        continue;
-      }
-      if (modus.art === "senkrecht") {
-        const a12 = Math.max(0, Math.min(breite, b1 + modus.versatz));
-        wechsel.push(a12);
-        a0 = a12;
-        schwarz = !schwarz;
-        continue;
-      }
-      const erster = leseLauf(strom, schwarz);
-      const zweiter = leseLauf(strom, !schwarz);
-      if (erster === void 0 || zweiter === void 0) {
-        gestoert = true;
-        break;
-      }
-      const anfang = a0 < 0 ? 0 : a0;
-      const a1 = Math.min(breite, anfang + erster);
-      const a2 = Math.min(breite, a1 + zweiter);
-      wechsel.push(a1, a2);
-      a0 = a2;
-    }
-    if (gestoert) {
-      gestoerteZeilen += 1;
-      if (wechsel.length === 0 && zeilen.length > 0) break;
-    }
-    zeilen.push(wechsel);
-    vorzeile = wechsel;
-  }
-  return { ...zuPunkten(zeilen, breite, angaben.hoehe), gestoerteZeilen };
-}
-function leseModus(strom) {
-  let kode = "";
-  while (kode.length < 14) {
-    if (strom.amEnde) return kode.length > 0 ? { art: "ende", versatz: 0 } : void 0;
-    kode += String(strom.naechstesBit());
-    switch (kode) {
-      case "1":
-        return { art: "senkrecht", versatz: 0 };
-      case "011":
-        return { art: "senkrecht", versatz: 1 };
-      case "010":
-        return { art: "senkrecht", versatz: -1 };
-      case "001":
-        return { art: "waagerecht", versatz: 0 };
-      case "0001":
-        return { art: "pass", versatz: 0 };
-      case "000011":
-        return { art: "senkrecht", versatz: 2 };
-      case "000010":
-        return { art: "senkrecht", versatz: -2 };
-      case "0000011":
-        return { art: "senkrecht", versatz: 3 };
-      case "0000010":
-        return { art: "senkrecht", versatz: -3 };
-      case "000000000001":
-        return { art: "ende", versatz: 0 };
-      default:
-        break;
-    }
-  }
-  return void 0;
-}
-function zuPunkten(zeilen, breite, sollhoehe) {
-  const hoehe = sollhoehe ?? zeilen.length;
-  const punkte = new Uint8Array(breite * hoehe);
-  for (let zeile = 0; zeile < Math.min(hoehe, zeilen.length); zeile += 1) {
-    const wechsel = zeilen[zeile];
-    const versatz = zeile * breite;
-    let schwarz = false;
-    let stelle = 0;
-    for (const wechselstelle of wechsel) {
-      const bis = Math.min(breite, wechselstelle);
-      if (schwarz) punkte.fill(1, versatz + stelle, versatz + bis);
-      stelle = bis;
-      schwarz = !schwarz;
-    }
-    if (schwarz && stelle < breite) punkte.fill(1, versatz + stelle, versatz + breite);
-  }
-  return { breite, hoehe, punkte };
-}
-
-// src/parse/pdf-bilder.ts
-import { unzlibSync } from "fflate";
-import { PDFArray as PDFArray4, PDFBool, PDFDict as PDFDict5, PDFDocument as PDFDocument6, PDFName as PDFName6, PDFNumber as PDFNumber4, PDFRawStream as PDFRawStream3 } from "pdf-lib";
-
-// src/util/png.ts
-import { zlibSync } from "fflate";
-var SIGNATUR = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
-var CRC_TABELLE = (() => {
-  const tabelle = new Uint32Array(256);
-  for (let i = 0; i < 256; i += 1) {
-    let wert = i;
-    for (let bit = 0; bit < 8; bit += 1) {
-      wert = wert & 1 ? 3988292384 ^ wert >>> 1 : wert >>> 1;
-    }
-    tabelle[i] = wert >>> 0;
-  }
-  return tabelle;
-})();
-function crc32(daten) {
-  let wert = 4294967295;
-  for (const byte of daten) {
-    wert = (CRC_TABELLE[(wert ^ byte) & 255] ^ wert >>> 8) >>> 0;
-  }
-  return (wert ^ 4294967295) >>> 0;
-}
-function zahl32(wert) {
-  return new Uint8Array([wert >>> 24 & 255, wert >>> 16 & 255, wert >>> 8 & 255, wert & 255]);
-}
-function abschnitt(art, inhalt) {
-  const kennung = new Uint8Array([...art].map((zeichen) => zeichen.charCodeAt(0)));
-  const koerper = new Uint8Array(kennung.length + inhalt.length);
-  koerper.set(kennung);
-  koerper.set(inhalt, kennung.length);
-  const ganz = new Uint8Array(4 + koerper.length + 4);
-  ganz.set(zahl32(inhalt.length));
-  ganz.set(koerper, 4);
-  ganz.set(zahl32(crc32(koerper)), 4 + koerper.length);
-  return ganz;
-}
-function alsGraustufenPng(breite, hoehe, grau2) {
-  if (grau2.length < breite * hoehe) {
-    throw new Error(`Zu wenige Bildpunkte: ${grau2.length} statt ${breite * hoehe}`);
-  }
-  const zeilen = new Uint8Array((breite + 1) * hoehe);
-  for (let zeile = 0; zeile < hoehe; zeile += 1) {
-    zeilen[zeile * (breite + 1)] = 0;
-    zeilen.set(grau2.subarray(zeile * breite, (zeile + 1) * breite), zeile * (breite + 1) + 1);
-  }
-  const kopf = new Uint8Array(13);
-  kopf.set(zahl32(breite), 0);
-  kopf.set(zahl32(hoehe), 4);
-  kopf[8] = 8;
-  kopf[9] = 0;
-  kopf[10] = 0;
-  kopf[11] = 0;
-  kopf[12] = 0;
-  const teile = [
-    SIGNATUR,
-    abschnitt("IHDR", kopf),
-    abschnitt("IDAT", zlibSync(zeilen, { level: 6 })),
-    abschnitt("IEND", new Uint8Array(0))
-  ];
-  const gesamt = new Uint8Array(teile.reduce((summe, teil) => summe + teil.length, 0));
-  let stelle = 0;
-  for (const teil of teile) {
-    gesamt.set(teil, stelle);
-    stelle += teil.length;
-  }
-  return gesamt;
-}
-function maskeAlsGrau(punkte) {
-  const grau2 = new Uint8Array(punkte.length);
-  for (let i = 0; i < punkte.length; i += 1) grau2[i] = punkte[i] ? 0 : 255;
-  return grau2;
-}
-
-// src/parse/pdf-bilder.ts
-var GANZSEITIG_AB = 0.5;
-function zahl3(dict, name) {
-  return dict.lookupMaybe(PDFName6.of(name), PDFNumber4)?.asNumber();
-}
-function filterkette(dict) {
-  const roh = dict.lookup(PDFName6.of("Filter"));
-  if (roh instanceof PDFName6) return [roh.asString()];
-  if (roh instanceof PDFArray4) {
-    return roh.asArray().map((eintrag) => String(eintrag));
-  }
-  return [];
-}
-function decodeParms(doc, dict) {
-  const roh = dict.lookup(PDFName6.of("DecodeParms"));
-  if (roh instanceof PDFDict5) return roh;
-  if (roh instanceof PDFArray4) {
-    for (const eintrag of roh.asArray()) {
-      const aufgeloest = doc.context.lookup(eintrag);
-      if (aufgeloest instanceof PDFDict5) return aufgeloest;
-    }
-  }
-  return void 0;
-}
-function packeAus(bytes, kette) {
-  let daten = bytes;
-  let stelle = 0;
-  while (stelle < kette.length && kette[stelle] === "/FlateDecode") {
-    try {
-      daten = unzlibSync(daten);
-    } catch {
-      return { rest: kette.slice(stelle), bytes: daten };
-    }
-    stelle += 1;
-  }
-  return { rest: kette.slice(stelle), bytes: daten };
-}
-async function liesSeitenbilder(bytes, seite = 0) {
-  const doc = await PDFDocument6.load(bytes, { throwOnInvalidObject: false });
-  const blatt = doc.getPage(seite);
-  const { width: seitenbreite, height: seitenhoehe } = blatt.getSize();
-  const xobjekte = blatt.node.Resources()?.lookupMaybe(PDFName6.of("XObject"), PDFDict5);
-  if (!xobjekte) return [];
-  const bilder = [];
-  for (const [name] of xobjekte.asMap()) {
-    const strom = xobjekte.lookup(name);
-    if (!(strom instanceof PDFRawStream3)) continue;
-    const dict = strom.dict;
-    if (dict.lookupMaybe(PDFName6.of("Subtype"), PDFName6)?.asString() !== "/Image") continue;
-    const breite = zahl3(dict, "Width") ?? 0;
-    const hoehe = zahl3(dict, "Height") ?? 0;
-    if (breite < 1 || hoehe < 1) continue;
-    const istMaske = dict.lookup(PDFName6.of("ImageMask")) instanceof PDFBool;
-    const { rest, bytes: roh } = packeAus(strom.contents, filterkette(dict));
-    const schluessel2 = name.asString().replace(/^\//, "");
-    const deckung = Math.min(
-      1,
-      breite * hoehe / Math.max(1, seitenbreite * seitenhoehe * 9)
-    );
-    if (rest[0] === "/DCTDecode") {
-      bilder.push({ name: schluessel2, art: "jpeg", bytes: roh, breite, hoehe, istMaske, deckung });
-      continue;
-    }
-    if (rest[0] === "/CCITTFaxDecode") {
-      const parms = decodeParms(doc, dict);
-      const k = parms ? zahl3(parms, "K") ?? 0 : 0;
-      if (k >= 0) continue;
-      const bild = entschluesseleCcitt(roh, {
-        breite: parms ? zahl3(parms, "Columns") ?? breite : breite,
-        hoehe
-      });
-      bilder.push({
-        name: schluessel2,
-        art: "png",
-        bytes: alsGraustufenPng(bild.breite, bild.hoehe, maskeAlsGrau(bild.punkte)),
-        breite: bild.breite,
-        hoehe: bild.hoehe,
-        istMaske,
-        deckung
-      });
-      continue;
-    }
-    if (rest.length === 0 && !istMaske && zahl3(dict, "BitsPerComponent") === 8) {
-      const erwartet = breite * hoehe;
-      if (roh.length >= erwartet) {
-        bilder.push({
-          name: schluessel2,
-          art: "png",
-          bytes: alsGraustufenPng(breite, hoehe, roh.subarray(0, erwartet)),
-          breite,
-          hoehe,
-          istMaske,
-          deckung
-        });
-      }
-    }
-  }
-  return bilder.sort((eins, zwei) => bewertung(zwei) - bewertung(eins));
-}
-function bewertung(bild) {
-  const ganzseitig = bild.deckung >= GANZSEITIG_AB;
-  return (bild.istMaske && ganzseitig ? 3e6 : 0) + (ganzseitig ? 1e6 : 0) + bild.breite * bild.hoehe;
-}
-
-// src/absender/anschrift.ts
-function anschriftenAus(papier) {
-  return findeStammdaten(zeilenImBogen(papier)).anschriften.map((anschrift) => {
-    const wert = (feld) => anschrift.felder.find((f) => f.feld === feld)?.wert;
-    const name = wert("name");
-    const plz = wert("plz");
-    const ort = wert("ort");
-    if (!name || !plz || !ort) return void 0;
-    return {
-      identitaet: {
-        name,
-        plz,
-        ort,
-        ...wert("ustId") ? { ustId: wert("ustId") } : {},
-        ...wert("steuernummer") ? { steuernummer: wert("steuernummer") } : {}
-      },
-      beleg: anschrift.beleg.join(" \xB7 ")
-    };
-  }).filter((eintrag) => Boolean(eintrag));
-}
-
-// src/pdf/schriftbogen.ts
-import { PDFDict as PDFDict6, PDFDocument as PDFDocument7, PDFName as PDFName7, PDFObjectCopier as PDFObjectCopier2, PDFRef as PDFRef2 } from "pdf-lib";
-async function schriftbogenAus(quelle, papier, quellseite = 0) {
-  const gebraucht = new Set(papier.laeufe.map((lauf) => lauf.schrift));
-  if (gebraucht.size === 0) return void 0;
-  let quellDoc;
-  try {
-    quellDoc = await PDFDocument7.load(quelle, { throwOnInvalidObject: false });
-  } catch {
-    return void 0;
-  }
-  const quellSchriften = quellDoc.getPage(quellseite).node.Resources()?.lookupMaybe(PDFName7.of("Font"), PDFDict6);
-  if (!quellSchriften) return void 0;
-  const ziel = await PDFDocument7.create();
-  const kopierer = PDFObjectCopier2.for(quellDoc.context, ziel.context);
-  const seite = ziel.addPage([1, 1]);
-  let gefunden = 0;
-  for (const name of gebraucht) {
-    const verweis = quellSchriften.get(PDFName7.of(name));
-    if (!verweis) continue;
-    const kopie = kopierer.copy(verweis);
-    const ref = kopie instanceof PDFRef2 ? kopie : ziel.context.register(kopie);
-    seite.node.setFontDictionary(PDFName7.of(name), ref);
-    gefunden += 1;
-  }
-  if (gefunden === 0) return void 0;
-  ziel.setCreationDate(/* @__PURE__ */ new Date(0));
-  ziel.setModificationDate(/* @__PURE__ */ new Date(0));
-  return ziel.save({ useObjectStreams: false });
-}
-
-// src/absender/bogendatei.ts
-var BOGENDATEI_ART = "erechnung-briefbogen";
-var BOGENDATEI_FASSUNG = 1;
-function alsBogendatei(quelle, heute) {
-  if (!quelle.briefpapier || !quelle.briefpapierHerkunft) return void 0;
-  return {
-    art: BOGENDATEI_ART,
-    fassung: BOGENDATEI_FASSUNG,
-    erzeugtAm: heute,
-    ...quelle.bezeichnung ? { bezeichnung: quelle.bezeichnung } : {},
-    herkunft: quelle.briefpapierHerkunft,
-    briefpapier: quelle.briefpapier,
-    ...quelle.beschriftungen && Object.keys(quelle.beschriftungen).length > 0 ? { beschriftungen: quelle.beschriftungen } : {},
-    ...quelle.kennzahlen ? { kennzahlen: quelle.kennzahlen } : {},
-    ...quelle.vorlage ? { vorlage: quelle.vorlage } : {},
-    ...quelle.schriftRegular ? {
-      schrift: {
-        ...quelle.schriftName ? { name: quelle.schriftName } : {},
-        regular: quelle.schriftRegular,
-        ...quelle.schriftFett ? { fett: quelle.schriftFett } : {},
-        ...quelle.schriftKraeftig ? { kraeftig: quelle.schriftKraeftig } : {}
-      }
-    } : {}
-  };
-}
-function liesBogendatei(text2, eigene) {
-  let roh;
-  try {
-    roh = JSON.parse(text2);
-  } catch {
-    return { mangel: "kein-json" };
-  }
-  if (!roh || typeof roh !== "object") return { mangel: "kein-json" };
-  const kandidat = roh;
-  if (kandidat.art !== BOGENDATEI_ART) return { mangel: "fremde-art" };
-  if (typeof kandidat.fassung !== "number" || kandidat.fassung > BOGENDATEI_FASSUNG) {
-    return { mangel: "zu-neu" };
-  }
-  const papier = kandidat.briefpapier;
-  if (!kandidat.herkunft?.identitaet || !papier || !Array.isArray(papier.pfade) || !Array.isArray(papier.texte) || !papier.seite || !(papier.seite.breite > 0) || !(papier.seite.hoehe > 0)) {
-    return { mangel: "unvollstaendig" };
-  }
-  return {
-    datei: kandidat,
-    zuordnung: pruefeZuordnung(
-      { kennung: kennungVon(eigene), identitaet: eigene },
-      kandidat.herkunft
-    )
-  };
-}
-function bogenmangelText(mangel) {
-  switch (mangel) {
-    case "kein-json":
-      return "Die Datei lie\xDF sich nicht lesen. Erwartet wird eine Briefbogendatei, wie sie diese App schreibt.";
-    case "fremde-art":
-      return "Das ist keine Briefbogendatei dieser App.";
-    case "zu-neu":
-      return "Die Datei stammt aus einer neueren Fassung der App. Bitte aktualisieren Sie, statt sie hier zu deuten.";
-    case "unvollstaendig":
-      return "Der Datei fehlen Angaben \u2014 Briefbogen oder Absender. \xDCbernommen wird sie nicht.";
-  }
-}
-
 // src/pdf/eigenschrift.ts
 import fontkit4 from "@pdf-lib/fontkit";
 var RECHNUNGSZEICHEN = `abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ\xE4\xF6\xFC\xC4\xD6\xDC\xDF0123456789 .,;:!?-\u2013/()[]%&+*=@\u20AC\xA7#"'`;
@@ -5921,319 +4203,6 @@ function schriftmangelText(befund) {
   }
 }
 
-// src/absender/vorlage.ts
-var MM2 = 2.834645669;
-var WENDUNGEN2 = [
-  { feld: "rechnungsnummer", muster: /Rechnungs?\s*-?\s*(?:Nr\.?|Nummer)\s*:?/i },
-  { feld: "kundennummer", muster: /Kunden\s*-?\s*(?:Nr\.?|Nummer)\s*:?/i },
-  { feld: "rechnungsdatum", muster: /Rechnungs\s*-?\s*datum\s*:?/i },
-  { feld: "leistungsdatum", muster: /(?:Liefer|Leistungs)\s*-?\s*datum\s*:?/i },
-  { feld: "leistungszeitraum", muster: /Leistungs\s*-?\s*zeitraum\s*:?/i },
-  { feld: "faelligAm", muster: /(?:F(?:ä|ae)llig(?:\s+am)?|Zahlbar\s+bis)\s*:?/i },
-  { feld: "bestellnummer", muster: /(?:Bestell|Auftrags)\s*-?\s*(?:Nr\.?|Nummer)\s*:?/i },
-  { feld: "projekt", muster: /Projekt(?:\s*-?\s*(?:Nr\.?|Nummer))?\s*:?/i },
-  { feld: "pos", muster: /^Pos(?:\.|ition)?\s*:?$/i },
-  { feld: "bezeichnung", muster: /^(?:Bezeichnung|Beschreibung|Leistung|Artikel)\s*:?$/i },
-  { feld: "menge", muster: /^(?:Menge|Anzahl)\s*:?$/i },
-  { feld: "einzelpreis", muster: /^(?:Einzelpreis|Einzel|E-Preis)\s*:?$/i },
-  { feld: "betrag", muster: /^(?:Betrag|Gesamtpreis|Gesamt|Summe)\s*:?$/i },
-  /*
-   * Der Summenblock. "netto" trennt die Zwischensumme von der Endsumme -
-   * ohne das Merkmal faengt "Gesamtbetrag netto" beide, und der Block bekaeme
-   * zweimal dasselbe Wort.
-   */
-  {
-    feld: "zwischensummeNetto",
-    muster: /^(?:Zwischensumme|Gesamtbetrag|Nettosumme|Nettobetrag|Summe)\s+netto\b/i
-  },
-  {
-    feld: "gesamtbetrag",
-    muster: /^(?:(?:Ü|Ue)berweisungsbetrag|Rechnungsbetrag|Rechnungssumme|Zahlbetrag|Endbetrag|Gesamtbetrag)(?!\s+netto)/i
-  },
-  /*
-   * Das Steuerkuerzel steht nicht am Anfang, sondern mitten in der Zeile:
-   * "zzgl. 19 % MwSt.". Deshalb hier ausdruecklich ueberall erlaubt - die
-   * Regel, dass eine Beschriftung vorn steht, gilt fuer Beschriftungen, und
-   * das hier ist eine Abkuerzung innerhalb einer.
-   */
-  { feld: "steuerkuerzel", muster: /(?:MwSt\.?|USt\.?)(?=\s|$)/i, ueberall: true }
-];
-var QUER_AB = 3;
-var MAX_STUECK = 60;
-function schlageVorlageVor(seite, seitenhoehe, inhaltLinks2) {
-  const beschriftungen = {};
-  const belege = /* @__PURE__ */ new Set();
-  const querzaehler = /* @__PURE__ */ new Map();
-  const stellen = /* @__PURE__ */ new Map();
-  const hoehen = /* @__PURE__ */ new Map();
-  const kanten = /* @__PURE__ */ new Map();
-  const schnitte = /* @__PURE__ */ new Map();
-  const fett = /* @__PURE__ */ new Set();
-  let nebeneinander = 0;
-  for (const zeile of seite.zeilen) {
-    for (const stueck of zeile.stuecke) {
-      for (const { feld, muster, ueberall } of WENDUNGEN2) {
-        if (beschriftungen[feld]) continue;
-        const inhalt = stueck.text.trim();
-        if (inhalt.length > MAX_STUECK) continue;
-        const treffer = muster.exec(inhalt);
-        if (!treffer || treffer.index !== 0 && !ueberall) continue;
-        const wort = treffer[0].trim();
-        if (!istBrauchbareBeschriftung(wort)) continue;
-        beschriftungen[feld] = wort;
-        stellen.set(feld, stueck.x);
-        hoehen.set(feld, zeile.y);
-        kanten.set(feld, stueck.x + stueck.breite);
-        schnitte.set(feld, stueck.schnitt);
-        if (stueck.fett) fett.add(feld);
-        if (KENNZAHLENFELDER.has(feld) && inhalt.slice(wort.length).trim().length > 0) {
-          nebeneinander += 1;
-        }
-        belege.add(zeile.text);
-      }
-    }
-    const inZeile = WENDUNGEN2.filter(
-      ({ feld, muster }) => KENNZAHLENFELDER.has(feld) && zeile.stuecke.some((stueck) => {
-        const inhalt = stueck.text.trim();
-        if (inhalt.length > MAX_STUECK) return false;
-        const treffer = muster.exec(inhalt);
-        return treffer?.index === 0;
-      })
-    ).length;
-    if (inZeile > 0) querzaehler.set(zeile.y, inZeile);
-  }
-  const kopffelder = [
-    "pos",
-    "bezeichnung",
-    "menge",
-    "einzelpreis",
-    "betrag"
-  ];
-  return {
-    beschriftungen,
-    tabellenkopf: kopffelder.some((feld) => beschriftungen[feld]),
-    kennzahlenfelder: [...KENNZAHLENFELDER].filter((feld) => beschriftungen[feld]).sort((eins, zwei) => (stellen.get(eins) ?? 0) - (stellen.get(zwei) ?? 0)),
-    ...nebeneinander > 0 ? { kennzahlenInline: true } : {},
-    kennzahlenFett: [...KENNZAHLENFELDER].filter((feld) => fett.has(feld)),
-    ...erkennePositionen(seite, inhaltLinks2, summenkante(hoehen)),
-    ...erkenneAnker(seite, hoehen, stellen),
-    ...erkenneSummenkante(kanten),
-    ...erkenneSchnitte(seite, schnitte),
-    ...erkenneDatumsform(seite),
-    ...erkenneSteuergrundlage(seite),
-    ...erkenneStellung(querzaehler, seitenhoehe) ?? {},
-    belege: [...belege]
-  };
-}
-function erkenneDatumsform(seite) {
-  for (const zeile of seite.zeilen) {
-    const treffer = /\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b/.exec(zeile.text);
-    if (!treffer) continue;
-    const tag = treffer[1] ?? "";
-    const monat = treffer[2] ?? "";
-    if (Number(tag) < 10 || Number(monat) < 10) {
-      return { datumOhneNullen: tag.length === 1 || monat.length === 1 };
-    }
-  }
-  return {};
-}
-function erkenneSteuergrundlage(seite) {
-  for (const zeile of seite.zeilen) {
-    if (!/\d+([.,]\d+)?\s*%\s*(?:MwSt|USt)/i.test(zeile.text)) continue;
-    return {
-      steuergrundlage: /(?:MwSt|USt)\.?\s*(?:auf|von)\s+[\d.]+,\d{2}/i.test(zeile.text)
-    };
-  }
-  return {};
-}
-function schalterAusVorschlag(vorschlag) {
-  return {
-    tabellenkopf: vorschlag.tabellenkopf,
-    /*
-     * Nummeriert wird nur, wenn die Vorlage eine Positionsbeschriftung fuehrt.
-     * Ihre fehlt, weil bei einer Position eine Ziffer davor nichts beitraegt.
-     */
-    positionsnummern: Boolean(vorschlag.beschriftungen.pos),
-    ...vorschlag.kennzahlenfelder.length > 0 ? { kennzahlenfelder: vorschlag.kennzahlenfelder } : {},
-    ...vorschlag.kennzahlenInline !== void 0 ? { kennzahlenInline: vorschlag.kennzahlenInline } : {},
-    ...vorschlag.kennzahlenFett.length > 0 ? { kennzahlenFett: vorschlag.kennzahlenFett } : {},
-    ...vorschlag.positionsEinzug !== void 0 ? { positionsEinzug: vorschlag.positionsEinzug } : {},
-    ...vorschlag.positionsauszeichnung !== void 0 ? { positionsauszeichnung: vorschlag.positionsauszeichnung } : {},
-    ...vorschlag.betragUnten !== void 0 ? { betragUnten: vorschlag.betragUnten } : {},
-    ...vorschlag.datumOhneNullen !== void 0 ? { datumOhneNullen: vorschlag.datumOhneNullen } : {},
-    ...vorschlag.steuergrundlage !== void 0 ? { steuergrundlage: vorschlag.steuergrundlage } : {},
-    ...vorschlag.kennzahlenOben !== void 0 ? { kennzahlenOben: vorschlag.kennzahlenOben } : {},
-    ...vorschlag.textOben !== void 0 ? { textOben: vorschlag.textOben } : {},
-    ...vorschlag.kennzahlenSpalten ? { kennzahlenSpalten: vorschlag.kennzahlenSpalten } : {},
-    ...vorschlag.summenlabelRechts !== void 0 ? { summenlabelRechts: vorschlag.summenlabelRechts } : {},
-    ...vorschlag.summenlabelKraeftig !== void 0 ? { summenlabelKraeftig: vorschlag.summenlabelKraeftig } : {}
-  };
-}
-function erkenneAnker(seite, hoehen, stellen) {
-  const kennzahlen = [...KENNZAHLENFELDER].map((feld) => hoehen.get(feld)).filter((hoehe) => hoehe !== void 0);
-  if (kennzahlen.length === 0) return {};
-  const oben = Math.max(...kennzahlen);
-  const unterste = Math.min(...kennzahlen);
-  const spalten = {};
-  for (const feld of KENNZAHLENFELDER) {
-    const x = stellen.get(feld);
-    if (x !== void 0) spalten[feld] = rund(x);
-  }
-  const text2 = seite.zeilen.filter((zeile) => zeile.y < unterste - 0.5 && zeile.text.trim().length > 0).sort((eins, zwei) => zwei.y - eins.y)[0];
-  return {
-    kennzahlenOben: rund(oben),
-    ...Object.keys(spalten).length > 0 ? { kennzahlenSpalten: spalten } : {},
-    ...text2 ? { textOben: rund(text2.y) } : {}
-  };
-}
-var rund = (wert) => Math.round(wert * 100) / 100;
-var SUMMENWOERTER = [
-  "zwischensummeNetto",
-  "steuerkuerzel",
-  "gesamtbetrag"
-];
-function summenkante(hoehen) {
-  const gefunden = SUMMENWOERTER.map((feld) => hoehen.get(feld)).filter(
-    (hoehe) => hoehe !== void 0
-  );
-  return gefunden.length > 0 ? Math.max(...gefunden) : void 0;
-}
-var BETRAGSENDE = /\d[\d.]*,\d{2}(?:\s+\p{L}+\.?)?\s*$/u;
-function erkennePositionen(seite, inhaltLinks2, kante) {
-  if (inhaltLinks2 === void 0 || kante === void 0) return {};
-  const linksVon = (zeile) => zeile.stuecke.filter((stueck) => stueck.text.trim().length > 0)[0]?.x;
-  let spalte = Infinity;
-  let betragszeile = Infinity;
-  for (const zeile of seite.zeilen) {
-    if (zeile.y <= kante || !BETRAGSENDE.test(zeile.text)) continue;
-    const x = linksVon(zeile);
-    if (x !== void 0 && x < spalte) spalte = x;
-    if (zeile.y < betragszeile) betragszeile = zeile.y;
-  }
-  if (!Number.isFinite(spalte)) return {};
-  const einzug = spalte - inhaltLinks2;
-  const brauchbar = einzug > 2 && einzug <= 80;
-  let fett = false;
-  let unterste = Infinity;
-  for (const zeile of seite.zeilen) {
-    if (zeile.y <= kante) continue;
-    const erstes = zeile.stuecke.filter((stueck) => stueck.text.trim().length > 0)[0];
-    if (!erstes || Math.abs(erstes.x - spalte) >= 1) continue;
-    if (erstes.fett) fett = true;
-    if (zeile.y < unterste) unterste = zeile.y;
-  }
-  const betragUnten = Number.isFinite(unterste) ? Math.abs(betragszeile - unterste) < 0.5 : void 0;
-  return {
-    ...brauchbar ? { positionsEinzug: rund(einzug) } : {},
-    positionsauszeichnung: fett,
-    ...betragUnten !== void 0 ? { betragUnten } : {}
-  };
-}
-function erkenneSummenkante(kanten) {
-  const gefunden = SUMMENWOERTER.map((feld) => kanten.get(feld)).filter(
-    (kante) => kante !== void 0
-  );
-  return gefunden.length >= 2 ? { summenlabelRechts: rund(Math.max(...gefunden)) } : {};
-}
-function erkenneSchnitte(seite, schnitte) {
-  const zaehler = /* @__PURE__ */ new Map();
-  const alle = /* @__PURE__ */ new Set();
-  for (const zeile of seite.zeilen) {
-    for (const stueck of zeile.stuecke) {
-      if (stueck.schnitt.length === 0 || stueck.text.trim().length === 0) continue;
-      alle.add(stueck.schnitt);
-      if (stueck.fett) continue;
-      zaehler.set(stueck.schnitt, (zaehler.get(stueck.schnitt) ?? 0) + stueck.text.length);
-    }
-  }
-  if (alle.size === 0) return {};
-  const grund = [...zaehler.entries()].sort((eins, zwei) => zwei[1] - eins[1])[0]?.[0];
-  const beschriftung = SUMMENWOERTER.map((feld) => schnitte.get(feld)).find(
-    (name) => name !== void 0 && name.length > 0
-  );
-  return {
-    schnitte: [...alle].sort(),
-    ...grund && beschriftung && beschriftung !== grund ? { summenlabelKraeftig: true } : {}
-  };
-}
-var KENNZAHLENFELDER = /* @__PURE__ */ new Set([
-  "rechnungsnummer",
-  "rechnungsdatum",
-  "leistungsdatum",
-  "faelligAm",
-  "kundennummer",
-  "bestellnummer"
-]);
-function erkenneStellung(querzaehler, seitenhoehe) {
-  if (querzaehler.size === 0) return void 0;
-  const quer = [...querzaehler.entries()].find(([, zahl4]) => zahl4 >= QUER_AB);
-  if (quer) return { kennzahlen: "unter-anschrift" };
-  const anschriftOben = seitenhoehe - 45 * MM2;
-  const hoechste = Math.max(...querzaehler.keys());
-  return {
-    kennzahlen: hoechste > anschriftOben + 30 ? "ueber-anschrift" : "neben-anschrift"
-  };
-}
-
-// src/pdf/stellungspruefung.ts
-var MELDESCHWELLE = 0.05;
-var ueberlappung = (eins, zwei) => {
-  const breite = Math.min(eins.x2, zwei.x2) - Math.max(eins.x1, zwei.x1);
-  const hoehe = Math.min(eins.y2, zwei.y2) - Math.max(eins.y1, zwei.y1);
-  return breite > 0 && hoehe > 0 ? breite * hoehe : 0;
-};
-function belegteFlaechen(papier) {
-  const versatzX = (A4.width - papier.seite.breite) / 2;
-  const versatzY = (A4.height - papier.seite.hoehe) / 2;
-  const flaechen = papier.pfade.map((pfad) => ({
-    x1: pfad.rahmen.x1 + versatzX,
-    y1: pfad.rahmen.y1 + versatzY,
-    x2: pfad.rahmen.x2 + versatzX,
-    y2: pfad.rahmen.y2 + versatzY
-  }));
-  for (const text2 of papier.texte) {
-    flaechen.push({
-      x1: text2.x + versatzX,
-      y1: text2.y + versatzY - text2.groesse * 0.25,
-      x2: text2.x + Math.max(text2.breite, 1) + versatzX,
-      y2: text2.y + versatzY + text2.groesse * 0.85
-    });
-  }
-  return flaechen;
-}
-function pruefeStellung(papier, stellung, zeilen, flaechen = belegteFlaechen(papier)) {
-  const versatzY = (A4.height - papier.seite.hoehe) / 2;
-  const block = kennzahlenrahmen(
-    stellung,
-    Math.max(1, zeilen),
-    void 0,
-    papier.grenze + versatzY - 11
-  );
-  const blockflaeche = Math.max(1, (block.x2 - block.x1) * (block.y2 - block.y1));
-  let groesste = 0;
-  let summe = 0;
-  for (const flaeche of flaechen) {
-    const wert = ueberlappung(block, flaeche);
-    if (wert > groesste) groesste = wert;
-    summe += wert;
-  }
-  const anteil = Math.min(1, summe / blockflaeche);
-  return {
-    stellung,
-    frei: anteil < MELDESCHWELLE,
-    ueberschneidung: groesste,
-    anteil,
-    rahmen: block
-  };
-}
-var ALLE = ["neben-anschrift", "ueber-anschrift", "unter-anschrift"];
-function pruefeAlleStellungen(papier, zeilen) {
-  const flaechen = belegteFlaechen(papier);
-  return ALLE.map((stellung) => pruefeStellung(papier, stellung, zeilen, flaechen)).sort(
-    (eins, zwei) => eins.anteil - zwei.anteil
-  );
-}
-
 // src/index.ts
 function buildInvoiceXml(invoice) {
   const totals = computeTotals(invoice);
@@ -6257,8 +4226,6 @@ export {
   AddressSchema,
   AllowanceChargeSchema,
   AttachmentSchema,
-  BOGENDATEI_ART,
-  BOGENDATEI_FASSUNG,
   BUNDLED_SPECIFICATIONS,
   ContactSchema,
   DEFAULT_THEME,
@@ -6275,7 +4242,6 @@ export {
   PartySchema,
   PaymentSchema,
   RECHNUNGSZEICHEN,
-  ROLLEN,
   STANDARD_BESCHRIFTUNGEN,
   SpecificationError,
   UNIT,
@@ -6286,15 +4252,9 @@ export {
   ZeichenvorratFehler,
   activeSpecifications,
   addDays,
-  alsBogendatei,
-  alsGraustufenPng,
   alsHex,
   alsSvg,
-  anschriftenAus,
-  bankverbindungImBogen,
-  belegteFlaechen,
   beschriftungenMit,
-  bogenmangelText,
   buildCii,
   buildInvoiceXml,
   buildUbl,
@@ -6302,17 +4262,11 @@ export {
   computeTotals,
   decimal,
   detectKind,
-  entschluesseleCcitt,
   escapeXml,
   extractAttachments,
   extractInvoiceXml,
   familienkern,
   farbeAusHex,
-  findeFussgrenze,
-  findeGrenze,
-  findeStammdaten,
-  findeStrichstaerken,
-  findeZahlungsklausel,
   folgedokument,
   formatAmount,
   formatDate,
@@ -6325,60 +4279,40 @@ export {
   istBrauchbareBeschriftung,
   istKleinunternehmerRechnung,
   istPng,
-  kennungVon,
   kennzahlenrahmen,
   laufbreite,
+  leseInhalt,
   liefereBreiten,
-  liesBogendatei,
-  liesBriefpapier,
   liesPdfText,
-  liesSeitenbilder,
-  liesWordDokument,
   lineNetAmount,
-  maskeAlsGrau,
   nurAbweichungen,
   ohneUnsichtbare,
   parseInvoice,
   parseInvoiceXml,
   parseSpecificationSet,
   pngFarbtyp,
-  positionenAus,
-  profilAus,
-  pruefeAlleStellungen,
   pruefeSchrift,
   pruefeSchriftpaar,
-  pruefeStellung,
-  pruefeZuordnung,
   readEInvoice,
   renderZugferdPdf,
   resetSpecifications,
   round,
   sanitizeXmlText,
-  schalterAusVorschlag,
-  schlageKopfzeileVor,
-  schlageVorlageVor,
-  schlageZuordnungVor,
-  schriftbogenAus,
   schriftenImBriefkopf,
   schriftmangelText,
+  seiteninhalt,
   setActiveSpecifications,
   setzeMitVorlagenschrift,
-  signaturVon,
   specificationAge,
   sum,
   summarizeTotals,
-  tabelleAusZeilen,
   themaMitAkzent,
   toBase64,
   toCiiDate,
-  uebernimmBriefpapier,
   utf8Decode,
   utf8Encode,
   validateInvoice,
   wrapText,
   xmpDate,
-  zahlAus,
-  zahlungsklauselImBogen,
-  zeichneBriefpapier,
-  zeilenImBogen
+  zeichneBriefpapier
 };
