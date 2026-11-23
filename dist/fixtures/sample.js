@@ -1,6 +1,6 @@
 import {
   parseInvoice
-} from "../chunk-F5JTQAFO.js";
+} from "../chunk-X5F3UT6I.js";
 
 // src/fixtures/sample.ts
 function sampleInvoice(profile = "zugferd-en16931") {
@@ -121,6 +121,21 @@ function sampleInvoice(profile = "zugferd-en16931") {
     paidAmount: 1e3
   });
 }
+function skontoInvoice(profile = "zugferd-en16931") {
+  const grund = sampleInvoice(profile);
+  return parseInvoice({
+    ...grund,
+    number: "RE-2026-0043",
+    payment: {
+      ...grund.payment,
+      terms: "Zahlbar ohne Abzug bis zum F\xE4lligkeitstag.",
+      skonto: [
+        { tage: 10, prozent: 3 },
+        { tage: 20, prozent: 1.5, basisbetrag: 5e3 }
+      ]
+    }
+  });
+}
 function minimalInvoice() {
   return parseInvoice({
     number: "RE-1",
@@ -187,5 +202,6 @@ function smallBusinessInvoice() {
 export {
   minimalInvoice,
   sampleInvoice,
+  skontoInvoice,
   smallBusinessInvoice
 };

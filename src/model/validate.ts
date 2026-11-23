@@ -145,6 +145,31 @@ export function validateInvoice(invoice: Invoice): ValidationResult {
   }
 
   /*
+   * Skonto und freier Text teilen sich ein Feld - BT-20 -, und BR-DE-18
+   * verlangt, dass JEDE Zeile darin, die mit '#' beginnt, der Skonto-
+   * Schreibweise entspricht. Ein Hinweis wie "#2 Nachtrag" im freien Text
+   * laesst den Pruefer der KoSIT die ganze Rechnung abweisen, obwohl mit dem
+   * Skonto selbst alles stimmt. Ohne diese Regel faellt das erst beim
+   * Empfaenger auf.
+   */
+  if (invoice.payment?.terms?.split(/\r?\n/).some((zeile) => zeile.trimStart().startsWith('#'))) {
+    add(
+      'BR-DE-18',
+      'error',
+      'payment.terms',
+      'Keine Zeile der Zahlungsbedingungen darf mit "#" beginnen - dieses Zeichen gehoert der Skonto-Schreibweise.',
+    );
+  }
+  if (invoice.payment?.skonto?.length && !invoice.dueDate) {
+    add(
+      'BR-DE-18',
+      'warning',
+      'dueDate',
+      'Mit Skonto gehoert ein Faelligkeitstag dazu - sonst steht nicht fest, ab wann der Abzug entfaellt.',
+    );
+  }
+
+  /*
    * Paragraf 14 Abs. 4 Nr. 6 UStG verlangt den Zeitpunkt der Lieferung oder
    * Leistung. Die EN 16931 macht BT-72 nicht zur Pflicht, eine deutsche
    * Rechnung ohne diese Angabe ist aber unvollstaendig - und ein leeres

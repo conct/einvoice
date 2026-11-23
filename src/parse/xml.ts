@@ -1,4 +1,5 @@
 import { XMLParser } from 'fast-xml-parser';
+import { liesZahlungsbedingungen } from '../model/skonto';
 import type { Invoice, InvoiceInput, Line, Party, Vat } from '../model/invoice';
 import { parseInvoice } from '../model/invoice';
 import { EInvoiceError } from './error';
@@ -164,7 +165,7 @@ function parseCii(root: Node): ParsedInvoice {
       remittanceInformation: text(settlement.PaymentReference),
       mandateReference: text(paymentTerms?.DirectDebitMandateID),
       creditorIdentifier: text(settlement.CreditorReferenceID),
-      terms: text(paymentTerms?.Description),
+      ...liesZahlungsbedingungen(text(paymentTerms?.Description)),
     };
   }
 
@@ -371,7 +372,7 @@ function parseUbl(root: Node, isCreditNote: boolean): ParsedInvoice {
       accountName: text(account.Name),
       remittanceInformation: text(paymentMeans.PaymentID),
       mandateReference: text(mandate.ID),
-      terms: text(obj(first(root.PaymentTerms)).Note),
+      ...liesZahlungsbedingungen(text(obj(first(root.PaymentTerms)).Note)),
     };
   }
 

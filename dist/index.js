@@ -15,13 +15,25 @@ import {
   LineSchema,
   PartySchema,
   PaymentSchema,
+  SkontostufeSchema,
   VatSchema,
   addDays,
+  decimal,
+  formatAmount,
   formatDate,
+  formatQuantity,
   isIsoDate,
+  liesZahlungsbedingungen,
   parseInvoice,
-  toCiiDate
-} from "./chunk-F5JTQAFO.js";
+  round,
+  skontobetrag,
+  skontofrist,
+  skontosatz,
+  skontozeile,
+  sum,
+  toCiiDate,
+  zahlungsbedingungen
+} from "./chunk-X5F3UT6I.js";
 
 // src/model/codes.ts
 var INVOICE_TYPE_CODES = {
@@ -108,37 +120,6 @@ var PROFILE_ID = {
   ZUGFERD_EXTENDED: "urn:cen.eu:en16931:2017#conformant#urn:factur-x.eu:1p0:extended",
   XRECHNUNG_CIUS: "urn:cen.eu:en16931:2017#compliant#urn:xeinkauf.de:kosit:xrechnung_3.0"
 };
-
-// src/util/money.ts
-function round(value, decimals = 2) {
-  if (!Number.isFinite(value)) throw new RangeError(`Kein endlicher Betrag: ${value}`);
-  const factor = 10 ** decimals;
-  const scaled = value * factor;
-  const eps = Math.sign(scaled) * 1e-9;
-  return Math.round(scaled + eps) / factor;
-}
-function sum(values, decimals = 2) {
-  let total = 0;
-  for (const v of values) total = round(total + round(v, decimals), decimals);
-  return total;
-}
-function decimal(value, decimals = 2) {
-  const r = round(value, decimals);
-  const out = (Object.is(r, -0) ? 0 : r).toFixed(decimals);
-  return out === `-${0 .toFixed(decimals)}` ? 0 .toFixed(decimals) : out;
-}
-function formatAmount(value, currency, decimals = 2) {
-  const r = round(value, decimals);
-  const neg = r < 0;
-  const [int = "0", frac = ""] = Math.abs(r).toFixed(decimals).split(".");
-  const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-  const body = decimals > 0 ? `${grouped},${frac}` : grouped;
-  return `${neg ? "-" : ""}${body}${currency ? ` ${currency}` : ""}`;
-}
-function formatQuantity(value) {
-  const s = round(value, 4).toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
-  return s.replace(".", ",");
-}
 
 // src/model/totals.ts
 function vatKey(vat) {
@@ -354,6 +335,22 @@ function validateInvoice(invoice) {
       "warning",
       "payment.mandateReference",
       "Bei SEPA-Lastschrift sollte die Mandatsreferenz angegeben werden."
+    );
+  }
+  if (invoice.payment?.terms?.split(/\r?\n/).some((zeile) => zeile.trimStart().startsWith("#"))) {
+    add(
+      "BR-DE-18",
+      "error",
+      "payment.terms",
+      'Keine Zeile der Zahlungsbedingungen darf mit "#" beginnen - dieses Zeichen gehoert der Skonto-Schreibweise.'
+    );
+  }
+  if (invoice.payment?.skonto?.length && !invoice.dueDate) {
+    add(
+      "BR-DE-18",
+      "warning",
+      "dueDate",
+      "Mit Skonto gehoert ein Faelligkeitstag dazu - sonst steht nicht fest, ab wann der Abzug entfaellt."
     );
   }
   if (!invoice.deliveryDate && !invoice.periodStart) {
@@ -837,9 +834,13 @@ function buildCii(invoice, options = {}) {
     for (const ac of invoice.allowancesCharges) {
       writeAllowanceCharge(x, ac);
     }
-    if (invoice.payment?.terms || invoice.dueDate || invoice.payment?.mandateReference) {
+    const bedingungen = zahlungsbedingungen({
+      terms: invoice.payment?.terms,
+      skonto: invoice.payment?.skonto
+    });
+    if (bedingungen || invoice.dueDate || invoice.payment?.mandateReference) {
       x.element("ram:SpecifiedTradePaymentTerms", void 0, (t) => {
-        t.leaf("ram:Description", invoice.payment?.terms);
+        t.leaf("ram:Description", bedingungen);
         dateElement(t, "ram:DueDateDateTime", invoice.dueDate);
         t.leaf("ram:DirectDebitMandateID", invoice.payment?.mandateReference);
       });
@@ -1162,12 +1163,11 @@ function buildUbl(invoice, options = {}) {
         });
       }
     });
-    w.elementIf(
-      invoice.payment.terms,
-      "cac:PaymentTerms",
-      void 0,
-      (x) => x.leaf("cbc:Note", invoice.payment?.terms)
-    );
+    const bedingungen = zahlungsbedingungen({
+      terms: invoice.payment.terms,
+      skonto: invoice.payment.skonto
+    });
+    w.elementIf(bedingungen, "cac:PaymentTerms", void 0, (x) => x.leaf("cbc:Note", bedingungen));
   }
   for (const ac of invoice.allowancesCharges) {
     w.element("cac:AllowanceCharge", void 0, (x) => {
@@ -2101,8 +2101,15 @@ function drawPaymentBlock(cursor, invoice, totals, ctx, ensure) {
   const payment = invoice.payment;
   const lines = [];
   if (!ctx.zahlungszielImBriefpapier) {
+    const skonto = payment?.skonto?.length ? skontosatz(payment.skonto, {
+      rechnungsdatum: invoice.issueDate,
+      zahlbetrag: totals.duePayable,
+      waehrung: ctx.waehrungswort ?? invoice.currency,
+      faelligAm: invoice.dueDate
+    }) : void 0;
+    if (skonto) lines.push(skonto);
     if (payment?.terms) lines.push(payment.terms);
-    else if (invoice.dueDate) {
+    else if (!skonto && invoice.dueDate) {
       lines.push(
         `Zahlbar ohne Abzug bis zum ${formatDate(invoice.dueDate)} auf das unten genannte Konto.`
       );
@@ -3769,7 +3776,7 @@ function parseCii(root) {
       remittanceInformation: text(settlement.PaymentReference),
       mandateReference: text(paymentTerms?.DirectDebitMandateID),
       creditorIdentifier: text(settlement.CreditorReferenceID),
-      terms: text(paymentTerms?.Description)
+      ...liesZahlungsbedingungen(text(paymentTerms?.Description))
     };
   }
   const declaredTotals = {
@@ -3949,7 +3956,7 @@ function parseUbl(root, isCreditNote) {
       accountName: text(account.Name),
       remittanceInformation: text(paymentMeans.PaymentID),
       mandateReference: text(mandate.ID),
-      terms: text(obj(first(root.PaymentTerms)).Note)
+      ...liesZahlungsbedingungen(text(obj(first(root.PaymentTerms)).Note))
     };
   }
   const declaredTotals = {
@@ -4243,6 +4250,7 @@ export {
   PaymentSchema,
   RECHNUNGSZEICHEN,
   STANDARD_BESCHRIFTUNGEN,
+  SkontostufeSchema,
   SpecificationError,
   UNIT,
   VAT_CATEGORY,
@@ -4284,6 +4292,7 @@ export {
   leseInhalt,
   liefereBreiten,
   liesPdfText,
+  liesZahlungsbedingungen,
   lineNetAmount,
   nurAbweichungen,
   ohneUnsichtbare,
@@ -4303,6 +4312,10 @@ export {
   seiteninhalt,
   setActiveSpecifications,
   setzeMitVorlagenschrift,
+  skontobetrag,
+  skontofrist,
+  skontosatz,
+  skontozeile,
   specificationAge,
   sum,
   summarizeTotals,
@@ -4314,5 +4327,6 @@ export {
   validateInvoice,
   wrapText,
   xmpDate,
+  zahlungsbedingungen,
   zeichneBriefpapier
 };

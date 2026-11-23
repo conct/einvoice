@@ -10,6 +10,7 @@ dasselbe tut: in Node, im Browser und in React Native.
 - **PDF/A-3** mit eingebetteter Rechnung, Briefkopf, Tabelle und Summenblock
 - **Empfang**: Anhänge aus einem hybriden PDF holen, XML einlesen, Summen
   nachrechnen, statt sie zu glauben
+- **Skonto** in der Schreibweise der XRechnung, mehrstufig
 - **Briefbogen zeichnen**: Wer einen Bogen beschreibt — Farben, Striche,
   Textläufe —, bekommt ihn unter jeder Seite gesetzt
 - **Text und Breiten** aus einem PDF lesen, als Handwerkszeug für eigene Leser
@@ -21,7 +22,7 @@ deshalb läuft derselbe Code in der App und auf dem Server.
 ## Einbinden
 
 ```bash
-npm install github:conct/einvoice#v4.0.0
+npm install github:conct/einvoice#v4.1.0
 ```
 
 Keine Registry im Spiel, und **`dist/` liegt im Repository** — Installieren
@@ -29,7 +30,7 @@ heißt klonen, nicht bauen. Ohne SSH-Schlüssel auf dem Rechner geht es über
 HTTPS:
 
 ```bash
-npm install git+https://github.com/conct/einvoice.git#v4.0.0
+npm install git+https://github.com/conct/einvoice.git#v4.1.0
 ```
 
 Der erste Versuch ging den üblichen Weg: `prepare` baut beim Installieren.
@@ -64,6 +65,58 @@ const SCHRIFTEN = {
 };
 ```
 
+## Skonto
+
+EN 16931 kennt kein Feld dafür. Es gibt nur BT-20, die Zahlungsbedingungen als
+Fließtext — und Fließtext liest keine Buchhaltung aus. Die KoSIT hat deshalb
+eine Schreibweise festgelegt, die darin steht und sich trotzdem maschinell
+lesen lässt:
+
+```ts
+payment: {
+  iban: 'DE02…',
+  terms: 'Zahlbar ohne Abzug bis zum Fälligkeitstag.',
+  skonto: [
+    { tage: 10, prozent: 3 },
+    { tage: 20, prozent: 1.5, basisbetrag: 5000 },   // nur ein Teil ist skontierfähig
+  ],
+}
+```
+
+Daraus wird in BT-20:
+
+```
+#SKONTO#TAGE=10#PROZENT=3.00#
+#SKONTO#TAGE=20#PROZENT=1.50#BASISBETRAG=5000.00#
+Zahlbar ohne Abzug bis zum Fälligkeitstag.
+```
+
+und im PDF ein Satz, den ein Mensch lesen kann — mit ausgerechnetem Abzug und
+dem Betrag, der dann zu überweisen ist:
+
+> Bei Zahlung bis 03.09.2026 abzüglich 3 % Skonto (355,39 EUR) = 11.490,80 EUR,
+> bis 13.09.2026 abzüglich 1,5 % (177,70 EUR) = 11.669,09 EUR, sonst bis
+> 21.09.2026 ohne Abzug.
+
+`readEInvoice` und `parseInvoiceXml` lösen die Zeilen beim Empfang wieder zu
+`skonto` auf; der übrige Text bleibt `terms`. Wer die Teile einzeln braucht —
+etwa für eine Mahnung —, nimmt `skontofrist`, `skontobetrag` und `skontosatz`.
+
+**Zwei Dinge, die der Prüfer der KoSIT hart durchsetzt** (BR-DE-18, am
+23.11.2026 gegen XRechnung 3.0.2 nachgemessen):
+
+- Hinter dem **letzten** Block muss ein Zeilenumbruch stehen, auch wenn kein
+  Text folgt. Eine Fassung ohne ihn wird abgewiesen — `zahlungsbedingungen`
+  setzt ihn deshalb immer.
+- **Keine** Textzeile in BT-20 darf mit `#` beginnen. Ein Hinweis wie
+  „#2 Nachtrag" lässt die ganze Rechnung durchfallen, obwohl mit dem Skonto
+  alles stimmt; `validateInvoice` meldet das vorher.
+
+Verrechnet wird der Abzug **nicht**: Die Rechnung weist den vollen Betrag aus,
+denn die Summen müssen ohne Bedingung stimmen. Nutzt der Empfänger den Abzug,
+mindert das die Bemessungsgrundlage nachträglich (§ 17 UStG) — ein Vorgang in
+der Buchhaltung, kein Feld in diesem Dokument.
+
 ## Was hier **nicht** liegt
 
 **Die Übernahme aus fremden Dokumenten.** Eine vorhandene Rechnung
@@ -90,7 +143,7 @@ Vergleichsläufe gegen fremde Rechnungen bleiben in
 Prüfregelsätze und etliche Megabyte Testbestand dran. Wer an der Ausgabe
 dieses Pakets etwas ändert, prüft dort nach.
 
-Mitgekommen ist nur, was ohne Zubehör läuft: 77 Tests über 9 Dateien, die
+Mitgekommen ist nur, was ohne Zubehör läuft: 98 Tests über 10 Dateien, die
 jeden Weg einmal gehen, und `npm run probe` — eine Rechnung durch XML, PDF,
 Anhang und zurück ins Modell, gegen das **gebaute** Paket.
 
@@ -98,7 +151,7 @@ Anhang und zurück ins Modell, gegen das **gebaute** Paket.
 
 ```bash
 npm install
-npm test          # vitest, 77 Tests
+npm test          # vitest, 98 Tests
 npm run typecheck # zwei Durchgänge, siehe unten
 npm run build     # tsup -> dist/ (ESM + Typdeklarationen)
 npm run probe     # die gebaute Fassung in nacktem Node

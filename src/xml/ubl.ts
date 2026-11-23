@@ -1,3 +1,4 @@
+import { zahlungsbedingungen } from '../model/skonto';
 import type { AllowanceCharge, Address, Invoice, Line, Party } from '../model/invoice';
 import { computeTotals, type InvoiceTotals } from '../model/totals';
 import { activeSpecifications } from '../model/specifications';
@@ -146,9 +147,11 @@ export function buildUbl(invoice: Invoice, options: UblOptions = {}): string {
         });
       }
     });
-    w.elementIf(invoice.payment.terms, 'cac:PaymentTerms', undefined, (x) =>
-      x.leaf('cbc:Note', invoice.payment?.terms),
-    );
+    const bedingungen = zahlungsbedingungen({
+      terms: invoice.payment.terms,
+      skonto: invoice.payment.skonto,
+    });
+    w.elementIf(bedingungen, 'cac:PaymentTerms', undefined, (x) => x.leaf('cbc:Note', bedingungen));
   }
 
   for (const ac of invoice.allowancesCharges) {

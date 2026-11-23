@@ -478,6 +478,26 @@ declare const PaymentSchema: z.ZodObject<{
     creditorIdentifier: z.ZodOptional<z.ZodString>;
     /** BT-20 Zahlungsbedingungen im Klartext */
     terms: z.ZodOptional<z.ZodString>;
+    /**
+     * Skonto, strukturiert. Mehrere Stufen sind moeglich.
+     *
+     * Steht im Dokument nicht in einem eigenen Feld - EN 16931 hat keines -,
+     * sondern in der Schreibweise der XRechnung innerhalb von BT-20. Erzeugt und
+     * gelesen wird sie in model/skonto.ts; `terms` behaelt den freien Text.
+     */
+    skonto: z.ZodOptional<z.ZodArray<z.ZodObject<{
+        tage: z.ZodNumber;
+        prozent: z.ZodNumber;
+        basisbetrag: z.ZodOptional<z.ZodNumber>;
+    }, "strip", z.ZodTypeAny, {
+        tage: number;
+        prozent: number;
+        basisbetrag?: number | undefined;
+    }, {
+        tage: number;
+        prozent: number;
+        basisbetrag?: number | undefined;
+    }>, "many">>;
 }, "strip", z.ZodTypeAny, {
     meansCode: string;
     meansText?: string | undefined;
@@ -488,6 +508,11 @@ declare const PaymentSchema: z.ZodObject<{
     mandateReference?: string | undefined;
     creditorIdentifier?: string | undefined;
     terms?: string | undefined;
+    skonto?: {
+        tage: number;
+        prozent: number;
+        basisbetrag?: number | undefined;
+    }[] | undefined;
 }, {
     meansCode?: string | undefined;
     meansText?: string | undefined;
@@ -498,6 +523,11 @@ declare const PaymentSchema: z.ZodObject<{
     mandateReference?: string | undefined;
     creditorIdentifier?: string | undefined;
     terms?: string | undefined;
+    skonto?: {
+        tage: number;
+        prozent: number;
+        basisbetrag?: number | undefined;
+    }[] | undefined;
 }>;
 type Payment = z.infer<typeof PaymentSchema>;
 /** BG-24 rechnungsbegruendende Unterlage */
@@ -1220,6 +1250,26 @@ declare const InvoiceSchema: z.ZodObject<{
         creditorIdentifier: z.ZodOptional<z.ZodString>;
         /** BT-20 Zahlungsbedingungen im Klartext */
         terms: z.ZodOptional<z.ZodString>;
+        /**
+         * Skonto, strukturiert. Mehrere Stufen sind moeglich.
+         *
+         * Steht im Dokument nicht in einem eigenen Feld - EN 16931 hat keines -,
+         * sondern in der Schreibweise der XRechnung innerhalb von BT-20. Erzeugt und
+         * gelesen wird sie in model/skonto.ts; `terms` behaelt den freien Text.
+         */
+        skonto: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            tage: z.ZodNumber;
+            prozent: z.ZodNumber;
+            basisbetrag: z.ZodOptional<z.ZodNumber>;
+        }, "strip", z.ZodTypeAny, {
+            tage: number;
+            prozent: number;
+            basisbetrag?: number | undefined;
+        }, {
+            tage: number;
+            prozent: number;
+            basisbetrag?: number | undefined;
+        }>, "many">>;
     }, "strip", z.ZodTypeAny, {
         meansCode: string;
         meansText?: string | undefined;
@@ -1230,6 +1280,11 @@ declare const InvoiceSchema: z.ZodObject<{
         mandateReference?: string | undefined;
         creditorIdentifier?: string | undefined;
         terms?: string | undefined;
+        skonto?: {
+            tage: number;
+            prozent: number;
+            basisbetrag?: number | undefined;
+        }[] | undefined;
     }, {
         meansCode?: string | undefined;
         meansText?: string | undefined;
@@ -1240,6 +1295,11 @@ declare const InvoiceSchema: z.ZodObject<{
         mandateReference?: string | undefined;
         creditorIdentifier?: string | undefined;
         terms?: string | undefined;
+        skonto?: {
+            tage: number;
+            prozent: number;
+            basisbetrag?: number | undefined;
+        }[] | undefined;
     }>>;
     /**
      * Anrede und Anschreiben ueber den Positionen.
@@ -1489,6 +1549,11 @@ declare const InvoiceSchema: z.ZodObject<{
         mandateReference?: string | undefined;
         creditorIdentifier?: string | undefined;
         terms?: string | undefined;
+        skonto?: {
+            tage: number;
+            prozent: number;
+            basisbetrag?: number | undefined;
+        }[] | undefined;
     } | undefined;
     intro?: string | undefined;
 }, {
@@ -1658,6 +1723,11 @@ declare const InvoiceSchema: z.ZodObject<{
         mandateReference?: string | undefined;
         creditorIdentifier?: string | undefined;
         terms?: string | undefined;
+        skonto?: {
+            tage: number;
+            prozent: number;
+            basisbetrag?: number | undefined;
+        }[] | undefined;
     } | undefined;
     intro?: string | undefined;
     notes?: {

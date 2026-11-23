@@ -1,7 +1,7 @@
-import { V as Vat, I as Invoice, L as Line, b as InvoiceInput } from './invoice-BoN0H4V6.js';
-export { A as Address, c as AddressSchema, d as AllowanceCharge, e as AllowanceChargeSchema, f as Attachment, g as AttachmentSchema, C as ContactSchema, E as ElectronicAddressSchema, a as InvoiceProfile, h as InvoiceProfileSchema, i as InvoiceSchema, j as LineSchema, P as Party, k as PartySchema, l as Payment, m as PaymentSchema, n as VatSchema, p as parseInvoice } from './invoice-BoN0H4V6.js';
+import { V as Vat, I as Invoice, L as Line, b as InvoiceInput } from './invoice-B_nrTePh.js';
+export { A as Address, c as AddressSchema, d as AllowanceCharge, e as AllowanceChargeSchema, f as Attachment, g as AttachmentSchema, C as ContactSchema, E as ElectronicAddressSchema, a as InvoiceProfile, h as InvoiceProfileSchema, i as InvoiceSchema, j as LineSchema, P as Party, k as PartySchema, l as Payment, m as PaymentSchema, n as VatSchema, p as parseInvoice } from './invoice-B_nrTePh.js';
+import { z } from 'zod';
 import { RGB, PDFFont, rgb, PDFDocument, PDFPage } from 'pdf-lib';
-import 'zod';
 
 /**
  * Codelisten nach EN 16931 / UN/CEFACT. Nur die fuer deutsche Rechnungen
@@ -193,6 +193,134 @@ declare function summarizeTotals(totals: InvoiceTotals): string;
 declare function istKleinunternehmerRechnung(invoice: Invoice): boolean;
 
 /**
+ * Datumsangaben werden durchgaengig als ISO-Kalendertag "YYYY-MM-DD" gehalten.
+ * Kein Date-Objekt, keine Zeitzone - eine Rechnung vom 31.12. darf nicht durch
+ * UTC-Verschiebung zum 30.12. werden.
+ */
+type IsoDate = string;
+declare function isIsoDate(value: unknown): value is IsoDate;
+/** CII nutzt das Format 102: YYYYMMDD. */
+declare function toCiiDate(value: IsoDate): string;
+/** Anzeigeformat fuer das PDF: 31.12.2026 */
+declare function formatDate(value: IsoDate): string;
+/** Kalendertage auf ein ISO-Datum addieren (fuer Zahlungsziele). */
+declare function addDays(value: IsoDate, days: number): IsoDate;
+
+/**
+ * Skonto - der Abzug fuer schnelle Zahlung.
+ *
+ * ## Warum das ein eigenes Modul braucht
+ *
+ * EN 16931 kennt kein Feld fuer Skonto. Es gibt nur BT-20, die
+ * Zahlungsbedingungen als **Fliesstext** - und Fliesstext liest keine
+ * Buchhaltungssoftware aus. Deshalb hat die KoSIT fuer die XRechnung eine
+ * Schreibweise festgelegt, die in diesem Text steht und sich trotzdem
+ * maschinell lesen laesst:
+ *
+ * ```
+ * #SKONTO#TAGE=14#PROZENT=2.00#
+ * #SKONTO#TAGE=30#PROZENT=1.00#BASISBETRAG=1000.00#
+ * Zahlbar ohne Abzug bis zum 31.12.2026.
+ * ```
+ *
+ * Jede Stufe steht in einer eigenen Zeile, beginnt mit `#SKONTO#` und endet
+ * auf `#`. Prozent traegt zwei Nachkommastellen mit **Punkt**, nicht mit
+ * Komma - das ist eine Maschinenangabe, keine Anzeige. Freier Text darf
+ * folgen; was keine Skontozeile ist, bleibt Text.
+ *
+ * ## Was hier bewusst nicht passiert
+ *
+ * **Der Abzug wird nicht verrechnet.** Die Rechnung weist den vollen Betrag
+ * aus, und der Skonto ist ein Angebot: Zahlt der Empfaenger spaeter, gilt der
+ * volle Betrag. Wer den Abzug in die Summen einrechnete, haette eine Rechnung
+ * ueber einen Betrag, der nur unter einer Bedingung stimmt - und die Summen
+ * muessen ohne Bedingung stimmen, sonst scheitert jede Pruefung.
+ *
+ * **Die Umsatzsteuer bleibt unberuehrt.** Wird der Abzug tatsaechlich genutzt,
+ * mindert das die Bemessungsgrundlage nachtraeglich (§ 17 UStG). Das ist ein
+ * Vorgang in der Buchhaltung, kein Feld in diesem Dokument.
+ */
+/** Eine Skontostufe: so viele Tage, so viel Prozent. */
+declare const SkontostufeSchema: z.ZodObject<{
+    /** Tage ab Rechnungsdatum. Ganzzahlig und groesser als null. */
+    tage: z.ZodNumber;
+    /**
+     * Abzug in Prozent, groesser als null und hoechstens hundert.
+     *
+     * Hundert ist als Grenze absurd hoch und steht trotzdem hier: Alles
+     * darueber ist mit Sicherheit ein Tippfehler - 200 statt 2,00 -, und ein
+     * Tippfehler in dieser Zahl kostet Geld.
+     */
+    prozent: z.ZodNumber;
+    /**
+     * Betrag, auf den sich der Abzug bezieht. Ohne Angabe der Zahlbetrag.
+     *
+     * Noetig, wenn nur ein Teil skontierfaehig ist - Fracht und Montage sind es
+     * nach vielen Einkaufsbedingungen nicht.
+     */
+    basisbetrag: z.ZodOptional<z.ZodNumber>;
+}, "strip", z.ZodTypeAny, {
+    tage: number;
+    prozent: number;
+    basisbetrag?: number | undefined;
+}, {
+    tage: number;
+    prozent: number;
+    basisbetrag?: number | undefined;
+}>;
+type Skontostufe = z.infer<typeof SkontostufeSchema>;
+/**
+ * Eine Stufe in der Schreibweise der XRechnung.
+ *
+ * Zwei Nachkommastellen, Punkt als Trenner, und am Ende ein `#`. Das ist
+ * nicht schoen, aber es ist die Form, die ein Empfaenger erwartet.
+ */
+declare function skontozeile(stufe: Skontostufe): string;
+/**
+ * Der vollstaendige Inhalt von BT-20: erst die Stufen, dann der freie Text.
+ *
+ * Die Reihenfolge ist Absicht. Ein Empfaenger, der die Zeilen maschinell
+ * liest, findet sie am Anfang; ein Mensch liest den Satz darunter.
+ */
+declare function zahlungsbedingungen(angabe: {
+    terms?: string | undefined;
+    skonto?: readonly Skontostufe[] | undefined;
+}): string | undefined;
+/**
+ * Macht aus BT-20 wieder Stufen und Text.
+ *
+ * Gelesen wird nachsichtig - fremde Dateien halten sich nicht immer an die
+ * Schreibweise: Gross- und Kleinschreibung ist gleich, Leerzeichen um die
+ * Zeichen werden uebergangen, und eine Zeile, die wie Skonto aussieht aber
+ * unbrauchbare Zahlen traegt, bleibt Text. Lieber ein Satz zu viel im
+ * Fliesstext als eine erfundene Zahl im Modell.
+ */
+declare function liesZahlungsbedingungen(bt20: string | undefined): {
+    skonto?: Skontostufe[];
+    terms?: string;
+};
+/** Was die Stufe in Geld bedeutet, bezogen auf den Zahlbetrag. */
+declare function skontobetrag(stufe: Skontostufe, zahlbetrag: number): number;
+/** Der Tag, bis zu dem die Stufe gilt. */
+declare function skontofrist(stufe: Skontostufe, rechnungsdatum: IsoDate): IsoDate;
+/**
+ * Derselbe Inhalt als Satz, den ein Mensch lesen kann.
+ *
+ * "Bei Zahlung bis 07.12.2026 abzueglich 2 % Skonto (2,38 EUR) = 116,62 EUR,
+ * sonst bis 21.12.2026 ohne Abzug."
+ *
+ * Beide Betraege stehen dabei, und das ist der Punkt: Niemand rechnet zwei
+ * Prozent im Kopf, und wer sie falsch rechnet, zahlt falsch. Der Abzug sagt,
+ * was der Nachlass wert ist; die Summe dahinter sagt, was zu ueberweisen ist.
+ */
+declare function skontosatz(stufen: readonly Skontostufe[], angabe: {
+    rechnungsdatum: IsoDate;
+    zahlbetrag: number;
+    waehrung?: string | undefined;
+    faelligAm?: IsoDate | undefined;
+}): string | undefined;
+
+/**
  * Leitet aus einer herausgegebenen Rechnung das Folgedokument ab.
  *
  * Warum es das braucht: Mit dem Festschreiben ist eine Rechnung gesperrt - das
@@ -245,20 +373,6 @@ declare function isPlausibleIban(value: string): boolean;
  * vorbehalten, hier geht es nur um einen frueh sichtbaren Tippfehlerhinweis.
  */
 declare function isPlausibleLeitwegId(value: string): boolean;
-
-/**
- * Datumsangaben werden durchgaengig als ISO-Kalendertag "YYYY-MM-DD" gehalten.
- * Kein Date-Objekt, keine Zeitzone - eine Rechnung vom 31.12. darf nicht durch
- * UTC-Verschiebung zum 30.12. werden.
- */
-type IsoDate = string;
-declare function isIsoDate(value: unknown): value is IsoDate;
-/** CII nutzt das Format 102: YYYYMMDD. */
-declare function toCiiDate(value: IsoDate): string;
-/** Anzeigeformat fuer das PDF: 31.12.2026 */
-declare function formatDate(value: IsoDate): string;
-/** Kalendertage auf ein ISO-Datum addieren (fuer Zahlungsziele). */
-declare function addDays(value: IsoDate, days: number): IsoDate;
 
 /**
  * Spezifikationskennungen mit Verfallsdatum.
@@ -1569,4 +1683,4 @@ declare function buildInvoiceXml(invoice: Invoice): {
     filename: string;
 };
 
-export { A4, BUNDLED_SPECIFICATIONS, type Beschriftung, type Beschriftungen, type Breiten, type Briefpapier, type CiiOptions, DEFAULT_THEME, type DeclaredTotals, EAS, EInvoiceError, type EInvoiceErrorCode, type ExtractedAttachment, type FacturXConformanceLevel, type Farbe, type Flaeche, type Folgeart, INVOICE_TYPE_CODES, Invoice, InvoiceInput, type InvoiceSyntax, type InvoiceTotals, type InvoiceTypeCode, type IsoDate, type Kennzahlenstellung, type Kreis, Line, MAX_SCHRIFT_BYTES, PAYMENT_MEANS, PROFILE_ID, type ParsedInvoice, type PaymentMeansCode, type PdfText, type Pfad, RECHNUNGSZEICHEN, type ReceivedInvoice, type RenderAssets, type RenderOptions, type RenderResult, STANDARD_BESCHRIFTUNGEN, type Schriftbefund, type Schriftmangel, type Severity, type SourceKind, type SpecificationAge, type SpecificationEntry, SpecificationError, type SpecificationSet, type Strich, type Textlauf, type Textseite, type Textstueck, type Textzeile, type Theme, UNIT, type UblOptions, type UnitCode, VAT_CATEGORY, type ValidationIssue, type ValidationResult, Vat, type VatBreakdownEntry, type VatCategoryCode, type Vorlagenbefund, type Wert, XmlWriter, type XmpOptions, ZERO_RATE_CATEGORIES, type Zeichenbefund, ZeichenvorratFehler, activeSpecifications, addDays, alsHex, alsSvg, beschriftungenMit, buildCii, buildInvoiceXml, buildUbl, buildXmp, computeTotals, decimal, detectKind, escapeXml, extractAttachments, extractInvoiceXml, familienkern, farbeAusHex, folgedokument, formatAmount, formatDate, formatQuantity, fromBase64, isIsoDate, isPlausibleIban, isPlausibleLeitwegId, isPlausibleVatId, istBrauchbareBeschriftung, istKleinunternehmerRechnung, istPng, kennzahlenrahmen, laufbreite, leseInhalt, liefereBreiten, liesPdfText, lineNetAmount, nurAbweichungen, ohneUnsichtbare, parseInvoiceXml, parseSpecificationSet, pngFarbtyp, pruefeSchrift, pruefeSchriftpaar, readEInvoice, renderZugferdPdf, resetSpecifications, round, sanitizeXmlText, schriftenImBriefkopf, schriftmangelText, seiteninhalt, setActiveSpecifications, setzeMitVorlagenschrift, specificationAge, sum, summarizeTotals, themaMitAkzent, toBase64, toCiiDate, utf8Decode, utf8Encode, validateInvoice, wrapText, xmpDate, zeichneBriefpapier };
+export { A4, BUNDLED_SPECIFICATIONS, type Beschriftung, type Beschriftungen, type Breiten, type Briefpapier, type CiiOptions, DEFAULT_THEME, type DeclaredTotals, EAS, EInvoiceError, type EInvoiceErrorCode, type ExtractedAttachment, type FacturXConformanceLevel, type Farbe, type Flaeche, type Folgeart, INVOICE_TYPE_CODES, Invoice, InvoiceInput, type InvoiceSyntax, type InvoiceTotals, type InvoiceTypeCode, type IsoDate, type Kennzahlenstellung, type Kreis, Line, MAX_SCHRIFT_BYTES, PAYMENT_MEANS, PROFILE_ID, type ParsedInvoice, type PaymentMeansCode, type PdfText, type Pfad, RECHNUNGSZEICHEN, type ReceivedInvoice, type RenderAssets, type RenderOptions, type RenderResult, STANDARD_BESCHRIFTUNGEN, type Schriftbefund, type Schriftmangel, type Severity, type Skontostufe, SkontostufeSchema, type SourceKind, type SpecificationAge, type SpecificationEntry, SpecificationError, type SpecificationSet, type Strich, type Textlauf, type Textseite, type Textstueck, type Textzeile, type Theme, UNIT, type UblOptions, type UnitCode, VAT_CATEGORY, type ValidationIssue, type ValidationResult, Vat, type VatBreakdownEntry, type VatCategoryCode, type Vorlagenbefund, type Wert, XmlWriter, type XmpOptions, ZERO_RATE_CATEGORIES, type Zeichenbefund, ZeichenvorratFehler, activeSpecifications, addDays, alsHex, alsSvg, beschriftungenMit, buildCii, buildInvoiceXml, buildUbl, buildXmp, computeTotals, decimal, detectKind, escapeXml, extractAttachments, extractInvoiceXml, familienkern, farbeAusHex, folgedokument, formatAmount, formatDate, formatQuantity, fromBase64, isIsoDate, isPlausibleIban, isPlausibleLeitwegId, isPlausibleVatId, istBrauchbareBeschriftung, istKleinunternehmerRechnung, istPng, kennzahlenrahmen, laufbreite, leseInhalt, liefereBreiten, liesPdfText, liesZahlungsbedingungen, lineNetAmount, nurAbweichungen, ohneUnsichtbare, parseInvoiceXml, parseSpecificationSet, pngFarbtyp, pruefeSchrift, pruefeSchriftpaar, readEInvoice, renderZugferdPdf, resetSpecifications, round, sanitizeXmlText, schriftenImBriefkopf, schriftmangelText, seiteninhalt, setActiveSpecifications, setzeMitVorlagenschrift, skontobetrag, skontofrist, skontosatz, skontozeile, specificationAge, sum, summarizeTotals, themaMitAkzent, toBase64, toCiiDate, utf8Decode, utf8Encode, validateInvoice, wrapText, xmpDate, zahlungsbedingungen, zeichneBriefpapier };

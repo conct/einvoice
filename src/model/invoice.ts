@@ -1,4 +1,6 @@
 import { z } from 'zod';
+
+import { SkontostufeSchema } from './skonto';
 import { isIsoDate } from '../util/date';
 
 const isoDate = z.string().refine(isIsoDate, { message: 'Datum muss YYYY-MM-DD sein' });
@@ -145,6 +147,14 @@ export const PaymentSchema = z.object({
   creditorIdentifier: z.string().trim().optional(),
   /** BT-20 Zahlungsbedingungen im Klartext */
   terms: z.string().trim().optional(),
+  /**
+   * Skonto, strukturiert. Mehrere Stufen sind moeglich.
+   *
+   * Steht im Dokument nicht in einem eigenen Feld - EN 16931 hat keines -,
+   * sondern in der Schreibweise der XRechnung innerhalb von BT-20. Erzeugt und
+   * gelesen wird sie in model/skonto.ts; `terms` behaelt den freien Text.
+   */
+  skonto: z.array(SkontostufeSchema).optional(),
 });
 export type Payment = z.infer<typeof PaymentSchema>;
 

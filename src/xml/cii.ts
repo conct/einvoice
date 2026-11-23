@@ -1,3 +1,4 @@
+import { zahlungsbedingungen } from '../model/skonto';
 import type { AllowanceCharge, Invoice, Line, Party } from '../model/invoice';
 import { computeTotals, type InvoiceTotals } from '../model/totals';
 import { activeSpecifications } from '../model/specifications';
@@ -215,9 +216,13 @@ export function buildCii(invoice: Invoice, options: CiiOptions = {}): string {
       writeAllowanceCharge(x, ac);
     }
 
-    if (invoice.payment?.terms || invoice.dueDate || invoice.payment?.mandateReference) {
+    const bedingungen = zahlungsbedingungen({
+      terms: invoice.payment?.terms,
+      skonto: invoice.payment?.skonto,
+    });
+    if (bedingungen || invoice.dueDate || invoice.payment?.mandateReference) {
       x.element('ram:SpecifiedTradePaymentTerms', undefined, (t) => {
-        t.leaf('ram:Description', invoice.payment?.terms);
+        t.leaf('ram:Description', bedingungen);
         dateElement(t, 'ram:DueDateDateTime', invoice.dueDate);
         t.leaf('ram:DirectDebitMandateID', invoice.payment?.mandateReference);
       });

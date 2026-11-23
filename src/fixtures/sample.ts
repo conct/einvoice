@@ -125,6 +125,32 @@ export function sampleInvoice(profile: InvoiceProfile = 'zugferd-en16931'): Invo
   });
 }
 
+/**
+ * Rechnung mit zwei Skontostufen - 10 Tage 3 %, 20 Tage 1,5 % auf einen
+ * Teilbetrag.
+ *
+ * Die zweite Stufe traegt absichtlich einen Basisbetrag: Fracht und Montage
+ * sind nach vielen Einkaufsbedingungen nicht skontierfaehig, und genau dieser
+ * Fall unterscheidet eine brauchbare Umsetzung von einer, die nur einen
+ * Prozentsatz kennt. Mitgeprueft wird sie in den Validierungslaeufen von
+ * rechnungswerk, damit die Schreibweise der XRechnung nachweisbar durchgeht.
+ */
+export function skontoInvoice(profile: InvoiceProfile = 'zugferd-en16931'): Invoice {
+  const grund = sampleInvoice(profile);
+  return parseInvoice({
+    ...grund,
+    number: 'RE-2026-0043',
+    payment: {
+      ...grund.payment,
+      terms: 'Zahlbar ohne Abzug bis zum Fälligkeitstag.',
+      skonto: [
+        { tage: 10, prozent: 3 },
+        { tage: 20, prozent: 1.5, basisbetrag: 5000 },
+      ],
+    },
+  });
+}
+
 /** Kleinstmoegliche gueltige Rechnung, fuer Grenzfalltests */
 export function minimalInvoice(): Invoice {
   return parseInvoice({

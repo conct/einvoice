@@ -15,6 +15,7 @@ import {
   type RGB,
 } from 'pdf-lib';
 import { gekernteBreite, zeichneGekernt } from './kerning';
+import { skontosatz } from '../model/skonto';
 import type { Invoice, Party } from '../model/invoice';
 import type { InvoiceTotals } from '../model/totals';
 import { formatAmount, formatQuantity } from '../util/money';
@@ -1564,8 +1565,25 @@ function drawPaymentBlock(
   const payment = invoice.payment;
   const lines: string[] = [];
   if (!ctx.zahlungszielImBriefpapier) {
+    /*
+     * Skonto als Satz, nicht als Code.
+     *
+     * Im XML steht die Schreibweise der XRechnung - #SKONTO#TAGE=14#... -,
+     * weil sie dort gelesen wird. Auf dem Blatt steht derselbe Inhalt in
+     * Worten, mit ausgerechnetem Abzug: Niemand rechnet zwei Prozent im Kopf,
+     * und wer sie falsch rechnet, zahlt falsch.
+     */
+    const skonto = payment?.skonto?.length
+      ? skontosatz(payment.skonto, {
+          rechnungsdatum: invoice.issueDate,
+          zahlbetrag: totals.duePayable,
+          waehrung: ctx.waehrungswort ?? invoice.currency,
+          faelligAm: invoice.dueDate,
+        })
+      : undefined;
+    if (skonto) lines.push(skonto);
     if (payment?.terms) lines.push(payment.terms);
-    else if (invoice.dueDate) {
+    else if (!skonto && invoice.dueDate) {
       lines.push(
         `Zahlbar ohne Abzug bis zum ${formatDate(invoice.dueDate)} auf das unten genannte Konto.`,
       );
