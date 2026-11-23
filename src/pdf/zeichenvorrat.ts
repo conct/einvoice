@@ -82,6 +82,23 @@ export class Zeichenpruefung {
       .reduce((a, b) => new Set([...a].filter((zeichen) => b.has(zeichen))));
   }
 
+  /**
+   * Kann die Schrift diesen Text zeichnen?
+   *
+   * Fragt, statt zu melden - fuer Stellen, an denen es eine Ausweichmoeglichkeit
+   * gibt. Das Waehrungszeichen ist der Fall, fuer den das hier steht: Kennt die
+   * eingebettete Schrift kein "zł", wird der Code "PLN" gesetzt, statt die
+   * Rechnung an einem Zeichen scheitern zu lassen, das nur die Anzeige betrifft.
+   */
+  kennt(text: string): boolean {
+    for (const zeichen of text) {
+      const nummer = zeichen.codePointAt(0);
+      if (nummer === undefined) continue;
+      if (!this.vorrat.has(nummer)) return false;
+    }
+    return true;
+  }
+
   /** Merkt sich jedes Zeichen des Textes, das die Schrift nicht kennt. */
   pruefe(text: string): void {
     for (const zeichen of text) {

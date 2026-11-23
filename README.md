@@ -11,6 +11,7 @@ dasselbe tut: in Node, im Browser und in React Native.
 - **Empfang**: Anhänge aus einem hybriden PDF holen, XML einlesen, Summen
   nachrechnen, statt sie zu glauben
 - **Skonto** in der Schreibweise der XRechnung, mehrstufig
+- **Fremdwährungen** samt Steuerbetrag in der Meldewährung (BT-6, BT-111)
 - **Briefbogen zeichnen**: Wer einen Bogen beschreibt — Farben, Striche,
   Textläufe —, bekommt ihn unter jeder Seite gesetzt
 - **Text und Breiten** aus einem PDF lesen, als Handwerkszeug für eigene Leser
@@ -22,7 +23,7 @@ deshalb läuft derselbe Code in der App und auf dem Server.
 ## Einbinden
 
 ```bash
-npm install github:conct/einvoice#v4.1.0
+npm install github:conct/einvoice#v4.2.0
 ```
 
 Keine Registry im Spiel, und **`dist/` liegt im Repository** — Installieren
@@ -30,7 +31,7 @@ heißt klonen, nicht bauen. Ohne SSH-Schlüssel auf dem Rechner geht es über
 HTTPS:
 
 ```bash
-npm install git+https://github.com/conct/einvoice.git#v4.1.0
+npm install git+https://github.com/conct/einvoice.git#v4.2.0
 ```
 
 Der erste Versuch ging den üblichen Weg: `prepare` baut beim Installieren.
@@ -117,6 +118,57 @@ denn die Summen müssen ohne Bedingung stimmen. Nutzt der Empfänger den Abzug,
 mindert das die Bemessungsgrundlage nachträglich (§ 17 UStG) — ein Vorgang in
 der Buchhaltung, kein Feld in diesem Dokument.
 
+## Währung
+
+`currency` nimmt jeden Code nach ISO 4217; gerechnet und geschrieben wird
+damit durchgehend. Zwei Dinge sind dabei zu wissen.
+
+**Die Steuer in einer zweiten Währung.** Wer in Franken abrechnet, die
+Umsatzsteuer aber in Euro meldet, setzt beides:
+
+```ts
+currency: 'CHF',
+vatAccountingCurrency: 'EUR',          // BT-6
+vatTotalInAccountingCurrency: 1880.52, // BT-111
+```
+
+Umgerechnet wird hier nichts — welcher Kurs gilt, ist eine Entscheidung, keine
+Rechnung. Beide Felder gehören zusammen: `validateInvoice` meldet BT-6 ohne
+BT-111 als Fehler, denn genau daran scheitert sonst **BR-53** beim Prüfer. Im
+CII steht BT-6 zwingend **vor** BT-5 und der Steuerbetrag zweimal, je Währung
+einmal; in UBL kommt ein zweiter `cac:TaxTotal` ohne Aufschlüsselung dazu. Das
+klingt nach Kleinigkeit und ist der Unterschied zwischen gültig und
+zurückgewiesen.
+
+Ob der Steuerbetrag bei einer Fremdwährungsrechnung **zusätzlich in Euro**
+auszuweisen ist, sagt diese Bibliothek nicht: § 14 UStG, der die
+Pflichtangaben aufzählt, enthält keine Währungsregel (im Gesetzestext
+nachgelesen), und der Prüfer der KoSIT nimmt eine XRechnung in Franken ohne
+BT-6/BT-111 an. `validateInvoice` gibt deshalb einen **Hinweis** statt eines
+Fehlers und verweist auf den Steuerberater.
+
+**Kode oder Zeichen auf dem Blatt.** Vorgabe ist der Code; `'symbol'` setzt das
+Zeichen im ganzen Dokument — Positionen, Summen, Skontosatz, Lastschriftsatz:
+
+```ts
+await renderZugferdPdf(rechnung, { assets, waehrungsdarstellung: 'symbol' });
+```
+
+Im XML steht immer der Code (BT-5); ein Empfänger, der „€" einliest, weiß
+nicht, ob EUR gemeint war. Drei Dinge entscheiden mit:
+
+- Ein **Währungswort aus einem übernommenen Briefbogen** hat Vorrang — es ist
+  gemessen, nicht geraten.
+- Nicht jede Währung bekommt ein Zeichen. CHF, SEK, DKK, NOK, ISK, CAD, AUD
+  und NZD behalten den Code, weil „Fr.", „kr" und „$" zu wenig sagen.
+- Das Zeichen muss die **eingebettete Schrift** kennen. Von den zwanzig
+  hinterlegten Zeichen kennen die mitgelieferten Inter-Teilmengen achtzehn;
+  `฿` (THB) und `лв` (BGN) fehlen, dort bleibt der Code stehen. Nachsehen mit
+  `npm run zeichen`.
+
+Wo ausgewichen wurde, steht in `RenderResult.befunde` — ein unsichtbares
+Währungszeichen unter einem Betrag wäre schlimmer als „THB".
+
 ## Was hier **nicht** liegt
 
 **Die Übernahme aus fremden Dokumenten.** Eine vorhandene Rechnung
@@ -143,7 +195,7 @@ Vergleichsläufe gegen fremde Rechnungen bleiben in
 Prüfregelsätze und etliche Megabyte Testbestand dran. Wer an der Ausgabe
 dieses Pakets etwas ändert, prüft dort nach.
 
-Mitgekommen ist nur, was ohne Zubehör läuft: 98 Tests über 10 Dateien, die
+Mitgekommen ist nur, was ohne Zubehör läuft: 113 Tests über 11 Dateien, die
 jeden Weg einmal gehen, und `npm run probe` — eine Rechnung durch XML, PDF,
 Anhang und zurück ins Modell, gegen das **gebaute** Paket.
 
@@ -151,9 +203,10 @@ Anhang und zurück ins Modell, gegen das **gebaute** Paket.
 
 ```bash
 npm install
-npm test          # vitest, 98 Tests
+npm test          # vitest, 113 Tests
 npm run typecheck # zwei Durchgänge, siehe unten
 npm run build     # tsup -> dist/ (ESM + Typdeklarationen)
+npm run zeichen   # welche Waehrungszeichen die Schrift kennt
 npm run probe     # die gebaute Fassung in nacktem Node
 ```
 

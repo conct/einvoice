@@ -204,6 +204,22 @@ export const InvoiceSchema = z.object({
   periodEnd: isoDate.optional(),
   /** BT-5 Waehrung nach ISO 4217 */
   currency: z.string().trim().length(3).toUpperCase().default('EUR'),
+  /**
+   * BT-6 Waehrung, in der die Umsatzsteuer gemeldet wird.
+   *
+   * Nur noetig, wenn sie von BT-5 abweicht - eine Rechnung in Franken, deren
+   * Steuer in Euro angemeldet wird, traegt hier EUR. Wer das setzt, muss auch
+   * `vatTotalInAccountingCurrency` setzen; das verlangt BR-53 der EN 16931,
+   * und der Pruefer der KoSIT setzt es durch.
+   *
+   * Umgerechnet wird hier nichts: Der Kurs ist eine Entscheidung, keine
+   * Rechnung. Welcher Kurs gilt - Tageskurs, Monatsdurchschnitt nach
+   * Paragraf 16 Abs. 6 UStG -, gehoert zum Steuerberater, nicht in eine
+   * Bibliothek.
+   */
+  vatAccountingCurrency: z.string().trim().length(3).toUpperCase().optional(),
+  /** BT-111 Gesamtbetrag der Umsatzsteuer in der Waehrung aus BT-6 */
+  vatTotalInAccountingCurrency: amount.optional(),
   /** BT-10 Kaeuferreferenz - bei XRechnung die Leitweg-ID und Pflichtfeld */
   buyerReference: z.string().trim().optional(),
   /** BT-13 Bestellnummer des Kaeufers */

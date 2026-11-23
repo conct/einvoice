@@ -1,6 +1,6 @@
 import {
   parseInvoice
-} from "../chunk-X5F3UT6I.js";
+} from "../chunk-EEQN7LZ3.js";
 
 // src/fixtures/sample.ts
 function sampleInvoice(profile = "zugferd-en16931") {
@@ -136,6 +136,16 @@ function skontoInvoice(profile = "zugferd-en16931") {
     }
   });
 }
+function fremdwaehrungInvoice(profile = "zugferd-en16931") {
+  const grund = sampleInvoice(profile);
+  return parseInvoice({
+    ...grund,
+    number: "RE-2026-0044",
+    currency: "CHF",
+    vatAccountingCurrency: "EUR",
+    vatTotalInAccountingCurrency: 1880.52
+  });
+}
 function minimalInvoice() {
   return parseInvoice({
     number: "RE-1",
@@ -200,6 +210,7 @@ function smallBusinessInvoice() {
   });
 }
 export {
+  fremdwaehrungInvoice,
   minimalInvoice,
   sampleInvoice,
   skontoInvoice,

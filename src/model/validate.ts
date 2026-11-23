@@ -41,6 +41,63 @@ export function validateInvoice(invoice: Invoice): ValidationResult {
     add('BR-16', 'error', 'lines', 'Die Rechnung enthält keine Position.');
   }
 
+  /*
+   * Fremdwaehrung: BT-6 und BT-111 gehoeren zusammen.
+   *
+   * BR-53 der EN 16931 verlangt den Steuerbetrag in der Meldewaehrung, sobald
+   * eine Meldewaehrung genannt ist - der Pruefer der KoSIT setzt das durch
+   * (nachgemessen am 23.11.2026). Umgekehrt ist ein Betrag ohne Waehrung
+   * sinnlos: Niemand weiss, worin er gemeint ist.
+   */
+  if (invoice.vatAccountingCurrency && invoice.vatTotalInAccountingCurrency === undefined) {
+    add(
+      'BR-53',
+      'error',
+      'vatTotalInAccountingCurrency',
+      'Mit einer Meldewaehrung (BT-6) muss der Steuerbetrag in dieser Waehrung angegeben werden (BT-111).',
+    );
+  }
+  if (invoice.vatTotalInAccountingCurrency !== undefined && !invoice.vatAccountingCurrency) {
+    add(
+      'BR-53',
+      'error',
+      'vatAccountingCurrency',
+      'Zum Steuerbetrag in der Meldewaehrung (BT-111) fehlt die Waehrung selbst (BT-6).',
+    );
+  }
+  if (
+    invoice.vatAccountingCurrency &&
+    invoice.vatAccountingCurrency === invoice.currency
+  ) {
+    add(
+      'BR-53',
+      'warning',
+      'vatAccountingCurrency',
+      'Die Meldewaehrung entspricht der Rechnungswaehrung - dann ist BT-6 ueberfluessig.',
+    );
+  }
+  /*
+   * Rechnung in Fremdwaehrung, Steuer ausgewiesen, aber keine Angabe in Euro.
+   *
+   * Als Hinweis, nicht als Fehler, und zwar aus Vorsicht: Der Pruefer der
+   * KoSIT nimmt eine XRechnung in Franken ohne BT-6/BT-111 an - nachgemessen
+   * am 23.11.2026. Und Paragraf 14 UStG, der die Pflichtangaben einer Rechnung
+   * aufzaehlt, nennt keine Waehrungsregel; nachgelesen im Gesetzestext, nicht
+   * aus dem Gedaechtnis. Ob der Steuerbetrag zusaetzlich in Euro auszuweisen
+   * ist und mit welchem Kurs (Paragraf 16 Abs. 6 UStG), gehoert zum
+   * Steuerberater. Die Bibliothek bietet die Felder an und sagt, dass es sie
+   * gibt - mehr darf sie hier nicht behaupten.
+   */
+  if (invoice.currency !== 'EUR' && !invoice.vatAccountingCurrency && computeTotals(invoice).taxTotal !== 0) {
+    add(
+      'BT-6',
+      'warning',
+      'vatAccountingCurrency',
+      `Die Rechnung lautet auf ${invoice.currency} und weist Umsatzsteuer aus. Ob der Steuerbetrag ` +
+        'zusaetzlich in Euro anzugeben ist (BT-6 und BT-111), klaert der Steuerberater.',
+    );
+  }
+
   const ALLOWED_TYPE_CODES = ['326', '380', '381', '384', '386', '389', '875', '876', '877'];
   if (!ALLOWED_TYPE_CODES.includes(invoice.typeCode)) {
     add('BR-DE-17', 'error', 'typeCode', `Rechnungstyp ${invoice.typeCode} ist nicht zugelassen.`);

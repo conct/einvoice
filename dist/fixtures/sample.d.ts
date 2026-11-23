@@ -1,4 +1,4 @@
-import { I as Invoice, a as InvoiceProfile } from '../invoice-B_nrTePh.js';
+import { I as InvoiceProfile, a as Invoice } from '../invoice-Diu1WYJB.js';
 import 'zod';
 
 /**
@@ -19,9 +19,22 @@ declare function sampleInvoice(profile?: InvoiceProfile): Invoice;
  * rechnungswerk, damit die Schreibweise der XRechnung nachweisbar durchgeht.
  */
 declare function skontoInvoice(profile?: InvoiceProfile): Invoice;
+/**
+ * Rechnung in Franken, mit der Umsatzsteuer zusaetzlich in Euro.
+ *
+ * Der Fall, an dem zwei Dinge haengen, die man sonst erst beim Empfaenger
+ * merkt: Im CII muss BT-6 VOR BT-5 stehen, sonst ist das Dokument nicht
+ * schema-gueltig, und BR-53 verlangt zu BT-6 auch BT-111. Der Pruefer der
+ * KoSIT setzt beides durch - deshalb laeuft dieser Beleg in jedem
+ * Validierungslauf von rechnungswerk mit.
+ *
+ * Der Betrag in Euro ist frei gewaehlt: Welcher Kurs gilt, entscheidet nicht
+ * die Bibliothek.
+ */
+declare function fremdwaehrungInvoice(profile?: InvoiceProfile): Invoice;
 /** Kleinstmoegliche gueltige Rechnung, fuer Grenzfalltests */
 declare function minimalInvoice(): Invoice;
 /** Kleinunternehmerrechnung nach Paragraf 19 UStG, ohne Steuerausweis */
 declare function smallBusinessInvoice(): Invoice;
 
-export { minimalInvoice, sampleInvoice, skontoInvoice, smallBusinessInvoice };
+export { fremdwaehrungInvoice, minimalInvoice, sampleInvoice, skontoInvoice, smallBusinessInvoice };

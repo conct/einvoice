@@ -581,6 +581,22 @@ declare const InvoiceSchema: z.ZodObject<{
     periodEnd: z.ZodOptional<z.ZodEffects<z.ZodString, string, string>>;
     /** BT-5 Waehrung nach ISO 4217 */
     currency: z.ZodDefault<z.ZodString>;
+    /**
+     * BT-6 Waehrung, in der die Umsatzsteuer gemeldet wird.
+     *
+     * Nur noetig, wenn sie von BT-5 abweicht - eine Rechnung in Franken, deren
+     * Steuer in Euro angemeldet wird, traegt hier EUR. Wer das setzt, muss auch
+     * `vatTotalInAccountingCurrency` setzen; das verlangt BR-53 der EN 16931,
+     * und der Pruefer der KoSIT setzt es durch.
+     *
+     * Umgerechnet wird hier nichts: Der Kurs ist eine Entscheidung, keine
+     * Rechnung. Welcher Kurs gilt - Tageskurs, Monatsdurchschnitt nach
+     * Paragraf 16 Abs. 6 UStG -, gehoert zum Steuerberater, nicht in eine
+     * Bibliothek.
+     */
+    vatAccountingCurrency: z.ZodOptional<z.ZodString>;
+    /** BT-111 Gesamtbetrag der Umsatzsteuer in der Waehrung aus BT-6 */
+    vatTotalInAccountingCurrency: z.ZodOptional<z.ZodNumber>;
     /** BT-10 Kaeuferreferenz - bei XRechnung die Leitweg-ID und Pflichtfeld */
     buyerReference: z.ZodOptional<z.ZodString>;
     /** BT-13 Bestellnummer des Kaeufers */
@@ -1496,6 +1512,8 @@ declare const InvoiceSchema: z.ZodObject<{
     deliveryDate?: string | undefined;
     periodStart?: string | undefined;
     periodEnd?: string | undefined;
+    vatAccountingCurrency?: string | undefined;
+    vatTotalInAccountingCurrency?: number | undefined;
     buyerReference?: string | undefined;
     orderReference?: string | undefined;
     contractReference?: string | undefined;
@@ -1656,6 +1674,8 @@ declare const InvoiceSchema: z.ZodObject<{
     periodStart?: string | undefined;
     periodEnd?: string | undefined;
     currency?: string | undefined;
+    vatAccountingCurrency?: string | undefined;
+    vatTotalInAccountingCurrency?: number | undefined;
     buyerReference?: string | undefined;
     orderReference?: string | undefined;
     contractReference?: string | undefined;
@@ -1751,4 +1771,4 @@ type InvoiceInput = z.input<typeof InvoiceSchema>;
 /** Validiert die Struktur und ergaenzt Defaults. Wirft bei Strukturfehlern. */
 declare function parseInvoice(input: InvoiceInput): Invoice;
 
-export { type Address as A, ContactSchema as C, ElectronicAddressSchema as E, type Invoice as I, type Line as L, type Party as P, type Vat as V, type InvoiceProfile as a, type InvoiceInput as b, AddressSchema as c, type AllowanceCharge as d, AllowanceChargeSchema as e, type Attachment as f, AttachmentSchema as g, InvoiceProfileSchema as h, InvoiceSchema as i, LineSchema as j, PartySchema as k, type Payment as l, PaymentSchema as m, VatSchema as n, parseInvoice as p };
+export { type Address as A, ContactSchema as C, ElectronicAddressSchema as E, type InvoiceProfile as I, type Line as L, type Party as P, type Vat as V, type Invoice as a, type InvoiceInput as b, AddressSchema as c, type AllowanceCharge as d, AllowanceChargeSchema as e, type Attachment as f, AttachmentSchema as g, InvoiceProfileSchema as h, InvoiceSchema as i, LineSchema as j, PartySchema as k, type Payment as l, PaymentSchema as m, VatSchema as n, parseInvoice as p };

@@ -130,6 +130,11 @@ function parseCii(root: Node): ParsedInvoice {
     periodStart: ciiDate(obj(obj(settlement.BillingSpecifiedPeriod).StartDateTime).DateTimeString),
     periodEnd: ciiDate(obj(obj(settlement.BillingSpecifiedPeriod).EndDateTime).DateTimeString),
     currency: text(settlement.InvoiceCurrencyCode) ?? 'EUR',
+    vatAccountingCurrency: text(settlement.TaxCurrencyCode),
+    vatTotalInAccountingCurrency: betragZurWaehrung(
+      summation.TaxTotalAmount,
+      text(settlement.TaxCurrencyCode),
+    ),
     buyerReference: text(agreement.BuyerReference),
     orderReference: text(obj(agreement.BuyerOrderReferencedDocument).IssuerAssignedID),
     sellerOrderReference: text(obj(agreement.SellerOrderReferencedDocument).IssuerAssignedID),
@@ -172,7 +177,7 @@ function parseCii(root: Node): ParsedInvoice {
   const declaredTotals: DeclaredTotals = {
     lineTotal: num(summation.LineTotalAmount),
     taxBasisTotal: num(summation.TaxBasisTotalAmount),
-    taxTotal: num(summation.TaxTotalAmount),
+    taxTotal: betragMitVorgabe(summation.TaxTotalAmount, text(settlement.InvoiceCurrencyCode)),
     grandTotal: num(summation.GrandTotalAmount),
     paidAmount: num(summation.TotalPrepaidAmount),
     duePayable: num(summation.DuePayableAmount),
@@ -323,6 +328,21 @@ function parseUbl(root: Node, isCreditNote: boolean): ParsedInvoice {
     periodStart: text(obj(root.InvoicePeriod).StartDate),
     periodEnd: text(obj(root.InvoicePeriod).EndDate),
     currency: text(root.DocumentCurrencyCode) ?? 'EUR',
+    vatAccountingCurrency: text(root.TaxCurrencyCode),
+    /*
+     * In UBL steht BT-111 in einem zweiten cac:TaxTotal, das nur den Betrag
+     * traegt. Gesucht wird es an der Waehrung, nicht an der Stelle - die
+     * Reihenfolge schreibt die Norm nicht fest.
+     */
+    vatTotalInAccountingCurrency: (() => {
+      const meldewaehrung = text(root.TaxCurrencyCode);
+      if (!meldewaehrung) return undefined;
+      for (const block of list(root.TaxTotal).map(obj)) {
+        const gefunden = betragZurWaehrung(block.TaxAmount, meldewaehrung);
+        if (gefunden !== undefined) return gefunden;
+      }
+      return undefined;
+    })(),
     buyerReference: text(root.BuyerReference),
     orderReference: text(obj(root.OrderReference).ID),
     sellerOrderReference: text(obj(root.OrderReference).SalesOrderID),
@@ -479,6 +499,30 @@ function num(value: unknown): number | undefined {
   if (raw === undefined) return undefined;
   const parsed = Number(raw.replace(',', '.'));
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+/**
+ * Der Betrag zu einer bestimmten Waehrung.
+ *
+ * CII fuehrt ram:TaxTotalAmount zweimal, wenn die Steuer in einer anderen
+ * Waehrung gemeldet wird (BT-111), und unterscheidet die beiden nur am
+ * currencyID. Ohne diese Auswahl liest `num` auf einer Liste gar nichts - der
+ * Steuerbetrag waere dann weg, sobald BT-111 im Dokument steht.
+ */
+function betragZurWaehrung(value: unknown, waehrung: string | undefined): number | undefined {
+  if (!waehrung) return undefined;
+  for (const eintrag of list(value)) {
+    if (attr(eintrag, 'currencyID') === waehrung) return num(eintrag);
+  }
+  return undefined;
+}
+
+/** Wie oben, faellt aber auf den ersten Eintrag zurueck. */
+function betragMitVorgabe(value: unknown, waehrung: string | undefined): number | undefined {
+  const gefunden = betragZurWaehrung(value, waehrung);
+  if (gefunden !== undefined) return gefunden;
+  const eintraege = list(value);
+  return eintraege.length > 0 ? num(eintraege[0]) : num(value);
 }
 
 function attr(value: unknown, name: string): string | undefined {

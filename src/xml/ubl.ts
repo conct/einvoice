@@ -51,6 +51,7 @@ export function buildUbl(invoice: Invoice, options: UblOptions = {}): string {
   for (const note of invoice.notes) w.leaf('cbc:Note', note.text);
   w.leaf('cbc:TaxPointDate', invoice.deliveryDate);
   w.leaf('cbc:DocumentCurrencyCode', currency);
+  w.leaf('cbc:TaxCurrencyCode', invoice.vatAccountingCurrency);
   w.leaf('cbc:BuyerReference', invoice.buyerReference);
 
   if (invoice.periodStart && invoice.periodEnd) {
@@ -186,6 +187,20 @@ export function buildUbl(invoice: Invoice, options: UblOptions = {}): string {
       });
     }
   });
+
+  /*
+   * BT-111 in UBL: ein ZWEITES cac:TaxTotal, das nur den Steuerbetrag in der
+   * Meldewaehrung traegt - ohne TaxSubtotal. Die Aufschluesselung steht schon
+   * im ersten Block; sie hier zu wiederholen waere nicht nur ueberfluessig,
+   * sondern falsch, weil die Saetze sich nicht auf diese Waehrung beziehen.
+   */
+  const steuerInMeldewaehrung = invoice.vatTotalInAccountingCurrency;
+  if (invoice.vatAccountingCurrency && steuerInMeldewaehrung !== undefined) {
+    const meldewaehrung = invoice.vatAccountingCurrency;
+    w.element('cac:TaxTotal', undefined, (x) =>
+      x.leaf('cbc:TaxAmount', decimal(steuerInMeldewaehrung), { currencyID: meldewaehrung }),
+    );
+  }
 
   w.element('cac:LegalMonetaryTotal', undefined, (x) => {
     x.leaf('cbc:LineExtensionAmount', decimal(totals.lineTotal), cur);

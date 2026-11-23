@@ -151,6 +151,29 @@ export function skontoInvoice(profile: InvoiceProfile = 'zugferd-en16931'): Invo
   });
 }
 
+/**
+ * Rechnung in Franken, mit der Umsatzsteuer zusaetzlich in Euro.
+ *
+ * Der Fall, an dem zwei Dinge haengen, die man sonst erst beim Empfaenger
+ * merkt: Im CII muss BT-6 VOR BT-5 stehen, sonst ist das Dokument nicht
+ * schema-gueltig, und BR-53 verlangt zu BT-6 auch BT-111. Der Pruefer der
+ * KoSIT setzt beides durch - deshalb laeuft dieser Beleg in jedem
+ * Validierungslauf von rechnungswerk mit.
+ *
+ * Der Betrag in Euro ist frei gewaehlt: Welcher Kurs gilt, entscheidet nicht
+ * die Bibliothek.
+ */
+export function fremdwaehrungInvoice(profile: InvoiceProfile = 'zugferd-en16931'): Invoice {
+  const grund = sampleInvoice(profile);
+  return parseInvoice({
+    ...grund,
+    number: 'RE-2026-0044',
+    currency: 'CHF',
+    vatAccountingCurrency: 'EUR',
+    vatTotalInAccountingCurrency: 1880.52,
+  });
+}
+
 /** Kleinstmoegliche gueltige Rechnung, fuer Grenzfalltests */
 export function minimalInvoice(): Invoice {
   return parseInvoice({

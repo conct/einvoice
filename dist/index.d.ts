@@ -1,5 +1,5 @@
-import { V as Vat, I as Invoice, L as Line, b as InvoiceInput } from './invoice-B_nrTePh.js';
-export { A as Address, c as AddressSchema, d as AllowanceCharge, e as AllowanceChargeSchema, f as Attachment, g as AttachmentSchema, C as ContactSchema, E as ElectronicAddressSchema, a as InvoiceProfile, h as InvoiceProfileSchema, i as InvoiceSchema, j as LineSchema, P as Party, k as PartySchema, l as Payment, m as PaymentSchema, n as VatSchema, p as parseInvoice } from './invoice-B_nrTePh.js';
+import { V as Vat, a as Invoice, L as Line, b as InvoiceInput } from './invoice-Diu1WYJB.js';
+export { A as Address, c as AddressSchema, d as AllowanceCharge, e as AllowanceChargeSchema, f as Attachment, g as AttachmentSchema, C as ContactSchema, E as ElectronicAddressSchema, I as InvoiceProfile, h as InvoiceProfileSchema, i as InvoiceSchema, j as LineSchema, P as Party, k as PartySchema, l as Payment, m as PaymentSchema, n as VatSchema, p as parseInvoice } from './invoice-Diu1WYJB.js';
 import { z } from 'zod';
 import { RGB, PDFFont, rgb, PDFDocument, PDFPage } from 'pdf-lib';
 
@@ -191,6 +191,41 @@ declare function summarizeTotals(totals: InvoiceTotals): string;
  * andere Befreiungen und andere Zielgruppen.
  */
 declare function istKleinunternehmerRechnung(invoice: Invoice): boolean;
+
+/**
+ * Waehrungszeichen fuer die Anzeige - und nur dafuer.
+ *
+ * Im XML steht immer der Code nach ISO 4217 (BT-5). Das Zeichen ist eine
+ * Frage der Darstellung auf dem Blatt und hat in den Daten nichts verloren:
+ * Ein Empfaenger, der "€" einliest, weiss nicht, ob EUR gemeint war.
+ *
+ * ## Warum hier nicht jede Waehrung ein Zeichen bekommt
+ *
+ * Ein Zeichen taugt nur, wenn es **eindeutig** ist. "kr" steht in Daenemark,
+ * Schweden, Norwegen und Island fuer vier verschiedene Waehrungen; "$" fuer
+ * mindestens zwanzig. Auf einer Rechnung, die ueber die Grenze geht, ist der
+ * Code dann die bessere Angabe - und deshalb bleibt er dort stehen.
+ *
+ * Aufgenommen ist, was im deutschsprachigen Zahlungsverkehr ueblich und
+ * unverwechselbar ist. Fehlt eine Waehrung hier, ist das kein Mangel, sondern
+ * die Entscheidung, lieber "SEK 1.200,00" zu schreiben als "kr 1.200,00".
+ */
+/**
+ * Das uebliche Zeichen zur Waehrung, oder nichts.
+ *
+ * Nichts heisst: Es gibt keins, oder es waere mehrdeutig. CHF, SEK, DKK, NOK,
+ * ISK, CAD, AUD und NZD stehen deshalb bewusst nicht in der Liste - "Fr.",
+ * "kr" und "$" sagen zu wenig.
+ */
+declare function waehrungszeichen(code: string): string | undefined;
+/**
+ * Wie die Waehrung auf dem Blatt erscheinen soll.
+ *
+ * `'code'` schreibt EUR, `'symbol'` schreibt €. Die Vorgabe bleibt der Code:
+ * Er ist in jeder Schrift darstellbar, eindeutig, und so sehen bereits
+ * erzeugte Rechnungen unveraendert aus.
+ */
+type Waehrungsdarstellung = 'code' | 'symbol';
 
 /**
  * Datumsangaben werden durchgaengig als ISO-Kalendertag "YYYY-MM-DD" gehalten.
@@ -1042,6 +1077,28 @@ interface RenderOptions {
     pdfaConformance?: 'B' | 'U';
     /** Dateiname der eingebetteten Rechnung, ZUGFeRD 2.x erwartet factur-x.xml */
     attachmentName?: string;
+    /**
+     * Waehrung als ISO-Kode oder als Zeichen - "EUR 119,00" oder "€ 119,00".
+     *
+     * Betrifft nur das Blatt. Im XML steht immer der Kode; ein Empfaenger, der
+     * "€" einliest, weiss nicht, ob EUR gemeint war.
+     *
+     * Die Vorgabe bleibt `'code'`, damit bereits erzeugte Rechnungen unveraendert
+     * aussehen. Mit `'symbol'` erscheint das Zeichen im ganzen Dokument -
+     * Positionszeilen, Summenblock, Skontosatz, Lastschriftsatz.
+     *
+     * Drei Dinge entscheiden mit:
+     *
+     * 1. Ein **Waehrungswort aus dem Briefbogen** hat Vorrang. Es ist gemessen,
+     *    nicht geraten - wer seine Vorlage uebernimmt, will deren Schreibweise.
+     * 2. Nicht jede Waehrung hat ein eindeutiges Zeichen. CHF, SEK, DKK und
+     *    "$"-Waehrungen behalten den Kode, siehe model/waehrung.ts.
+     * 3. Das Zeichen muss in der **eingebetteten Schrift** vorkommen. Tut es das
+     *    nicht, steht der Kode auf dem Blatt und der Grund in
+     *    `RenderResult.befunde` - eine Rechnung soll nicht an einem Zeichen
+     *    scheitern, das nur die Anzeige betrifft.
+     */
+    waehrungsdarstellung?: Waehrungsdarstellung;
     theme?: Theme;
     footerNote?: string;
     /**
@@ -1160,6 +1217,18 @@ interface RenderResult {
     pdf: Uint8Array;
     xml: string;
     totals: InvoiceTotals;
+    /**
+     * Was beim Setzen auffiel, ohne das Dokument unbrauchbar zu machen.
+     *
+     * Steht nur da, wenn es etwas zu sagen gibt. Bisher genau ein Fall: Das
+     * gewuenschte Waehrungszeichen fehlt in der eingebetteten Schrift, deshalb
+     * steht der ISO-Kode auf dem Blatt.
+     *
+     * Heisst nicht "hinweise", weil das in den Optionen schon den Hinweisblock
+     * der Rechnung bezeichnet - zwei Bedeutungen in einer Datei waere eine
+     * Falle.
+     */
+    befunde?: string[];
 }
 declare function renderZugferdPdf(invoice: Invoice, options: RenderOptions): Promise<RenderResult>;
 
@@ -1190,6 +1259,29 @@ declare class ZeichenvorratFehler extends Error {
 }
 /** Entfernt genau diese Zeichen aus einem Text. */
 declare function ohneUnsichtbare(text: string): string;
+/** Sammelt die Zeichen, die in keiner der uebergebenen Schriften vorkommen. */
+declare class Zeichenpruefung {
+    private readonly vorrat;
+    private readonly fehlend;
+    constructor(schriften: Uint8Array[]);
+    /**
+     * Kann die Schrift diesen Text zeichnen?
+     *
+     * Fragt, statt zu melden - fuer Stellen, an denen es eine Ausweichmoeglichkeit
+     * gibt. Das Waehrungszeichen ist der Fall, fuer den das hier steht: Kennt die
+     * eingebettete Schrift kein "zł", wird der Code "PLN" gesetzt, statt die
+     * Rechnung an einem Zeichen scheitern zu lassen, das nur die Anzeige betrifft.
+     */
+    kennt(text: string): boolean;
+    /** Merkt sich jedes Zeichen des Textes, das die Schrift nicht kennt. */
+    pruefe(text: string): void;
+    /**
+     * Bricht ab, wenn Zeichen fehlen - mit allen auf einmal, nicht mit dem
+     * ersten. Wer einen Kundenstamm einliest, will nicht zehnmal nacheinander
+     * erfahren, dass noch ein Zeichen fehlt.
+     */
+    wirfBeiLuecken(): void;
+}
 
 /**
  * Gestaltung der Rechnung, soweit sie sich gefahrlos einstellen laesst.
@@ -1683,4 +1775,4 @@ declare function buildInvoiceXml(invoice: Invoice): {
     filename: string;
 };
 
-export { A4, BUNDLED_SPECIFICATIONS, type Beschriftung, type Beschriftungen, type Breiten, type Briefpapier, type CiiOptions, DEFAULT_THEME, type DeclaredTotals, EAS, EInvoiceError, type EInvoiceErrorCode, type ExtractedAttachment, type FacturXConformanceLevel, type Farbe, type Flaeche, type Folgeart, INVOICE_TYPE_CODES, Invoice, InvoiceInput, type InvoiceSyntax, type InvoiceTotals, type InvoiceTypeCode, type IsoDate, type Kennzahlenstellung, type Kreis, Line, MAX_SCHRIFT_BYTES, PAYMENT_MEANS, PROFILE_ID, type ParsedInvoice, type PaymentMeansCode, type PdfText, type Pfad, RECHNUNGSZEICHEN, type ReceivedInvoice, type RenderAssets, type RenderOptions, type RenderResult, STANDARD_BESCHRIFTUNGEN, type Schriftbefund, type Schriftmangel, type Severity, type Skontostufe, SkontostufeSchema, type SourceKind, type SpecificationAge, type SpecificationEntry, SpecificationError, type SpecificationSet, type Strich, type Textlauf, type Textseite, type Textstueck, type Textzeile, type Theme, UNIT, type UblOptions, type UnitCode, VAT_CATEGORY, type ValidationIssue, type ValidationResult, Vat, type VatBreakdownEntry, type VatCategoryCode, type Vorlagenbefund, type Wert, XmlWriter, type XmpOptions, ZERO_RATE_CATEGORIES, type Zeichenbefund, ZeichenvorratFehler, activeSpecifications, addDays, alsHex, alsSvg, beschriftungenMit, buildCii, buildInvoiceXml, buildUbl, buildXmp, computeTotals, decimal, detectKind, escapeXml, extractAttachments, extractInvoiceXml, familienkern, farbeAusHex, folgedokument, formatAmount, formatDate, formatQuantity, fromBase64, isIsoDate, isPlausibleIban, isPlausibleLeitwegId, isPlausibleVatId, istBrauchbareBeschriftung, istKleinunternehmerRechnung, istPng, kennzahlenrahmen, laufbreite, leseInhalt, liefereBreiten, liesPdfText, liesZahlungsbedingungen, lineNetAmount, nurAbweichungen, ohneUnsichtbare, parseInvoiceXml, parseSpecificationSet, pngFarbtyp, pruefeSchrift, pruefeSchriftpaar, readEInvoice, renderZugferdPdf, resetSpecifications, round, sanitizeXmlText, schriftenImBriefkopf, schriftmangelText, seiteninhalt, setActiveSpecifications, setzeMitVorlagenschrift, skontobetrag, skontofrist, skontosatz, skontozeile, specificationAge, sum, summarizeTotals, themaMitAkzent, toBase64, toCiiDate, utf8Decode, utf8Encode, validateInvoice, wrapText, xmpDate, zahlungsbedingungen, zeichneBriefpapier };
+export { A4, BUNDLED_SPECIFICATIONS, type Beschriftung, type Beschriftungen, type Breiten, type Briefpapier, type CiiOptions, DEFAULT_THEME, type DeclaredTotals, EAS, EInvoiceError, type EInvoiceErrorCode, type ExtractedAttachment, type FacturXConformanceLevel, type Farbe, type Flaeche, type Folgeart, INVOICE_TYPE_CODES, Invoice, InvoiceInput, type InvoiceSyntax, type InvoiceTotals, type InvoiceTypeCode, type IsoDate, type Kennzahlenstellung, type Kreis, Line, MAX_SCHRIFT_BYTES, PAYMENT_MEANS, PROFILE_ID, type ParsedInvoice, type PaymentMeansCode, type PdfText, type Pfad, RECHNUNGSZEICHEN, type ReceivedInvoice, type RenderAssets, type RenderOptions, type RenderResult, STANDARD_BESCHRIFTUNGEN, type Schriftbefund, type Schriftmangel, type Severity, type Skontostufe, SkontostufeSchema, type SourceKind, type SpecificationAge, type SpecificationEntry, SpecificationError, type SpecificationSet, type Strich, type Textlauf, type Textseite, type Textstueck, type Textzeile, type Theme, UNIT, type UblOptions, type UnitCode, VAT_CATEGORY, type ValidationIssue, type ValidationResult, Vat, type VatBreakdownEntry, type VatCategoryCode, type Vorlagenbefund, type Waehrungsdarstellung, type Wert, XmlWriter, type XmpOptions, ZERO_RATE_CATEGORIES, type Zeichenbefund, Zeichenpruefung, ZeichenvorratFehler, activeSpecifications, addDays, alsHex, alsSvg, beschriftungenMit, buildCii, buildInvoiceXml, buildUbl, buildXmp, computeTotals, decimal, detectKind, escapeXml, extractAttachments, extractInvoiceXml, familienkern, farbeAusHex, folgedokument, formatAmount, formatDate, formatQuantity, fromBase64, isIsoDate, isPlausibleIban, isPlausibleLeitwegId, isPlausibleVatId, istBrauchbareBeschriftung, istKleinunternehmerRechnung, istPng, kennzahlenrahmen, laufbreite, leseInhalt, liefereBreiten, liesPdfText, liesZahlungsbedingungen, lineNetAmount, nurAbweichungen, ohneUnsichtbare, parseInvoiceXml, parseSpecificationSet, pngFarbtyp, pruefeSchrift, pruefeSchriftpaar, readEInvoice, renderZugferdPdf, resetSpecifications, round, sanitizeXmlText, schriftenImBriefkopf, schriftmangelText, seiteninhalt, setActiveSpecifications, setzeMitVorlagenschrift, skontobetrag, skontofrist, skontosatz, skontozeile, specificationAge, sum, summarizeTotals, themaMitAkzent, toBase64, toCiiDate, utf8Decode, utf8Encode, validateInvoice, waehrungszeichen, wrapText, xmpDate, zahlungsbedingungen, zeichneBriefpapier };

@@ -155,6 +155,13 @@ export function buildCii(invoice: Invoice, options: CiiOptions = {}): string {
   w.element('ram:ApplicableHeaderTradeSettlement', undefined, (x) => {
     x.leaf('ram:CreditorReferenceID', invoice.payment?.creditorIdentifier);
     x.leaf('ram:PaymentReference', invoice.payment?.remittanceInformation);
+    /*
+     * Die Reihenfolge ist im Schema festgelegt: TaxCurrencyCode steht VOR
+     * InvoiceCurrencyCode. Vertauscht waere das Dokument nicht schema-gueltig,
+     * und das faellt nicht an den Betraegen auf, sondern erst am Parser des
+     * Empfaengers.
+     */
+    x.leaf('ram:TaxCurrencyCode', invoice.vatAccountingCurrency);
     x.leaf('ram:InvoiceCurrencyCode', invoice.currency);
     if (invoice.payee) {
       writeParty(x, 'ram:PayeeTradeParty', {
@@ -236,6 +243,16 @@ export function buildCii(invoice: Invoice, options: CiiOptions = {}): string {
       }
       s.leaf('ram:TaxBasisTotalAmount', decimal(totals.taxBasisTotal));
       s.leaf('ram:TaxTotalAmount', decimal(totals.taxTotal), { currencyID: invoice.currency });
+      /*
+       * BT-111: derselbe Steuerbetrag in der Meldewaehrung, als ZWEITES
+       * TaxTotalAmount. Dass dasselbe Element zweimal auftritt und sich nur im
+       * currencyID unterscheidet, ist eine Eigenheit von CII - kein Versehen.
+       */
+      if (invoice.vatAccountingCurrency && invoice.vatTotalInAccountingCurrency !== undefined) {
+        s.leaf('ram:TaxTotalAmount', decimal(invoice.vatTotalInAccountingCurrency), {
+          currencyID: invoice.vatAccountingCurrency,
+        });
+      }
       if (totals.roundingAmount !== 0) {
         s.leaf('ram:RoundingAmount', decimal(totals.roundingAmount));
       }

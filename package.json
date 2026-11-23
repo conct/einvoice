@@ -1,6 +1,6 @@
 {
   "name": "@erechnung/core",
-  "version": "4.1.0",
+  "version": "4.2.0",
   "description": "Deutsche E-Rechnung: EN 16931 Datenmodell, CII/UBL XML, PDF/A-3 (ZUGFeRD 2.3 / Factur-X, XRechnung) - isomorph fuer Node, Browser und React Native",
   "license": "Apache-2.0",
   "author": "Daniel von Lühmann <mail@feif.space>",
@@ -60,7 +60,8 @@
     "test": "vitest run",
     "probe": "node tools/probe.mjs",
     "schrift": "node tools/schrift-erzeugen.mjs",
-    "icc": "node tools/icc-erzeugen.mjs"
+    "icc": "node tools/icc-erzeugen.mjs",
+    "zeichen": "node tools/zeichenprobe.mjs"
   },
   "dependencies": {
     "@pdf-lib/fontkit": "^1.1.1",

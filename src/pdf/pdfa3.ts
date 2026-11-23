@@ -26,6 +26,7 @@ import { A4, DEFAULT_THEME, drawInvoice, type Kennzahlenstellung, type Theme } f
 import { bereiteVorlagenschrift } from './vorlagenschrift';
 import { buildXmp, xmpDate, type FacturXConformanceLevel } from './xmp';
 import { Zeichenpruefung, mitZeichenpruefung } from './zeichenvorrat';
+import { waehrungszeichen, type Waehrungsdarstellung } from '../model/waehrung';
 
 /**
  * Binaerdaten, die der Renderer nicht selbst beschaffen kann. Die
@@ -68,6 +69,28 @@ export interface RenderOptions {
   pdfaConformance?: 'B' | 'U';
   /** Dateiname der eingebetteten Rechnung, ZUGFeRD 2.x erwartet factur-x.xml */
   attachmentName?: string;
+  /**
+   * Waehrung als ISO-Kode oder als Zeichen - "EUR 119,00" oder "€ 119,00".
+   *
+   * Betrifft nur das Blatt. Im XML steht immer der Kode; ein Empfaenger, der
+   * "€" einliest, weiss nicht, ob EUR gemeint war.
+   *
+   * Die Vorgabe bleibt `'code'`, damit bereits erzeugte Rechnungen unveraendert
+   * aussehen. Mit `'symbol'` erscheint das Zeichen im ganzen Dokument -
+   * Positionszeilen, Summenblock, Skontosatz, Lastschriftsatz.
+   *
+   * Drei Dinge entscheiden mit:
+   *
+   * 1. Ein **Waehrungswort aus dem Briefbogen** hat Vorrang. Es ist gemessen,
+   *    nicht geraten - wer seine Vorlage uebernimmt, will deren Schreibweise.
+   * 2. Nicht jede Waehrung hat ein eindeutiges Zeichen. CHF, SEK, DKK und
+   *    "$"-Waehrungen behalten den Kode, siehe model/waehrung.ts.
+   * 3. Das Zeichen muss in der **eingebetteten Schrift** vorkommen. Tut es das
+   *    nicht, steht der Kode auf dem Blatt und der Grund in
+   *    `RenderResult.befunde` - eine Rechnung soll nicht an einem Zeichen
+   *    scheitern, das nur die Anzeige betrifft.
+   */
+  waehrungsdarstellung?: Waehrungsdarstellung;
   theme?: Theme;
   footerNote?: string;
   /**
@@ -187,6 +210,18 @@ export interface RenderResult {
   pdf: Uint8Array;
   xml: string;
   totals: InvoiceTotals;
+  /**
+   * Was beim Setzen auffiel, ohne das Dokument unbrauchbar zu machen.
+   *
+   * Steht nur da, wenn es etwas zu sagen gibt. Bisher genau ein Fall: Das
+   * gewuenschte Waehrungszeichen fehlt in der eingebetteten Schrift, deshalb
+   * steht der ISO-Kode auf dem Blatt.
+   *
+   * Heisst nicht "hinweise", weil das in den Optionen schon den Hinweisblock
+   * der Rechnung bezeichnet - zwei Bedeutungen in einer Datei waere eine
+   * Falle.
+   */
+  befunde?: string[];
 }
 
 /**
@@ -379,6 +414,7 @@ export async function renderZugferdPdf(
   // - deshalb faengt die Pruefung jeden Text ab, der ins Dokument geht.
   const pruefung = new Zeichenpruefung([options.assets.fontRegular, options.assets.fontBold]);
 
+
   /*
    * Eine Druckvorlage ist oft groesser als A4, weil sie einen Beschnittrand
    * traegt - die vermessene Fremdrechnung misst 214 x 301 mm. Der Rand liegt
@@ -393,6 +429,35 @@ export async function renderZugferdPdf(
         y: (A4.height - bogen.seite.hoehe) / 2,
       }
     : { x: 0, y: 0 };
+
+  /*
+   * Wie die Waehrung auf dem Blatt steht - einmal entschieden, fuer das ganze
+   * Dokument.
+   *
+   * Die Reihenfolge: das gemessene Wort aus dem Briefbogen, dann das
+   * gewuenschte Zeichen, dann der ISO-Kode. Das Zeichen muss die eingebettete
+   * Schrift kennen; sonst erschiene es gar nicht, und ein unsichtbares
+   * Waehrungszeichen unter einem Betrag ist schlimmer als "PLN".
+   */
+  const befunde: string[] = [];
+  const waehrungsanzeige = ((): string | undefined => {
+    if (bogen?.waehrungswort && invoice.currency === 'EUR') return bogen.waehrungswort;
+    if (options.waehrungsdarstellung !== 'symbol') return undefined;
+    const zeichen = waehrungszeichen(invoice.currency);
+    if (!zeichen) {
+      befunde.push(
+        `Fuer ${invoice.currency} gibt es kein eindeutiges Waehrungszeichen, auf dem Blatt steht der Kode.`,
+      );
+      return undefined;
+    }
+    if (!pruefung.kennt(zeichen)) {
+      befunde.push(
+        `Die eingebettete Schrift kennt "${zeichen}" nicht, auf dem Blatt steht ${invoice.currency}.`,
+      );
+      return undefined;
+    }
+    return zeichen;
+  })();
 
   /*
    * Woraus die Schriften des Briefkopfs kommen.
@@ -591,9 +656,7 @@ export async function renderZugferdPdf(
      * Das Waehrungswort nur, wenn es zur Waehrung der Rechnung passt. "Euro"
      * unter Betraegen in Franken waere schlimmer als der ISO-Kode.
      */
-    ...(bogen?.waehrungswort && invoice.currency === 'EUR'
-      ? { waehrungswort: bogen.waehrungswort }
-      : {}),
+    ...(waehrungsanzeige ? { waehrungswort: waehrungsanzeige } : {}),
     ...(options.beschriftungen ? { beschriftungen: options.beschriftungen } : {}),
     ...(options.kennzahlen ? { kennzahlen: options.kennzahlen } : {}),
     ...(options.tabellenkopf !== undefined ? { tabellenkopf: options.tabellenkopf } : {}),
@@ -716,7 +779,7 @@ export async function renderZugferdPdf(
   // Klassische Querverweistabelle statt Objektstroeme: PDF/A-3 erlaubt beides,
   // aeltere Pruefwerkzeuge kommen mit der klassischen Form zuverlaessiger klar.
   const pdf = await doc.save({ useObjectStreams: false });
-  return { pdf, xml, totals };
+  return { pdf, xml, totals, ...(befunde.length > 0 ? { befunde } : {}) };
 }
 
 /**

@@ -12,6 +12,7 @@ export * from './model/codes';
 export * from './model/invoice';
 export * from './model/totals';
 export { istKleinunternehmerRechnung } from './model/kleinunternehmer';
+export { waehrungszeichen, type Waehrungsdarstellung } from './model/waehrung';
 export {
   liesZahlungsbedingungen,
   skontobetrag,
@@ -38,7 +39,7 @@ export {
   type RenderResult,
 } from './pdf/pdfa3';
 export { buildXmp, xmpDate, type FacturXConformanceLevel, type XmpOptions } from './pdf/xmp';
-export { ZeichenvorratFehler, ohneUnsichtbare } from './pdf/zeichenvorrat';
+export { ZeichenvorratFehler, Zeichenpruefung, ohneUnsichtbare } from './pdf/zeichenvorrat';
 export { A4, DEFAULT_THEME, wrapText, type Theme } from './pdf/layout';
 export { farbeAusHex, istPng, pngFarbtyp, themaMitAkzent } from './pdf/gestaltung';
 

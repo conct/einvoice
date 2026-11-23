@@ -33,7 +33,7 @@ import {
   sum,
   toCiiDate,
   zahlungsbedingungen
-} from "./chunk-X5F3UT6I.js";
+} from "./chunk-EEQN7LZ3.js";
 
 // src/model/codes.ts
 var INVOICE_TYPE_CODES = {
@@ -211,6 +211,33 @@ function istKleinunternehmerRechnung(invoice) {
   );
 }
 
+// src/model/waehrung.ts
+var ZEICHEN = {
+  EUR: "\u20AC",
+  GBP: "\xA3",
+  USD: "$",
+  JPY: "\xA5",
+  PLN: "z\u0142",
+  CZK: "K\u010D",
+  HUF: "Ft",
+  RON: "lei",
+  BGN: "\u043B\u0432",
+  TRY: "\u20BA",
+  UAH: "\u20B4",
+  RUB: "\u20BD",
+  INR: "\u20B9",
+  KRW: "\u20A9",
+  ILS: "\u20AA",
+  THB: "\u0E3F",
+  VND: "\u20AB",
+  PHP: "\u20B1",
+  NGN: "\u20A6",
+  BRL: "R$"
+};
+function waehrungszeichen(code) {
+  return ZEICHEN[code.trim().toUpperCase()];
+}
+
 // src/model/folgedokument.ts
 function folgedokument(invoice, art, heute) {
   const bezug = { number: invoice.number, issueDate: invoice.issueDate };
@@ -249,6 +276,38 @@ function validateInvoice(invoice) {
   if (!invoice.currency) add("BR-05", "error", "currency", "Die W\xE4hrung fehlt.");
   if (invoice.lines.length === 0) {
     add("BR-16", "error", "lines", "Die Rechnung enth\xE4lt keine Position.");
+  }
+  if (invoice.vatAccountingCurrency && invoice.vatTotalInAccountingCurrency === void 0) {
+    add(
+      "BR-53",
+      "error",
+      "vatTotalInAccountingCurrency",
+      "Mit einer Meldewaehrung (BT-6) muss der Steuerbetrag in dieser Waehrung angegeben werden (BT-111)."
+    );
+  }
+  if (invoice.vatTotalInAccountingCurrency !== void 0 && !invoice.vatAccountingCurrency) {
+    add(
+      "BR-53",
+      "error",
+      "vatAccountingCurrency",
+      "Zum Steuerbetrag in der Meldewaehrung (BT-111) fehlt die Waehrung selbst (BT-6)."
+    );
+  }
+  if (invoice.vatAccountingCurrency && invoice.vatAccountingCurrency === invoice.currency) {
+    add(
+      "BR-53",
+      "warning",
+      "vatAccountingCurrency",
+      "Die Meldewaehrung entspricht der Rechnungswaehrung - dann ist BT-6 ueberfluessig."
+    );
+  }
+  if (invoice.currency !== "EUR" && !invoice.vatAccountingCurrency && computeTotals(invoice).taxTotal !== 0) {
+    add(
+      "BT-6",
+      "warning",
+      "vatAccountingCurrency",
+      `Die Rechnung lautet auf ${invoice.currency} und weist Umsatzsteuer aus. Ob der Steuerbetrag zusaetzlich in Euro anzugeben ist (BT-6 und BT-111), klaert der Steuerberater.`
+    );
   }
   const ALLOWED_TYPE_CODES = ["326", "380", "381", "384", "386", "389", "875", "876", "877"];
   if (!ALLOWED_TYPE_CODES.includes(invoice.typeCode)) {
@@ -777,6 +836,7 @@ function buildCii(invoice, options = {}) {
   w.element("ram:ApplicableHeaderTradeSettlement", void 0, (x) => {
     x.leaf("ram:CreditorReferenceID", invoice.payment?.creditorIdentifier);
     x.leaf("ram:PaymentReference", invoice.payment?.remittanceInformation);
+    x.leaf("ram:TaxCurrencyCode", invoice.vatAccountingCurrency);
     x.leaf("ram:InvoiceCurrencyCode", invoice.currency);
     if (invoice.payee) {
       writeParty(x, "ram:PayeeTradeParty", {
@@ -853,6 +913,11 @@ function buildCii(invoice, options = {}) {
       }
       s.leaf("ram:TaxBasisTotalAmount", decimal(totals.taxBasisTotal));
       s.leaf("ram:TaxTotalAmount", decimal(totals.taxTotal), { currencyID: invoice.currency });
+      if (invoice.vatAccountingCurrency && invoice.vatTotalInAccountingCurrency !== void 0) {
+        s.leaf("ram:TaxTotalAmount", decimal(invoice.vatTotalInAccountingCurrency), {
+          currencyID: invoice.vatAccountingCurrency
+        });
+      }
       if (totals.roundingAmount !== 0) {
         s.leaf("ram:RoundingAmount", decimal(totals.roundingAmount));
       }
@@ -1053,6 +1118,7 @@ function buildUbl(invoice, options = {}) {
   for (const note of invoice.notes) w.leaf("cbc:Note", note.text);
   w.leaf("cbc:TaxPointDate", invoice.deliveryDate);
   w.leaf("cbc:DocumentCurrencyCode", currency);
+  w.leaf("cbc:TaxCurrencyCode", invoice.vatAccountingCurrency);
   w.leaf("cbc:BuyerReference", invoice.buyerReference);
   if (invoice.periodStart && invoice.periodEnd) {
     w.element("cac:InvoicePeriod", void 0, (x) => {
@@ -1200,6 +1266,15 @@ function buildUbl(invoice, options = {}) {
       });
     }
   });
+  const steuerInMeldewaehrung = invoice.vatTotalInAccountingCurrency;
+  if (invoice.vatAccountingCurrency && steuerInMeldewaehrung !== void 0) {
+    const meldewaehrung = invoice.vatAccountingCurrency;
+    w.element(
+      "cac:TaxTotal",
+      void 0,
+      (x) => x.leaf("cbc:TaxAmount", decimal(steuerInMeldewaehrung), { currencyID: meldewaehrung })
+    );
+  }
   w.element("cac:LegalMonetaryTotal", void 0, (x) => {
     x.leaf("cbc:LineExtensionAmount", decimal(totals.lineTotal), cur);
     x.leaf("cbc:TaxExclusiveAmount", decimal(totals.taxBasisTotal), cur);
@@ -2758,6 +2833,22 @@ var Zeichenpruefung = class {
     this.fehlend = /* @__PURE__ */ new Map();
     this.vorrat = schriften.map((schrift) => new Set(fontkit2.create(schrift).characterSet)).reduce((a, b) => new Set([...a].filter((zeichen) => b.has(zeichen))));
   }
+  /**
+   * Kann die Schrift diesen Text zeichnen?
+   *
+   * Fragt, statt zu melden - fuer Stellen, an denen es eine Ausweichmoeglichkeit
+   * gibt. Das Waehrungszeichen ist der Fall, fuer den das hier steht: Kennt die
+   * eingebettete Schrift kein "zł", wird der Code "PLN" gesetzt, statt die
+   * Rechnung an einem Zeichen scheitern zu lassen, das nur die Anzeige betrifft.
+   */
+  kennt(text2) {
+    for (const zeichen of text2) {
+      const nummer = zeichen.codePointAt(0);
+      if (nummer === void 0) continue;
+      if (!this.vorrat.has(nummer)) return false;
+    }
+    return true;
+  }
   /** Merkt sich jedes Zeichen des Textes, das die Schrift nicht kennt. */
   pruefe(text2) {
     for (const zeichen of text2) {
@@ -2865,6 +2956,25 @@ async function renderZugferdPdf(invoice, options) {
     x: (A4.width - bogen.seite.breite) / 2,
     y: (A4.height - bogen.seite.hoehe) / 2
   } : { x: 0, y: 0 };
+  const befunde = [];
+  const waehrungsanzeige = (() => {
+    if (bogen?.waehrungswort && invoice.currency === "EUR") return bogen.waehrungswort;
+    if (options.waehrungsdarstellung !== "symbol") return void 0;
+    const zeichen = waehrungszeichen(invoice.currency);
+    if (!zeichen) {
+      befunde.push(
+        `Fuer ${invoice.currency} gibt es kein eindeutiges Waehrungszeichen, auf dem Blatt steht der Kode.`
+      );
+      return void 0;
+    }
+    if (!pruefung.kennt(zeichen)) {
+      befunde.push(
+        `Die eingebettete Schrift kennt "${zeichen}" nicht, auf dem Blatt steht ${invoice.currency}.`
+      );
+      return void 0;
+    }
+    return zeichen;
+  })();
   const schriftquelle = options.briefpapierVorlage ?? (bogen?.schriftbogen ? fromBase64(bogen.schriftbogen) : void 0);
   const setzer = bogen && schriftquelle ? await bereiteVorlagenschrift(doc, bogen, schriftquelle) : void 0;
   const addPage = () => {
@@ -2950,7 +3060,7 @@ async function renderZugferdPdf(invoice, options) {
      * Das Waehrungswort nur, wenn es zur Waehrung der Rechnung passt. "Euro"
      * unter Betraegen in Franken waere schlimmer als der ISO-Kode.
      */
-    ...bogen?.waehrungswort && invoice.currency === "EUR" ? { waehrungswort: bogen.waehrungswort } : {},
+    ...waehrungsanzeige ? { waehrungswort: waehrungsanzeige } : {},
     ...options.beschriftungen ? { beschriftungen: options.beschriftungen } : {},
     ...options.kennzahlen ? { kennzahlen: options.kennzahlen } : {},
     ...options.tabellenkopf !== void 0 ? { tabellenkopf: options.tabellenkopf } : {},
@@ -3042,7 +3152,7 @@ async function renderZugferdPdf(invoice, options) {
   });
   ensureFileIdentifier(doc, `${invoice.number}|${invoice.issueDate}|${now.getTime()}`);
   const pdf = await doc.save({ useObjectStreams: false });
-  return { pdf, xml, totals };
+  return { pdf, xml, totals, ...befunde.length > 0 ? { befunde } : {} };
 }
 function addOutputIntent(doc, iccProfile) {
   const profileStream = doc.context.flateStream(iccProfile, {
@@ -3745,6 +3855,11 @@ function parseCii(root) {
     periodStart: ciiDate(obj(obj(settlement.BillingSpecifiedPeriod).StartDateTime).DateTimeString),
     periodEnd: ciiDate(obj(obj(settlement.BillingSpecifiedPeriod).EndDateTime).DateTimeString),
     currency: text(settlement.InvoiceCurrencyCode) ?? "EUR",
+    vatAccountingCurrency: text(settlement.TaxCurrencyCode),
+    vatTotalInAccountingCurrency: betragZurWaehrung(
+      summation.TaxTotalAmount,
+      text(settlement.TaxCurrencyCode)
+    ),
     buyerReference: text(agreement.BuyerReference),
     orderReference: text(obj(agreement.BuyerOrderReferencedDocument).IssuerAssignedID),
     sellerOrderReference: text(obj(agreement.SellerOrderReferencedDocument).IssuerAssignedID),
@@ -3782,7 +3897,7 @@ function parseCii(root) {
   const declaredTotals = {
     lineTotal: num(summation.LineTotalAmount),
     taxBasisTotal: num(summation.TaxBasisTotalAmount),
-    taxTotal: num(summation.TaxTotalAmount),
+    taxTotal: betragMitVorgabe(summation.TaxTotalAmount, text(settlement.InvoiceCurrencyCode)),
     grandTotal: num(summation.GrandTotalAmount),
     paidAmount: num(summation.TotalPrepaidAmount),
     duePayable: num(summation.DuePayableAmount)
@@ -3911,6 +4026,21 @@ function parseUbl(root, isCreditNote) {
     periodStart: text(obj(root.InvoicePeriod).StartDate),
     periodEnd: text(obj(root.InvoicePeriod).EndDate),
     currency: text(root.DocumentCurrencyCode) ?? "EUR",
+    vatAccountingCurrency: text(root.TaxCurrencyCode),
+    /*
+     * In UBL steht BT-111 in einem zweiten cac:TaxTotal, das nur den Betrag
+     * traegt. Gesucht wird es an der Waehrung, nicht an der Stelle - die
+     * Reihenfolge schreibt die Norm nicht fest.
+     */
+    vatTotalInAccountingCurrency: (() => {
+      const meldewaehrung = text(root.TaxCurrencyCode);
+      if (!meldewaehrung) return void 0;
+      for (const block of list(root.TaxTotal).map(obj)) {
+        const gefunden = betragZurWaehrung(block.TaxAmount, meldewaehrung);
+        if (gefunden !== void 0) return gefunden;
+      }
+      return void 0;
+    })(),
     buyerReference: text(root.BuyerReference),
     orderReference: text(obj(root.OrderReference).ID),
     sellerOrderReference: text(obj(root.OrderReference).SalesOrderID),
@@ -4031,6 +4161,19 @@ function num(value) {
   if (raw === void 0) return void 0;
   const parsed = Number(raw.replace(",", "."));
   return Number.isFinite(parsed) ? parsed : void 0;
+}
+function betragZurWaehrung(value, waehrung) {
+  if (!waehrung) return void 0;
+  for (const eintrag of list(value)) {
+    if (attr(eintrag, "currencyID") === waehrung) return num(eintrag);
+  }
+  return void 0;
+}
+function betragMitVorgabe(value, waehrung) {
+  const gefunden = betragZurWaehrung(value, waehrung);
+  if (gefunden !== void 0) return gefunden;
+  const eintraege = list(value);
+  return eintraege.length > 0 ? num(eintraege[0]) : num(value);
 }
 function attr(value, name) {
   if (!value || typeof value !== "object") return void 0;
@@ -4257,6 +4400,7 @@ export {
   VatSchema,
   XmlWriter,
   ZERO_RATE_CATEGORIES,
+  Zeichenpruefung,
   ZeichenvorratFehler,
   activeSpecifications,
   addDays,
@@ -4325,6 +4469,7 @@ export {
   utf8Decode,
   utf8Encode,
   validateInvoice,
+  waehrungszeichen,
   wrapText,
   xmpDate,
   zahlungsbedingungen,
