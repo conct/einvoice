@@ -3,7 +3,7 @@
 Jede Fassung ist ein Tag; eingebunden wird über den Tag, nie über `main`:
 
 ```
-npm install git+https://github.com/conct/einvoice.git#v5.4.3
+npm install git+https://github.com/conct/einvoice.git#v5.4.4
 ```
 
 Die Nummern folgen semver. **Bricht** markiert, was bei einem Update ohne
@@ -13,6 +13,20 @@ Ausführlich steht jede Änderung in der Commit-Nachricht des Tags.
 Gepflegt von der Rechnungswerk-Seite (seit 26.11.2026). Wünsche aus anderen
 Anwendungen kommen hier hinein; kleine Korrekturen dürfen sie selbst
 einbringen.
+
+## v5.4.4 – 26.11.2026 · Korrektur aus CHOOZY
+
+- `betragAmZeilenende`: Hinter dem Betrag darf jetzt stehen, was weder Ziffer
+  noch Buchstabe ist. An einer echten PDF-Rechnung aus einem Postfach bildet
+  die Schrift das Eurozeichen nicht ab, die Textschicht liefert
+  „Gesamtbetrag 409,50 �“ – und der Betrag der ganzen Rechnung blieb
+  leer. Die Schranke bleibt, wo sie gebraucht wird: „… gemäß Paragraf 19
+  UStG.“ endet auf Buchstaben und ergibt weiterhin keine Steuer von 19,00.
+- **Für Rechnungswerk, nicht behoben:** Dass das Eurozeichen gar nicht erst
+  ankommt, ist ein Mangel der Zeichenentschlüsselung in `parse/pdf-text.ts` –
+  die Schrift des Dokuments hat keine brauchbare `ToUnicode`-Tabelle, oder
+  sie wird nicht gelesen. Hier ist nur die Folge abgefangen, nicht die
+  Ursache.
 
 ## v5.4.3 – 26.11.2026
 

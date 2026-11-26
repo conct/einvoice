@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  betragAmZeilenende,
   betragAus,
   datumAus,
   istKassenbon,
@@ -1093,5 +1094,59 @@ describe('Der Name ueber einer mehrteiligen Strasse', () => {
       Summe 4,99
     `);
     expect(befund.vorschlag.absender).toBe('Rewe-Markt GmbH');
+  });
+});
+
+/*
+ * EINE PDF-RECHNUNG AUS DEM POSTFACH, bei der die Schrift das Eurozeichen
+ * nicht abbildet: Statt "409,50 EUR" liefert die PDF-Textschicht
+ * "409,50 �". Gemessen am 26.11.2026 an einer echten Lieferantenrechnung
+ * (zwei Seiten, Summen auf Seite 2).
+ *
+ * Die Zeilen sind aus dem erkannten Text abgelesen; der Rest der Rechnung ist
+ * weggelassen, es geht um die drei Summenzeilen.
+ */
+const PDF_OHNE_EUROZEICHEN = [
+  'H2 Solutions GmbH Telefon: +49 15569 086021',
+  'USt-ID: DE363077113 Bank',
+  'Steuernr.: 203/110/00013',
+  'Rechnung Nr. 2026-1104',
+  'Rechnungsdatum: 04.11.2026',
+  'Nettobetrag 344,12 �',
+  '19% USt von Netto: 344,12 � 65,38 �',
+  'Gesamtbetrag 409,50 �',
+  'Vielen Dank für die Zusammenarbeit!',
+].join('\n');
+
+describe('Wenn das PDF sein Eurozeichen nicht abbildet', () => {
+  const befund = liesBeleg(PDF_OHNE_EUROZEICHEN, '2026-11-26');
+  const v = befund.vorschlag;
+
+  /*
+   * DER FEHLER: Die alte Regel liess hinter der Zahl nur eine Waehrung und
+   * einen Punkt zu. Das unbekannte Zeichen passte in keines davon, und der
+   * Betrag der ganzen Rechnung fehlte.
+   */
+  it('liest den Gesamtbetrag trotzdem', () => {
+    expect(v.brutto).toBe(409.5);
+    expect(v.netto).toBe(344.12);
+    expect(v.steuer).toBe(65.38);
+  });
+
+  /* 344,12 + 65,38 = 409,50 - die Probe geht auf, der Betrag ist bestaetigt. */
+  it('und nennt ihn geprueft, weil die Rechnung aufgeht', () => {
+    expect(befund.funde.find((f) => f.feld === 'brutto')?.sicherheit).toBe('geprueft');
+  });
+
+  /*
+   * DIE SCHRANKE BLEIBT, WO SIE GEBRAUCHT WIRD. Zeichensalat hinter der Zahl
+   * ja, ein Wort nein - sonst wird aus dem Satz des Kleinunternehmers eine
+   * Steuer von 19,00.
+   */
+  it('macht aus Paragraf 19 UStG weiterhin keine Steuer', () => {
+    expect(betragAmZeilenende('Kein Ausweis der Umsatzsteuer gemaess Paragraf 19 UStG.')).toBeUndefined();
+    expect(betragAmZeilenende('Gesamtbetrag 409,50 �')).toBe(409.5);
+    expect(betragAmZeilenende('Summe 65,81 €')).toBe(65.81);
+    expect(betragAmZeilenende('Betrag 12,00 EUR')).toBe(12);
   });
 });

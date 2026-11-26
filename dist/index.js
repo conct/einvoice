@@ -4146,7 +4146,7 @@ function betragAus(text2) {
   return Number.isFinite(wert) ? round(wert) : void 0;
 }
 function betragAmZeilenende(zeile) {
-  const treffer = zeile.match(/(-?\d[\d.,]*\d|-?\d)\s*(?:€|EUR|CHF|GBP|USD)?\s*[.*]?$/i);
+  const treffer = zeile.match(/(-?\d[\d.,]*\d|-?\d)\s*(?:€|EUR|CHF|GBP|USD)?[^0-9A-Za-zÄÖÜäöüß]*$/i);
   return treffer?.[1] ? betragAus(treffer[1]) : void 0;
 }
 function datumAus(text2) {

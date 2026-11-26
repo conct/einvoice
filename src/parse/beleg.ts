@@ -158,7 +158,21 @@ export function betragAus(text: string): number | undefined {
  * 19,00 Euro Steuer im Vorgang.
  */
 export function betragAmZeilenende(zeile: string): number | undefined {
-  const treffer = zeile.match(/(-?\d[\d.,]*\d|-?\d)\s*(?:€|EUR|CHF|GBP|USD)?\s*[.*]?$/i);
+  /*
+   * NACH DER ZAHL DARF ZEICHENSALAT STEHEN, ABER KEIN WORT.
+   *
+   * Gemessen am 26.11.2026 an einer PDF-Rechnung aus dem Postfach: Dort
+   * stand "Gesamtbetrag 409,50 \uFFFD" - das Eurozeichen kam als unbekanntes
+   * Zeichen aus dem PDF, weil die Schrift es nicht abbildet. Die alte Regel
+   * liess hinter der Zahl nur eine Waehrungsbezeichnung und einen Punkt zu
+   * und fand deshalb gar nichts. Der Betrag der ganzen Rechnung fehlte.
+   *
+   * Zugelassen ist jetzt alles, was WEDER ZIFFER NOCH BUCHSTABE ist. Die
+   * Schranke bleibt damit genau dort, wo sie gebraucht wird: "Kein Ausweis
+   * der Umsatzsteuer gemaess Paragraf 19 UStG." endet auf Buchstaben, und
+   * aus ihr wird weiterhin keine Steuer von 19,00 gelesen.
+   */
+  const treffer = zeile.match(/(-?\d[\d.,]*\d|-?\d)\s*(?:€|EUR|CHF|GBP|USD)?[^0-9A-Za-zÄÖÜäöüß]*$/i);
   return treffer?.[1] ? betragAus(treffer[1]) : undefined;
 }
 
