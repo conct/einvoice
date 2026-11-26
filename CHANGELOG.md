@@ -3,7 +3,7 @@
 Jede Fassung ist ein Tag; eingebunden wird über den Tag, nie über `main`:
 
 ```
-npm install git+https://github.com/conct/einvoice.git#v5.4.4
+npm install git+https://github.com/conct/einvoice.git#v5.4.5
 ```
 
 Die Nummern folgen semver. **Bricht** markiert, was bei einem Update ohne
@@ -13,6 +13,20 @@ Ausführlich steht jede Änderung in der Commit-Nachricht des Tags.
 Gepflegt von der Rechnungswerk-Seite (seit 26.11.2026). Wünsche aus anderen
 Anwendungen kommen hier hinein; kleine Korrekturen dürfen sie selbst
 einbringen.
+
+## v5.4.5 – 26.11.2026
+
+- **Ursache hinter v5.4.4:** Text aus PDF-Dateien verlor das Eurozeichen.
+  Einfache Schriften ohne ToUnicode-Tabelle (etwa Helvetica als
+  Standardschrift) wurden als Latin-1 gelesen statt als WinAnsi; das Byte
+  0x80 kam als Steuerzeichen statt als „€“. Ebenso Anführungszeichen „“ und
+  Gedankenstriche. Nachgemessen an Angeboten der H2 Solutions GmbH: vorher
+  „Gesamtbetrag 2500,00 “, jetzt „Gesamtbetrag 2500,00 €“.
+- ToUnicode-Tabellen, die einen Bereich als Liste schreiben
+  (`<0020> <0022> [<0034> <20AC> …]`), werden gelesen. Bisher kam jeder so
+  beschriebene Glyph als U+FFFD heraus.
+- Betrifft `liesPdfText` und alles, was darauf aufbaut. Sichtbar anders
+  wird nur Text, der vorher falsch war.
 
 ## v5.4.4 – 26.11.2026 · Korrektur aus CHOOZY
 

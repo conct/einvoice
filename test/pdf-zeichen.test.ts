@@ -52,3 +52,26 @@ describe('Einfache Schriften ohne Tabelle', () => {
     expect(winAnsi(0xdf)).toBe('ß');
   });
 });
+
+describe('Eine echte PDF mit Standardschrift', () => {
+  /*
+   * So war die Rechnung gebaut, an der CHOOZY den Fehler fand, und so sind
+   * die Angebote desselben Absenders gebaut: Helvetica als Standardschrift,
+   * WinAnsi, keine ToUnicode-Tabelle. Bis 5.4.4 kam "Gesamtbetrag 2500,00 "
+   * heraus - mit einem unsichtbaren Steuerzeichen statt des Eurozeichens.
+   */
+  it('liefert das Eurozeichen und damit den Betrag', async () => {
+    const { PDFDocument, StandardFonts } = await import('pdf-lib');
+    const { liesPdfText } = await import('../src/parse/pdf-text');
+    const { betragAmZeilenende } = await import('../src/parse/beleg');
+
+    const doc = await PDFDocument.create();
+    const schrift = await doc.embedFont(StandardFonts.Helvetica);
+    doc.addPage([595, 842]).drawText('Gesamtbetrag 409,50 €', { x: 50, y: 700, size: 11, font: schrift });
+    const text = (await liesPdfText(await doc.save())).text;
+
+    expect(text).toContain('Gesamtbetrag 409,50 €');
+    const zeile = text.split('\n').find((z) => z.includes('Gesamtbetrag')) ?? '';
+    expect(betragAmZeilenende(zeile)).toBe(409.5);
+  });
+});

@@ -3223,6 +3223,13 @@ function laufbreite(stuecke, breiten, groesse, zeichenabstand = 0, wortabstand =
 }
 
 // src/parse/pdf-text.ts
+var hexZeichen = (hex) => {
+  let zeichen = "";
+  for (let i = 0; i + 4 <= hex.length; i += 4) {
+    zeichen += String.fromCharCode(parseInt(hex.slice(i, i + 4), 16));
+  }
+  return zeichen;
+};
 function leseToUnicode(text2) {
   const karte = /* @__PURE__ */ new Map();
   for (const block of text2.matchAll(/beginbfchar([\s\S]*?)endbfchar/g)) {
@@ -3245,6 +3252,13 @@ function leseToUnicode(text2) {
       for (let i = von; i <= bis && i - von < 8192; i += 1) {
         karte.set(i, String.fromCodePoint(ziel + (i - von)));
       }
+    }
+    for (const eintrag of (block[1] ?? "").matchAll(
+      /<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*\[([^\]]*)\]/g
+    )) {
+      const von = parseInt(eintrag[1] ?? "0", 16);
+      const ziele = [...(eintrag[3] ?? "").matchAll(/<([0-9A-Fa-f]+)>/g)].map((t) => t[1] ?? "");
+      ziele.forEach((hex, i) => karte.set(von + i, hexZeichen(hex)));
     }
   }
   return karte;
@@ -3289,8 +3303,38 @@ function entschluessle(roh, schrift) {
     }
     return text2;
   }
-  return roh.map((byte) => schrift.karte?.get(byte) ?? String.fromCharCode(byte)).join("");
+  return roh.map((byte) => schrift.karte?.get(byte) ?? winAnsi(byte)).join("");
 }
+var WIN_ANSI_80 = {
+  128: "\u20AC",
+  130: "\u201A",
+  131: "\u0192",
+  132: "\u201E",
+  133: "\u2026",
+  134: "\u2020",
+  135: "\u2021",
+  136: "\u02C6",
+  137: "\u2030",
+  138: "\u0160",
+  139: "\u2039",
+  140: "\u0152",
+  142: "\u017D",
+  145: "\u2018",
+  146: "\u2019",
+  147: "\u201C",
+  148: "\u201D",
+  149: "\u2022",
+  150: "\u2013",
+  151: "\u2014",
+  152: "\u02DC",
+  153: "\u2122",
+  154: "\u0161",
+  155: "\u203A",
+  156: "\u0153",
+  158: "\u017E",
+  159: "\u0178"
+};
+var winAnsi = (byte) => WIN_ANSI_80[byte] ?? String.fromCharCode(byte);
 function leseInhalt(quelle, aufOperator) {
   let i = 0;
   let operanden = [];
