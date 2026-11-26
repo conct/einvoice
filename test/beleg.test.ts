@@ -529,10 +529,12 @@ describe('Wenn die Erkennung die Steuertabelle in Spalten zerlegt', () => {
 describe('Wo der Nachschub nicht greifen darf', () => {
   /*
    * Bringt EIN Satz seinen Betrag mit und der andere nicht, ist die Tabelle
-   * halb zerlegt - dann ist jede Zuordnung geraten. Gelesen wird nur, was
-   * eindeutig dasteht.
+   * halb zerlegt. Frueher nahm der Leser dann die eine Zeile und machte
+   * daraus die Summe - GENAU DER FEHLER, der am 26.11.2026 aus 65,81 EUR
+   * einen Beleg ueber 4,30 machte. Jetzt bleibt das Feld leer: Eine
+   * Teilsumme sieht aus wie ein Betrag und landet in der Buchhaltung.
    */
-  it('laesst eine halb zerlegte Tabelle liegen', () => {
+  it('laesst eine halb zerlegte Tabelle ganz liegen, statt die halbe Summe zu nehmen', () => {
     const befund = liesBeleg(`
       Markt Mueller
       Hauptstraße 2
@@ -543,7 +545,9 @@ describe('Wo der Nachschub nicht greifen darf', () => {
       B 7,00%
       5,35
     `);
-    expect(befund.vorschlag.brutto).toBe(11.9);
+    expect(befund.vorschlag.brutto).toBeUndefined();
+    expect(befund.hinweise.join(' ')).toMatch(/7,00 %/);
+    expect(befund.hinweise.join(' ')).toMatch(/bleibt leer/);
   });
 
   /*
@@ -731,5 +735,153 @@ describe('Wo die Rechnung nichts behaupten darf', () => {
       23,80
     `);
     expect(befund.vorschlag.brutto).toBeUndefined();
+  });
+});
+
+/*
+ * EIN BON VON MAEC GEIZ, Pirna, 25.11.2026, 19,81 EUR - der Beleg, an dem
+ * zwei Fehler auf einmal sichtbar wurden (gemessen am 26.11.2026 am Geraet).
+ *
+ *   1. Die Steuertabelle heisst hier "(1) 19,00 %" und "(2) 7,00 %". Das
+ *      verankerte Muster kam ueber die Klammer nicht hinweg, fand nur die
+ *      7-%-Zeile und machte daraus einen Beleg ueber 1,79 EUR - mit dem
+ *      Vermerk 'geprueft', weil 1,79 (die Steuersumme) zufaellig auch allein
+ *      im Text steht.
+ *   2. Das Belegdatum blieb leer, obwohl es zweimal dasteht: als Zeitstempel
+ *      der Sicherheitseinrichtung und nackt mit Uhrzeit. Beide ohne das Wort
+ *      "Datum" daneben.
+ *
+ * Die Zeilen sind vom Schirm abgelesen; die lange Artikelliste in der Mitte
+ * ist auf drei Posten gekuerzt, alles andere steht Wort fuer Wort so da,
+ * Lesefehler der Erkennung eingeschlossen ("Dohnal sche", "Blat terteig").
+ */
+const MAEC_GEIZ = `
+| Datum
+| Filiale
+Kasse
+Kassierer
+****X *X**
+Handel sgesel lschaft nbH
+Belegnummer : 1023480000161440604
+Dohnal sche Str. 68
+01796 Pirna
+Tel.: 03501 - 47 02 05 5
+MÄC GEIZ
+Start: 2026-11-25T12:30:55.000Z
+Ende: 2026-11-25T12:31:37.000Z
+TRX/SIG: 145009/ 724912
+TSE-S/N: 0C1E4D588662748E 1E16AE76FC2EE4
+5617
+Summe
+Filiala 2348
+25.11.2026 13:30:55
+: 2348
+0030008502 Blat terteig Schweineohrchen
+(2)
+0040990001 NITR0-UNIVERSALVERDÜNNUNG
+(1)
+(1) 19,00 %
+0050005186 Pinsel nov000 Flächenstr
+(1)
+BON
+MwSt
+Netto
+Steuer
+Brutto
+(1) 19,00 %
+15,13
+2,88
+18,01
+(2) 7,00 %
+1,67
+0,12
+1,79
+3,01
+16,80
+19,81
+Anzahl Teile: 4
+50,00 EUR
+-30,19 EUR
+Summe
+18,02
+1,79
+19,81
+Vielen Dank für Ihren Einkauf
+Umtausch/Rucknahme nur mit Kassenbon
+UST ID DE815211500
+`;
+
+describe('Ein Bon mit Klammern vor den Steuersaetzen', () => {
+  const befund = liesBeleg(MAEC_GEIZ, '2026-11-26');
+  const v = befund.vorschlag;
+
+  /*
+   * DER FEHLER, DER GELD KOSTET: Vorher stand hier 1,79 - die Steuersumme,
+   * die der Leser fuer den Rechnungsbetrag hielt.
+   */
+  it('liest beide Steuerzeilen und kommt auf den ganzen Betrag', () => {
+    expect(v.brutto).toBe(19.81);
+  });
+
+  /*
+   * 18,01 + 1,79 ergeben 19,80, auf dem Bon stehen 19,81 - die Kasse rundet
+   * je Zeile. Gedruckt schlaegt gerechnet: In der Buchhaltung steht die Zahl,
+   * die auf dem Papier steht.
+   */
+  it('nimmt die gedruckte Summe, nicht die eigene Addition', () => {
+    expect(befund.funde.find((f) => f.feld === 'brutto')?.sicherheit).toBe('geprueft');
+    expect(v.netto).toBe(16.8);
+    expect(round2((v.netto ?? 0) + (v.steuer ?? 0))).toBe(19.81);
+  });
+
+  it('findet das Datum im Zeitstempel der Kasse', () => {
+    expect(v.datum).toBe('2026-11-25');
+  });
+
+  it('findet Belegnummer und USt-IdNr.', () => {
+    expect(v.nummer).toBe('1023480000161440604');
+    expect(v.ustId).toBe('DE815211500');
+  });
+
+  it('reicht zum Buchen', () => {
+    expect(vollstaendig(v)).toBe(true);
+  });
+});
+
+/** Zwei Nachkommastellen - fuer die Probe oben. */
+function round2(zahl: number): number {
+  return Math.round(zahl * 100) / 100;
+}
+
+describe('Das Datum eines Bons ohne Beschriftung', () => {
+  /* Ohne Zeitstempel der Kasse bleibt die nackte Zeile mit Uhrzeit. */
+  it('nimmt eine Datumszeile mit Uhrzeit', () => {
+    const befund = liesBeleg(`
+      Markt Mueller
+      Hauptstraße 2
+      Kasse: 1 Bon:31
+      Rückgeld 0,00
+      24.11.2026 09:15:02
+      Steuer % Brutto
+      A 19,00% 11,90
+    `);
+    expect(befund.vorschlag.datum).toBe('2026-11-24');
+  });
+
+  /*
+   * Ein Datum OHNE Uhrzeit ist keins: "Gueltig bis" steht auf jedem zweiten
+   * Bon, und es ist nicht das Belegdatum.
+   */
+  it('nimmt kein Datum ohne Uhrzeit', () => {
+    const befund = liesBeleg(`
+      Markt Mueller
+      Hauptstraße 2
+      Kasse: 1 Bon:32
+      Rückgeld 0,00
+      Gutschein gueltig bis 31.12.2027
+      Steuer % Brutto
+      A 19,00% 11,90
+    `);
+    expect(befund.vorschlag.datum).toBeUndefined();
   });
 });

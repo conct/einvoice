@@ -302,8 +302,25 @@ function deutscheUstIdStimmt(id: string): boolean {
   return (11 - p) % 10 === Number(ziffern[8]);
 }
 
-/** Eine Zeile der Steuertabelle: "A 19,00% 61,51", "B7,00% 4,30". */
-const BON_STEUERSATZ = /^([A-Z])?\s*(\d{1,2}(?:[.,]\d{1,2})?)\s*%(.*)$/;
+/**
+ * Eine Zeile der Steuertabelle: "A 19,00% 61,51", "B7,00% 4,30",
+ * "(1) 19,00 % 15,13".
+ *
+ * DER KLAMMERVORSATZ HAT EINEN BON GEKOSTET: Bei MAEC GEIZ heissen die Zeilen
+ * "(1) 19,00 %" und "(2) 7,00 %". Das verankerte Muster kam ueber die Klammer
+ * nicht hinweg, fand nur die 7-%-Zeile - und machte aus einem Beleg ueber
+ * 19,81 EUR einen ueber 1,79 EUR, mit dem Vermerk 'geprueft'. Gemessen am
+ * 26.11.2026.
+ */
+const BON_STEUERSATZ = /^\s*(?:\(\s*\d{1,2}\s*\)\s*)?([A-Z])?\s*(\d{1,2}(?:[.,]\d{1,2})?)\s*%(.*)$/;
+
+/**
+ * Steuersaetze, die es in Deutschland gibt oder gab.
+ *
+ * Gebraucht, um zu zaehlen, welche Saetze ein Bon ueberhaupt NENNT - und
+ * damit zu merken, dass eine Zeile fehlt.
+ */
+const DEUTSCHE_SAETZE = [0, 5, 5.5, 7, 9, 9.5, 10.7, 16, 19];
 
 /**
  * Den Bon lesen. Gibt zurueck, ob Netto und Steuer ZURUECKGERECHNET wurden.
@@ -375,6 +392,24 @@ function liesKassenbon(
   });
 
   /*
+   * DERSELBE SATZ KANN MEHRFACH DASTEHEN. Auf dem Bon von MAEC GEIZ steht
+   * "(1) 19,00 %" einmal in der Artikelliste - als Steuerklasse des Postens -
+   * und einmal in der Tabelle unten. Ohne Zusammenfassen suchte die Rechnung
+   * unten nach DREI Betraegen fuer zwei Saetze und fand nichts.
+   *
+   * Zusammengefasst wird nur, solange KEINE Zeile ihren Betrag mitbringt:
+   * Steht er dabei, ist die Zeile die Tabelle und kein Hinweis am Artikel.
+   */
+  if (roh.length > 1 && roh.every((satz) => !satz.betraege.length)) {
+    const je = new Map<number, (typeof roh)[number]>();
+
+    for (const eintrag of roh) je.set(eintrag.satz, eintrag);
+
+    roh.length = 0;
+    roh.push(...je.values());
+  }
+
+  /*
    * ZWEITE LAGE, UND DIE WICHTIGSTE: DIE RECHNUNG STATT DER REIHENFOLGE.
    *
    * Derselbe Bon, dreimal fotografiert, dreimal anders zerlegt - beim dritten
@@ -430,8 +465,14 @@ function liesKassenbon(
       if (loesungen.length > 1) return;
 
       if (stelle === roh.length) {
+        /*
+         * EIN CENT TOLERANZ, und zwar noetig: Die Kasse rundet je Zeile, die
+         * gedruckte Summe ist deshalb nicht immer die Summe der gerundeten
+         * Zeilen. Bei MAEC GEIZ ergeben die Saetze 19,80 und auf dem Bon steht
+         * 19,81. Ohne Toleranz faende diese Suche gar nichts.
+         */
         const summe = round(gewaehlt.reduce((zwischen, betrag) => zwischen + betrag, 0));
-        if (vorrat.has(summe)) loesungen.push([...gewaehlt]);
+        if (werte.some((wert) => Math.abs(wert - summe) <= 0.02)) loesungen.push([...gewaehlt]);
         return;
       }
 
@@ -533,9 +574,38 @@ function liesKassenbon(
     belegzeilen.push(eintrag.zeile);
   }
 
+  /*
+   * WELCHE SAETZE NENNT DER BON ueberhaupt? Diese Zaehlung ist die Lehre aus
+   * dem 26.11.2026: Zweimal fand der Leser nur EINE Zeile der Steuertabelle
+   * und bildete daraus eine Summe - aus 65,81 wurden 4,30, aus 19,81 wurden
+   * 1,79. Beide Male stand der fehlende Satz im Text, nur in einer Form, die
+   * die Zeilenerkennung nicht griff.
+   *
+   * Eine Teilsumme ist schlimmer als gar keine: Sie sieht aus wie ein Betrag,
+   * sie besteht die Rechenprobe, und sie landet in der Buchhaltung. Wird ein
+   * Satz genannt, zu dem keine Zeile gefunden wurde, bleibt das Feld deshalb
+   * LEER, und der Hinweis sagt, warum.
+   */
+  const genannt = new Set<number>();
+  for (const zeile of zeilen) {
+    for (const treffer of zeile.matchAll(/(\d{1,2}(?:[.,]\d{1,2})?)\s*%/g)) {
+      const satz = betragAus(treffer[1] ?? '');
+      if (satz !== undefined && satz > 0 && DEUTSCHE_SAETZE.includes(satz)) genannt.add(satz);
+    }
+  }
+
+  const gelesen = new Set(saetze.map((satz) => satz.satz));
+  const fehlendeSaetze = [...genannt].filter((satz) => !gelesen.has(satz));
+
   let abgeleitet = false;
 
-  if (saetze.length) {
+  if (saetze.length && fehlendeSaetze.length) {
+    hinweise.push(
+      `Der Bon nennt ${fehlendeSaetze.map((satz) => satz.toFixed(2).replace('.', ',')).join(' % und ')} %,`
+      + ' dazu wurde keine Zeile der Steuertabelle gefunden. Der Betrag bleibt leer, damit keine Teilsumme'
+      + ' in die Buchhaltung geraet.',
+    );
+  } else if (saetze.length) {
     const brutto = round(saetze.reduce((summe, zeile) => summe + zeile.brutto, 0));
     const netto = round(saetze.reduce((summe, zeile) => summe + zeile.netto, 0));
     const steuer = round(saetze.reduce((summe, zeile) => summe + zeile.steuer, 0));
@@ -546,13 +616,27 @@ function liesKassenbon(
      * der Betragsspalte oder hinter "Summe" -, ist sie bestaetigt. Sonst
      * bleibt sie ein Muster, denn addiert hat sie bis dahin nur diese Datei.
      */
-    const bezeugt =
-      zeilen.some((zeile) => /^[\d.,]+\s*(?:€|EUR)?$/i.test(zeile) && betragAus(zeile) === brutto) ||
-      zeilen.some((zeile) => /sum(?:m)?e|gesamt|total/i.test(zeile) && betragAmZeilenende(zeile) === brutto);
+    const nahe = (wert: number | undefined) => wert !== undefined && Math.abs(wert - brutto) <= 0.02;
+    const zeuge =
+      zeilen
+        .filter((zeile) => /^[\d.,]+\s*(?:€|EUR)?$/i.test(zeile))
+        .map((zeile) => betragAus(zeile))
+        .find(nahe)
+      ?? zeilen
+        .filter((zeile) => /sum(?:m)?e|gesamt|total/i.test(zeile))
+        .map((zeile) => betragAmZeilenende(zeile))
+        .find(nahe);
 
-    nimm('brutto', brutto.toFixed(2), bezeugt ? 'geprueft' : 'muster', beleg);
+    /*
+     * STEHT DIE SUMME GEDRUCKT DA, GILT SIE. Die Kasse rundet je Zeile; die
+     * eigene Addition kann deshalb einen Cent danebenliegen, und auf dem
+     * Beleg, den die Kanzlei sieht, steht die gedruckte Zahl.
+     */
+    const betrag = zeuge ?? brutto;
+
+    nimm('brutto', betrag.toFixed(2), zeuge !== undefined ? 'geprueft' : 'muster', beleg);
     nimm('netto', netto.toFixed(2), 'muster', beleg);
-    nimm('steuer', steuer.toFixed(2), 'muster', beleg);
+    nimm('steuer', round(betrag - netto).toFixed(2), 'muster', beleg);
     abgeleitet = true;
 
     hinweise.push(
@@ -642,7 +726,8 @@ export function liesBeleg(text: string, heute?: IsoDate): Belegbefund {
    * liest, schlaegt auf einem Bon alles, was die Rechnungsheuristik darunter
    * findet. Auf einer Rechnung laeuft er gar nicht erst an.
    */
-  const bonAbgeleitet = istKassenbon(zeilen) ? liesKassenbon(zeilen, nimm, hinweise) : false;
+  const istBon = istKassenbon(zeilen);
+  const bonAbgeleitet = istBon ? liesKassenbon(zeilen, nimm, hinweise) : false;
 
   for (const zeile of zeilen) {
     const nummer = zeile.match(RECHNUNGSNUMMER);
@@ -720,6 +805,48 @@ export function liesBeleg(text: string, heute?: IsoDate): Belegbefund {
   if (name) nimm('absender', name, 'geraten', name);
 
   const wert = (feld: Belegfeld) => funde.find((fund) => fund.feld === feld)?.wert;
+
+  /*
+   * DAS DATUM EINES BONS steht oft ohne das Wort "Datum" daneben.
+   *
+   * Gemessen am 26.11.2026 an einem Bon von MAEC GEIZ: Das Belegdatum war
+   * leer, obwohl es zweimal im Text stand - einmal als Zeitstempel der
+   * technischen Sicherheitseinrichtung ("Start: 2026-11-25T12:30:55.000Z")
+   * und einmal nackt als "25.11.2026 13:30:55". Beide Male ohne
+   * Beschriftung, und darauf wartet die Zeilensuche oben vergeblich.
+   *
+   * Der Zeitstempel der Sicherheitseinrichtung kommt zuerst: Den hat die
+   * Kasse geschrieben, nicht der Setzer des Bons. Er steht in UTC, gefragt
+   * ist aber der Kalendertag AM ORT - sonst waere ein Einkauf von 00:30 auf
+   * den Vortag datiert.
+   */
+  if (istBon && !wert('datum')) {
+    const stempel = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?/;
+    const vonDerKasse = zeilen.find((zeile) => /^start/i.test(zeile) && stempel.test(zeile))
+      ?? zeilen.find((zeile) => stempel.test(zeile));
+    const treffer = vonDerKasse?.match(stempel)?.[0];
+    const wann = treffer ? new Date(treffer) : null;
+
+    if (vonDerKasse && wann && !Number.isNaN(wann.getTime())) {
+      const tag = [
+        wann.getFullYear(),
+        String(wann.getMonth() + 1).padStart(2, '0'),
+        String(wann.getDate()).padStart(2, '0'),
+      ].join('-') as IsoDate;
+
+      nimm('datum', tag, 'muster', vonDerKasse);
+    } else {
+      /*
+       * Sonst eine Zeile, die MIT einem Datum beginnt und eine Uhrzeit
+       * dabeihat - "25.11.2026 13:30:55". Die Uhrzeit ist die Bedingung:
+       * Ohne sie wuerde auch "Gueltig bis 31.12.2027" durchgehen.
+       */
+      const mitUhr = zeilen.find((zeile) => /^\d{1,2}\.\s?\d{1,2}\.\s?\d{2,4}\s+\d{1,2}:\d{2}/.test(zeile));
+      const tag = mitUhr ? datumAus(mitUhr) : undefined;
+
+      if (mitUhr && tag) nimm('datum', tag, 'muster', mitUhr);
+    }
+  }
 
   // Ein Zahlungsziel in Tagen statt eines Datums - "zahlbar innerhalb von 14 Tagen".
   const datum = wert('datum');

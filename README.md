@@ -26,7 +26,7 @@ deshalb läuft derselbe Code in der App und auf dem Server.
 ## Einbinden
 
 ```bash
-npm install github:conct/einvoice#v5.4.0
+npm install github:conct/einvoice#v5.4.1
 ```
 
 Keine Registry im Spiel, und **`dist/` liegt im Repository** — Installieren
@@ -34,7 +34,7 @@ heißt klonen, nicht bauen. Ohne SSH-Schlüssel auf dem Rechner geht es über
 HTTPS:
 
 ```bash
-npm install git+https://github.com/conct/einvoice.git#v5.4.0
+npm install git+https://github.com/conct/einvoice.git#v5.4.1
 ```
 
 Der erste Versuch ging den üblichen Weg: `prepare` baut beim Installieren.
@@ -321,7 +321,7 @@ erkennt ihn nicht: Dafür braucht es WebAssembly im Browser oder das
 Betriebssystem auf dem Telefon, und beides gehört einer Anwendung, nicht einer
 Bibliothek ohne Plattformbezug.
 
-Mitgekommen ist nur, was ohne Zubehör läuft: 192 Tests über 13 Dateien, die
+Mitgekommen ist nur, was ohne Zubehör läuft: 199 Tests über 13 Dateien, die
 jeden Weg einmal gehen, und `npm run probe` — eine Rechnung durch XML, PDF,
 Anhang und zurück ins Modell, gegen das **gebaute** Paket.
 
@@ -329,7 +329,7 @@ Anhang und zurück ins Modell, gegen das **gebaute** Paket.
 
 ```bash
 npm install
-npm test          # vitest, 192 Tests
+npm test          # vitest, 199 Tests
 npm run typecheck # zwei Durchgänge, siehe unten
 npm run build     # tsup -> dist/ (ESM + Typdeklarationen)
 npm run zeichen   # welche Waehrungszeichen die Schrift kennt

@@ -4210,7 +4210,8 @@ function deutscheUstIdStimmt(id) {
   }
   return (11 - p) % 10 === Number(ziffern[8]);
 }
-var BON_STEUERSATZ = /^([A-Z])?\s*(\d{1,2}(?:[.,]\d{1,2})?)\s*%(.*)$/;
+var BON_STEUERSATZ = /^\s*(?:\(\s*\d{1,2}\s*\)\s*)?([A-Z])?\s*(\d{1,2}(?:[.,]\d{1,2})?)\s*%(.*)$/;
+var DEUTSCHE_SAETZE = [0, 5, 5.5, 7, 9, 9.5, 10.7, 16, 19];
 function liesKassenbon(zeilen, nimm, hinweise) {
   for (const zeile of zeilen) {
     const treffer = zeile.match(/\bbon\s*(?:nr\.?)?\s*[:.#]?\s*(\d{2,})/i);
@@ -4237,6 +4238,12 @@ function liesKassenbon(zeilen, nimm, hinweise) {
     const betraege = (rest.match(/-?\d[\d.,]*\d|-?\d/g) ?? []).map((stueck) => betragAus(stueck)).filter((zahl4) => zahl4 !== void 0);
     roh.push({ satz, betraege, zeile, stelle });
   });
+  if (roh.length > 1 && roh.every((satz) => !satz.betraege.length)) {
+    const je = /* @__PURE__ */ new Map();
+    for (const eintrag of roh) je.set(eintrag.satz, eintrag);
+    roh.length = 0;
+    roh.push(...je.values());
+  }
   let mehrdeutig = false;
   const ohneZahl = roh.filter((satz) => !satz.betraege.length);
   if (ohneZahl.length && ohneZahl.length === roh.length && roh.length <= 3 && roh.every((satz) => satz.satz > 0)) {
@@ -4255,7 +4262,7 @@ function liesKassenbon(zeilen, nimm, hinweise) {
       if (loesungen.length > 1) return;
       if (stelle === roh.length) {
         const summe = round(gewaehlt.reduce((zwischen, betrag) => zwischen + betrag, 0));
-        if (vorrat.has(summe)) loesungen.push([...gewaehlt]);
+        if (werte.some((wert) => Math.abs(wert - summe) <= 0.02)) loesungen.push([...gewaehlt]);
         return;
       }
       const satz = roh[stelle]?.satz ?? 0;
@@ -4324,16 +4331,31 @@ function liesKassenbon(zeilen, nimm, hinweise) {
     saetze.push({ satz: eintrag.satz, brutto, netto: errechnet, steuer: round(brutto - errechnet) });
     belegzeilen.push(eintrag.zeile);
   }
+  const genannt = /* @__PURE__ */ new Set();
+  for (const zeile of zeilen) {
+    for (const treffer of zeile.matchAll(/(\d{1,2}(?:[.,]\d{1,2})?)\s*%/g)) {
+      const satz = betragAus(treffer[1] ?? "");
+      if (satz !== void 0 && satz > 0 && DEUTSCHE_SAETZE.includes(satz)) genannt.add(satz);
+    }
+  }
+  const gelesen = new Set(saetze.map((satz) => satz.satz));
+  const fehlendeSaetze = [...genannt].filter((satz) => !gelesen.has(satz));
   let abgeleitet = false;
-  if (saetze.length) {
+  if (saetze.length && fehlendeSaetze.length) {
+    hinweise.push(
+      `Der Bon nennt ${fehlendeSaetze.map((satz) => satz.toFixed(2).replace(".", ",")).join(" % und ")} %, dazu wurde keine Zeile der Steuertabelle gefunden. Der Betrag bleibt leer, damit keine Teilsumme in die Buchhaltung geraet.`
+    );
+  } else if (saetze.length) {
     const brutto = round(saetze.reduce((summe, zeile) => summe + zeile.brutto, 0));
     const netto = round(saetze.reduce((summe, zeile) => summe + zeile.netto, 0));
     const steuer = round(saetze.reduce((summe, zeile) => summe + zeile.steuer, 0));
     const beleg = belegzeilen.join(" | ");
-    const bezeugt = zeilen.some((zeile) => /^[\d.,]+\s*(?:€|EUR)?$/i.test(zeile) && betragAus(zeile) === brutto) || zeilen.some((zeile) => /sum(?:m)?e|gesamt|total/i.test(zeile) && betragAmZeilenende(zeile) === brutto);
-    nimm("brutto", brutto.toFixed(2), bezeugt ? "geprueft" : "muster", beleg);
+    const nahe = (wert) => wert !== void 0 && Math.abs(wert - brutto) <= 0.02;
+    const zeuge = zeilen.filter((zeile) => /^[\d.,]+\s*(?:€|EUR)?$/i.test(zeile)).map((zeile) => betragAus(zeile)).find(nahe) ?? zeilen.filter((zeile) => /sum(?:m)?e|gesamt|total/i.test(zeile)).map((zeile) => betragAmZeilenende(zeile)).find(nahe);
+    const betrag = zeuge ?? brutto;
+    nimm("brutto", betrag.toFixed(2), zeuge !== void 0 ? "geprueft" : "muster", beleg);
     nimm("netto", netto.toFixed(2), "muster", beleg);
-    nimm("steuer", steuer.toFixed(2), "muster", beleg);
+    nimm("steuer", round(betrag - netto).toFixed(2), "muster", beleg);
     abgeleitet = true;
     hinweise.push(
       `Als Kassenbon gelesen, Betrag aus der Steuertabelle: ${saetze.map((zeile) => `${zeile.satz.toFixed(2).replace(".", ",")} % auf ${zeile.brutto.toFixed(2).replace(".", ",")}`).join(", ")}.`
@@ -4380,7 +4402,8 @@ function liesBeleg(text2, heute) {
     if (funde.some((fund) => fund.feld === feld)) return;
     funde.push({ feld, wert: wert2, sicherheit, beleg });
   };
-  const bonAbgeleitet = istKassenbon(zeilen) ? liesKassenbon(zeilen, nimm, hinweise) : false;
+  const istBon = istKassenbon(zeilen);
+  const bonAbgeleitet = istBon ? liesKassenbon(zeilen, nimm, hinweise) : false;
   for (const zeile of zeilen) {
     const nummer = zeile.match(RECHNUNGSNUMMER);
     if (nummer?.[1]) nimm("nummer", nummer[1].replace(/[.,;]$/, ""), "muster", zeile);
@@ -4428,6 +4451,24 @@ function liesBeleg(text2, heute) {
   );
   if (name) nimm("absender", name, "geraten", name);
   const wert = (feld) => funde.find((fund) => fund.feld === feld)?.wert;
+  if (istBon && !wert("datum")) {
+    const stempel = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?/;
+    const vonDerKasse = zeilen.find((zeile) => /^start/i.test(zeile) && stempel.test(zeile)) ?? zeilen.find((zeile) => stempel.test(zeile));
+    const treffer = vonDerKasse?.match(stempel)?.[0];
+    const wann = treffer ? new Date(treffer) : null;
+    if (vonDerKasse && wann && !Number.isNaN(wann.getTime())) {
+      const tag = [
+        wann.getFullYear(),
+        String(wann.getMonth() + 1).padStart(2, "0"),
+        String(wann.getDate()).padStart(2, "0")
+      ].join("-");
+      nimm("datum", tag, "muster", vonDerKasse);
+    } else {
+      const mitUhr = zeilen.find((zeile) => /^\d{1,2}\.\s?\d{1,2}\.\s?\d{2,4}\s+\d{1,2}:\d{2}/.test(zeile));
+      const tag = mitUhr ? datumAus(mitUhr) : void 0;
+      if (mitUhr && tag) nimm("datum", tag, "muster", mitUhr);
+    }
+  }
   const datum = wert("datum");
   if (!wert("faellig") && datum) {
     const zeile = zeilen.find((z) => ZIELZEILE.test(z));
