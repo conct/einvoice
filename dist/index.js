@@ -4211,13 +4211,41 @@ function deutscheUstIdStimmt(id) {
   return (11 - p) % 10 === Number(ziffern[8]);
 }
 var BON_STEUERSATZ = /^\s*(?:\(\s*\d{1,2}\s*\)\s*)?([A-Z])?\s*(\d{1,2}(?:[.,]\d{1,2})?)\s*%(.*)$/;
+var GRENZE = (wort) => new RegExp("\\b" + wort + "\\b", "i");
 var DEUTSCHE_SAETZE = [0, 5, 5.5, 7, 9, 9.5, 10.7, 16, 19];
 function liesKassenbon(zeilen, nimm, hinweise) {
+  let nummerDa = false;
   for (const zeile of zeilen) {
     const treffer = zeile.match(/\bbon\s*(?:nr\.?)?\s*[:.#]?\s*(\d{2,})/i);
     if (treffer?.[1]) {
       nimm("nummer", treffer[1], "muster", zeile);
+      nummerDa = true;
       break;
+    }
+  }
+  if (!nummerDa) {
+    for (let i = 0; i < zeilen.length - 1; i += 1) {
+      const kopf = (zeilen[i] ?? "").split(/\s+/).filter(Boolean);
+      const stelle = kopf.findIndex((wort) => /^bon(?:[-\s]?nr\.?)?:?$/i.test(wort));
+      if (stelle === -1 || kopf.length < 3) continue;
+      if (!kopf.some((wort) => /^(datum|uhrzeit|zeit|filiale|markt|pos|kasse|bed|bediener)$/i.test(wort))) continue;
+      const werte = (zeilen[i + 1] ?? "").split(/\s+/).filter(Boolean);
+      if (werte.length !== kopf.length) continue;
+      const nummer = (werte[stelle] ?? "").replace(/[^\dA-Za-z-]/g, "");
+      if (/^\d{2,}$/.test(nummer)) {
+        nimm("nummer", nummer, "muster", `${zeilen[i]} | ${zeilen[i + 1]}`);
+        nummerDa = true;
+        break;
+      }
+    }
+  }
+  if (!nummerDa) {
+    for (const zeile of zeilen) {
+      const treffer = zeile.match(/transaktionsnummer\s*[:.#]?\s*(\d{2,})/i);
+      if (treffer?.[1]) {
+        nimm("nummer", treffer[1], "muster", zeile);
+        break;
+      }
     }
   }
   const spalteNetto = zeilen.some((zeile) => /steuer\s*%\s*netto/i.test(zeile) && !/brutto/i.test(zeile));
@@ -4369,19 +4397,31 @@ function liesKassenbon(zeilen, nimm, hinweise) {
       }
     }
   }
+  const heilerName = (name, eigeneZeile) => {
+    const woerter = name.split(/\s+/);
+    for (let i = 0; i < woerter.length - 1; i += 1) {
+      const zusammen = (woerter[i] ?? "") + (woerter[i + 1] ?? "");
+      if (zusammen.length < 5 || !/^[A-Za-zÄÖÜäöüß]+$/.test(zusammen)) continue;
+      const kommtVor = zeilen.some(
+        (zeile) => zeile !== eigeneZeile && GRENZE(zusammen).test(zeile)
+      );
+      if (kommtVor) return [...woerter.slice(0, i), zusammen, ...woerter.slice(i + 2)].join(" ");
+    }
+    return name;
+  };
   const adresse = zeilen.slice(0, 12).find((zeile) => STRASSE.test(zeile)) ?? zeilen.find((zeile) => STRASSE.test(zeile));
   if (adresse) {
     const teile = adresse.split(/\s[-–|,]\s/);
     const kopf = (teile[0] ?? "").trim();
     if (teile.length > 1 && kopf.length >= 3 && !STRASSE.test(kopf) && /[A-Za-zÄÖÜäöüß]{3}/.test(kopf)) {
-      nimm("absender", kopf, "muster", adresse);
+      nimm("absender", heilerName(kopf, adresse), "muster", adresse);
     } else if (/^\s*\S*(?:stra(?:ß|ss)e|str\.)/i.test(adresse) || /^\s*(?:weg|platz|allee|ring|gasse|damm)\b/i.test(adresse)) {
       const davor = zeilen[zeilen.indexOf(adresse) - 1];
       if (davor && davor.length >= 3 && davor.length <= 60 && /[A-Za-zÄÖÜäöüß]{3}/.test(davor) && !/^\d/.test(davor)) {
-        nimm("absender", davor, "muster", davor);
+        nimm("absender", heilerName(davor, davor), "muster", davor);
       }
     } else if (adresse.length <= 90) {
-      nimm("absender", adresse, "muster", adresse);
+      nimm("absender", heilerName(adresse, adresse), "muster", adresse);
     }
   }
   for (const zeile of zeilen) {

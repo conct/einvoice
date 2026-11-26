@@ -885,3 +885,167 @@ describe('Das Datum eines Bons ohne Beschriftung', () => {
     expect(befund.vorschlag.datum).toBeUndefined();
   });
 });
+
+/*
+ * EIN BON VON DISKA, Duerrroehrsdorf, 24.11.2026, 17,95 EUR - gemessen am
+ * 26.11.2026 am Geraet. Hier steht die Bonnummer weder neben dem Wort "Bon"
+ * noch sonst greifbar, sondern unter dem Strichcode in einer TABELLE:
+ *
+ *     Datum Uhrzeit Filiale Pos Bed Bon
+ *     24.11.26 19:21 0424847 102 024 5756
+ *
+ * Der Betreiber hat genau darauf hingewiesen ("unter dem barcode steht datum
+ * uhrzeit, filiale pos bed BON"). Die Artikelliste ist gekuerzt, alles andere
+ * steht Wort fuer Wort so da.
+ */
+const DISKA = `
+ELLERGUT EINW.ALLG.
+G&G H-VOLLMIL.3,5%
+G&G KOCHSCHIN 1,49 e x
+MINI ROMANASA 0,99 e x
+Posten: 15
+Diska Dürröhrsdorf
+Hauptstraße 109
+01833 Dürrröhrsdorf
+Tel. 035026-95731
+Mastercard
+PAN
+Karte 2
+EMV-AID
+DISKA DUERRROEHRSDORF
+Terminal-ID :
+TA-Nr 024015
+VU-Nr
+SUMME €17,95
+Genehmigungs-Nr
+Datum 24.11.26
+MwSt
+A 7%
+Zahlung erfolgt
+B 19%
+-K-U-N-D-E-N-B-E-L-E-G-
+Kartenzahlung
+kontakt los
+MASTERCARD
+EUR 17,95
+NETTO
+18,18
+0,95 A
+2,98 A
+2,78 A
+2,19 A
+1,98 A
+6,79 A
+MwSt
+1,27
+2,36 A
+17,95
+Signaturzähler: 180580
+BNr 1757
+19:21 Uhr
+UMSATZ
+19,45
+Datum Uhrzeit Filiale Pos Bed Bon
+24.11.26 19:21 0424847 102 024 5756
+Steuernummer: 257/115/33365
+-1,50
+TSE Transaktionsnummer: 89853
+Seriennr. Kasse: NB424847POS02
+`;
+
+describe('Ein Bon, dessen Nummer in einer Tabelle steht', () => {
+  const befund = liesBeleg(DISKA, '2026-11-26');
+  const v = befund.vorschlag;
+
+  /*
+   * DER KERN: "Bon" ist hier eine Spaltenueberschrift, die Zahl steht eine
+   * Zeile tiefer an derselben Stelle. Ohne diese Regel blieb das Feld leer,
+   * und der Beleg liess sich nicht speichern.
+   */
+  it('zaehlt die Spalten ab und findet die Bonnummer', () => {
+    expect(v.nummer).toBe('5756');
+  });
+
+  it('liest Haendler, Datum und Betrag', () => {
+    expect(v.absender).toBe('Diska Dürröhrsdorf');
+    expect(v.datum).toBe('2026-11-24');
+    expect(v.brutto).toBe(17.95);
+  });
+
+  /*
+   * Netto und Steuer bleiben leer, und das ist richtig: Der Bon nennt "A 7%"
+   * und "B 19%", schreibt aber keine Betraege dazu. Es gibt nichts
+   * aufzuteilen - und raten soll der Leser nicht.
+   */
+  it('laesst Netto und Steuer leer, weil die Tabelle keine Betraege nennt', () => {
+    expect(v.netto).toBeUndefined();
+    expect(v.steuer).toBeUndefined();
+  });
+
+  it('findet die Steuernummer', () => {
+    expect(v.steuernummer).toBe('257/115/33365');
+  });
+
+  it('reicht zum Buchen', () => {
+    expect(vollstaendig(v)).toBe(true);
+  });
+});
+
+describe('Woher die Nummer sonst noch kommen darf', () => {
+  /* Keine Spalte, kein "Bon:" - dann die Vorgangsnummer der TSE. */
+  it('nimmt zuletzt die TSE-Transaktionsnummer', () => {
+    const befund = liesBeleg(`
+      Markt Mueller
+      Hauptstraße 2
+      Kasse: 1
+      Rückgeld 0,00
+      Summe 11,90
+      TSE Transaktionsnummer: 89853
+    `);
+    expect(befund.vorschlag.nummer).toBe('89853');
+  });
+
+  /* Eine Ueberschrift ohne passende Wertezeile ist keine Tabelle. */
+  it('zaehlt nicht ab, wenn die Zeile darunter anders lang ist', () => {
+    const befund = liesBeleg(`
+      Markt Mueller
+      Hauptstraße 2
+      Kasse: 1
+      Rückgeld 0,00
+      Datum Uhrzeit Filiale Pos Bed Bon
+      24.11.26 19:21
+      Summe 11,90
+    `);
+    expect(befund.vorschlag.nummer).toBeUndefined();
+  });
+});
+
+describe('Namen, die die Erkennung zerrissen hat', () => {
+  /*
+   * "Kauf land" auf der Adresszeile, "Kaufland Card XTRA" vier Zeilen
+   * weiter: Der Bon schreibt den Namen selbst einmal richtig.
+   */
+  it('zieht zusammen, was anderswo im Text als ein Wort steht', () => {
+    const befund = liesBeleg(`
+      Kauf land - Lohmener Straße 13
+      01796 Pirna
+      Kaufland Card XTRA:
+      Kasse: 11 Bon:91385
+      Rückgeld 4,19
+      Summe 65,81
+    `);
+    expect(befund.vorschlag.absender).toBe('Kaufland');
+  });
+
+  /* Steht das Wort nirgends zusammen, bleibt der Name, wie er gelesen wurde. */
+  it('erfindet kein Wort, das der Bon nicht selbst schreibt', () => {
+    const befund = liesBeleg(`
+      Dohnal sche Str. 68
+      01796 Pirna
+      Kasse: 3 Bon:4711
+      Rückgeld 0,00
+      Summe 19,81
+    `);
+    expect(befund.vorschlag.absender).toBe('Dohnal sche Str. 68');
+  });
+});

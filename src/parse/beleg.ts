@@ -320,6 +320,9 @@ const BON_STEUERSATZ = /^\s*(?:\(\s*\d{1,2}\s*\)\s*)?([A-Z])?\s*(\d{1,2}(?:[.,]\
  * Gebraucht, um zu zaehlen, welche Saetze ein Bon ueberhaupt NENNT - und
  * damit zu merken, dass eine Zeile fehlt.
  */
+/** Ein Wort mit Wortgrenzen - als Funktion, damit die Maskierung an EINER Stelle steht. */
+const GRENZE = (wort: string) => new RegExp('\\b' + wort + '\\b', 'i');
+
 const DEUTSCHE_SAETZE = [0, 5, 5.5, 7, 9, 9.5, 10.7, 16, 19];
 
 /**
@@ -335,12 +338,65 @@ function liesKassenbon(
   nimm: (feld: Belegfeld, wert: string, sicherheit: Sicherheit, beleg: string) => void,
   hinweise: string[],
 ): boolean {
-  /* 1. Die Bonnummer. */
+  /* 1. Die Bonnummer - auf drei Wegen, in dieser Reihenfolge. */
+
+  let nummerDa = false;
+
+  /* "Bon:91385", "Bon-Nr. 4711" - die Nummer steht neben ihrem Wort. */
   for (const zeile of zeilen) {
     const treffer = zeile.match(/\bbon\s*(?:nr\.?)?\s*[:.#]?\s*(\d{2,})/i);
     if (treffer?.[1]) {
       nimm('nummer', treffer[1], 'muster', zeile);
+      nummerDa = true;
       break;
+    }
+  }
+
+  /*
+   * EINE SPALTENUEBERSCHRIFT UND IHRE WERTE, wie unter dem Strichcode bei
+   * Diska (gemessen am 26.11.2026):
+   *
+   *     Datum Uhrzeit Filiale Pos Bed Bon
+   *     24.11.26 19:21 0424847 102 024 5756
+   *
+   * Hier steht das Wort "Bon" allein in einer Ueberschrift, und die Nummer
+   * eine Zeile tiefer an derselben Stelle. Gezaehlt wird nach Spalten, und
+   * nur dann, wenn beide Zeilen gleich viele Stuecke haben - sonst ist es
+   * keine Tabelle, sondern Zufall.
+   */
+  if (!nummerDa) {
+    for (let i = 0; i < zeilen.length - 1; i += 1) {
+      const kopf = (zeilen[i] ?? '').split(/\s+/).filter(Boolean);
+      const stelle = kopf.findIndex((wort) => /^bon(?:[-\s]?nr\.?)?:?$/i.test(wort));
+
+      /* Mindestens drei Spalten, und eine davon muss nach Beleg klingen. */
+      if (stelle === -1 || kopf.length < 3) continue;
+      if (!kopf.some((wort) => /^(datum|uhrzeit|zeit|filiale|markt|pos|kasse|bed|bediener)$/i.test(wort))) continue;
+
+      const werte = (zeilen[i + 1] ?? '').split(/\s+/).filter(Boolean);
+      if (werte.length !== kopf.length) continue;
+
+      const nummer = (werte[stelle] ?? '').replace(/[^\dA-Za-z-]/g, '');
+      if (/^\d{2,}$/.test(nummer)) {
+        nimm('nummer', nummer, 'muster', `${zeilen[i]} | ${zeilen[i + 1]}`);
+        nummerDa = true;
+        break;
+      }
+    }
+  }
+
+  /*
+   * Zuletzt die Vorgangsnummer der Sicherheitseinrichtung. Sie ist eindeutig
+   * je Kasse und steht auf jedem Bon mit TSE - aber sie ist NICHT die Zahl,
+   * die auf dem Papier als Bonnummer gilt. Deshalb erst hier.
+   */
+  if (!nummerDa) {
+    for (const zeile of zeilen) {
+      const treffer = zeile.match(/transaktionsnummer\s*[:.#]?\s*(\d{2,})/i);
+      if (treffer?.[1]) {
+        nimm('nummer', treffer[1], 'muster', zeile);
+        break;
+      }
     }
   }
 
@@ -659,6 +715,36 @@ function liesKassenbon(
   }
 
   /*
+   * WAS DER BON SELBST RICHTIG SCHREIBT, GILT.
+   *
+   * Die Texterkennung zerreisst Firmennamen an Buchstabenabstaenden: Aus
+   * "Kaufland" wird "Kauf land". Auf demselben Bon steht der Name aber
+   * mehrmals, und nicht jedes Mal zerrissen - "Kaufland Card XTRA" kam heil
+   * durch (gemessen am 26.11.2026).
+   *
+   * Zusammengezogen wird deshalb nur, was der Text an anderer Stelle selbst
+   * als EIN Wort fuehrt. Das ist keine Rechtschreibhilfe und kein
+   * Woerterbuch, sondern dieselbe Regel wie beim Betrag: Geglaubt wird, was
+   * auf dem Papier ein zweites Mal steht.
+   */
+  const heilerName = (name: string, eigeneZeile: string): string => {
+    const woerter = name.split(/\s+/);
+
+    for (let i = 0; i < woerter.length - 1; i += 1) {
+      const zusammen = (woerter[i] ?? '') + (woerter[i + 1] ?? '');
+      if (zusammen.length < 5 || !/^[A-Za-zÄÖÜäöüß]+$/.test(zusammen)) continue;
+
+      const kommtVor = zeilen.some(
+        (zeile) => zeile !== eigeneZeile && GRENZE(zusammen).test(zeile),
+      );
+
+      if (kommtVor) return [...woerter.slice(0, i), zusammen, ...woerter.slice(i + 2)].join(' ');
+    }
+
+    return name;
+  };
+
+  /*
    * 3. Der Haendler steht bei seiner Adresse, nicht oben.
    *
    * Zuerst im Kopf gesucht, dann im ganzen Text: Liegt der Bon quer, gibt die
@@ -673,7 +759,7 @@ function liesKassenbon(
 
     if (teile.length > 1 && kopf.length >= 3 && !STRASSE.test(kopf) && /[A-Za-zÄÖÜäöüß]{3}/.test(kopf)) {
       /* "Kaufland - Lohmener Strasse 13" - davor steht der Name. */
-      nimm('absender', kopf, 'muster', adresse);
+      nimm('absender', heilerName(kopf, adresse), 'muster', adresse);
     } else if (/^\s*\S*(?:stra(?:ß|ss)e|str\.)/i.test(adresse) || /^\s*(?:weg|platz|allee|ring|gasse|damm)\b/i.test(adresse)) {
       /*
        * Eine reine Strassenzeile - der Name steht darueber. Am Strassenwort
@@ -681,7 +767,7 @@ function liesKassenbon(
        */
       const davor = zeilen[zeilen.indexOf(adresse) - 1];
       if (davor && davor.length >= 3 && davor.length <= 60 && /[A-Za-zÄÖÜäöüß]{3}/.test(davor) && !/^\d/.test(davor)) {
-        nimm('absender', davor, 'muster', davor);
+        nimm('absender', heilerName(davor, davor), 'muster', davor);
       }
     } else if (adresse.length <= 90) {
       /*
@@ -690,7 +776,7 @@ function liesKassenbon(
        * Die Zeile darueber zu nehmen waere schlimmer: Bei einem quer
        * liegenden Bon stand dort "Preis EUR".
        */
-      nimm('absender', adresse, 'muster', adresse);
+      nimm('absender', heilerName(adresse, adresse), 'muster', adresse);
     }
   }
 
