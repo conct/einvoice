@@ -413,3 +413,172 @@ describe('Woran der Bondurchgang sich nicht vergreift', () => {
     expect(liesBeleg(mitFehler).vorschlag.ustId).toBeUndefined();
   });
 });
+
+/*
+ * DERSELBE BON, ZWEITE AUFNAHME - und die Texterkennung zerlegt ihn anders.
+ * Gemessen am 26.11.2026, eine halbe Stunde nach der ersten: Diesmal steht
+ * der Briefkopf oben (beim ersten Mal kam die Artikelspalte zuerst), der
+ * Bindestrich in "Kaufland -" fehlt, und vor allem ist die Steuertabelle
+ * spaltenweise zerlegt - erst die Saetze, dann die Betraege. Genau daran
+ * blieb der Betrag leer, obwohl das Lesen tags zuvor funktioniert hatte.
+ *
+ * Deshalb steht dieser zweite Text hier neben dem ersten: Eine Aufnahme ist
+ * keine Pruefung. Was die Erkennung aus einem Blatt macht, haengt am Winkel,
+ * am Licht und an ihrer Tageslaune.
+ */
+const KAUFLAND_SPALTEN = `
+Kauf land Lohmener Straße 13
+01/96 Pirna
+Tel. 03501/500920
+DE203534318
+Hasseröder Pils
+2*7,99
+Pfandart ikel 2* 3,10
+Rotk. Sekt Rose
+4* 0.99
+Rotk. Sekt htr.
+4 * 0,99
+KLC.Mineralwasser
+Pfandart ikel
+Ger. Oma Glühwein
+Paulaner Spezi
+2* 10,99
+K Card XTRA Rabatt
+Pfandart ikel
+KLC Streu 60L
+Summe
+Euro
+Rückgeld
+2 * 3,10
+2 * 2,15
+Steuer % Brutto
+A 19,00%
+B7,00%
+61,51
+4,30
+Kauf land Card XTRA:
+EUR
+Netto
+51,69
+4,02
+Preis EUR
+15,98 A
+6,20 A
+3,96 A
+3,96 A
+1,74 A
+1,50 A
+1,99 A
+21,98 A
+-2,00
+6,20 A
+4,30 B
+65,81
+70,00
+4,19
+Steuer
+9,82
+0,28
+XXXXX9478
+Datum:16. 10.26 Zeit: 18:00:35 Bon:91385
+Filiale: 3343 Kasse: 11
+Durch Kauf land Card XTRA Wurden
+2,00 EUR gespart.
+`;
+
+describe('Wenn die Erkennung die Steuertabelle in Spalten zerlegt', () => {
+  const befund = liesBeleg(KAUFLAND_SPALTEN, '2026-11-26');
+  const v = befund.vorschlag;
+
+  /*
+   * Der Fehler, der am Geraet auftrat: "Zum Buchen fehlt noch: Brutto."
+   * Die Saetze stehen allein, die Betraege kommen erst danach.
+   */
+  it('findet den Betrag trotzdem', () => {
+    expect(v.brutto).toBe(65.81);
+    expect(v.netto).toBe(55.71);
+    expect(v.steuer).toBe(10.1);
+  });
+
+  /* Und die 65,81 stehen auch hier frei im Text - der Betrag ist bezeugt. */
+  it('nennt ihn geprueft, weil die Summe im Text steht', () => {
+    expect(befund.funde.find((f) => f.feld === 'brutto')?.sicherheit).toBe('geprueft');
+  });
+
+  it('liest Nummer, Datum und USt-IdNr. wie bei der ersten Aufnahme', () => {
+    expect(v.nummer).toBe('91385');
+    expect(v.datum).toBe('2026-10-16');
+    expect(v.ustId).toBe('DE203534318');
+  });
+
+  it('reicht zum Buchen', () => {
+    expect(vollstaendig(v)).toBe(true);
+  });
+
+  /*
+   * Die Betraege duerfen NICHT aus der Nettospalte kommen, die ein paar
+   * Zeilen weiter unten steht: 51,69 und 4,02 waeren beide plausibel und
+   * beide falsch.
+   */
+  it('nimmt die Betraege direkt hinter den Saetzen, nicht die naechstbesten', () => {
+    expect(v.brutto).not.toBe(55.71);
+    expect(befund.funde.find((f) => f.feld === 'netto')?.wert).toBe('55.71');
+  });
+});
+
+describe('Wo der Nachschub nicht greifen darf', () => {
+  /*
+   * Bringt EIN Satz seinen Betrag mit und der andere nicht, ist die Tabelle
+   * halb zerlegt - dann ist jede Zuordnung geraten. Gelesen wird nur, was
+   * eindeutig dasteht.
+   */
+  it('laesst eine halb zerlegte Tabelle liegen', () => {
+    const befund = liesBeleg(`
+      Markt Mueller
+      Hauptstraße 2
+      Kasse: 1 Bon:7
+      Rückgeld 0,00
+      Steuer % Brutto
+      A 19,00% 11,90
+      B 7,00%
+      5,35
+    `);
+    expect(befund.vorschlag.brutto).toBe(11.9);
+  });
+
+  /*
+   * Steht hinter den Saetzen etwas anderes als Betraege, wird nichts
+   * genommen - dann faellt der Bon auf die Summenzeile zurueck.
+   */
+  it('faellt auf die Summenzeile zurueck, wenn hinter den Saetzen Text steht', () => {
+    const befund = liesBeleg(`
+      Markt Mueller
+      Hauptstraße 2
+      Kasse: 1 Bon:8
+      Rückgeld 0,00
+      Steuer % Brutto
+      A 19,00%
+      Kartenzahlung
+      61,51
+      Summe
+      11,90
+    `);
+    expect(befund.vorschlag.brutto).toBe(11.9);
+    expect(befund.funde.find((f) => f.feld === 'brutto')?.sicherheit).toBe('muster');
+  });
+
+  /* Zeigt die Tabelle Netto, wird auf Brutto hochgerechnet. */
+  it('rechnet eine Nettospalte auf den Bruttobetrag hoch', () => {
+    const befund = liesBeleg(`
+      Markt Mueller
+      Hauptstraße 2
+      Kasse: 1 Bon:9
+      Rückgeld 0,00
+      Steuer % Netto
+      A 19,00% 100,00
+    `);
+    expect(befund.vorschlag.brutto).toBe(119);
+    expect(befund.vorschlag.netto).toBe(100);
+    expect(befund.vorschlag.steuer).toBe(19);
+  });
+});

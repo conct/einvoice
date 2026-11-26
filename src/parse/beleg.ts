@@ -328,16 +328,31 @@ function liesKassenbon(
   }
 
   /* 2. Die Steuertabelle - dort steht der Betrag. */
-  const saetze: Array<{ satz: number; brutto: number; netto: number; steuer: number }> = [];
-  const belegzeilen: string[] = [];
 
-  for (const zeile of zeilen) {
+  /*
+   * Welche Spalte die Tabelle zeigt, sagt ihre Ueberschrift: "Steuer % Brutto"
+   * oder "Steuer % Netto". Ohne Ueberschrift gilt Brutto - so drucken es die
+   * meisten Kassen.
+   */
+  const spalteNetto = zeilen.some((zeile) => /steuer\s*%\s*netto/i.test(zeile) && !/brutto/i.test(zeile));
+
+  /** Eine Zeile, in der NUR ein Betrag steht. */
+  const nurBetrag = (zeile: string): number | undefined => {
+    if (!/^\d[\d.,]*\s*(?:€|EUR)?$/i.test(zeile)) return undefined;
+    const zahl = betragAus(zeile);
+
+    return zahl !== undefined && zahl > 0 ? zahl : undefined;
+  };
+
+  const roh: Array<{ satz: number; betraege: number[]; zeile: string; stelle: number }> = [];
+
+  zeilen.forEach((zeile, stelle) => {
     const treffer = zeile.match(BON_STEUERSATZ);
-    if (!treffer) continue;
+    if (!treffer) return;
 
     const satz = betragAus(treffer[2] ?? '');
     const rest = treffer[3] ?? '';
-    if (satz === undefined || satz > 30) continue;
+    if (satz === undefined || satz > 30) return;
 
     /*
      * Im Rest duerfen nur Zahlen stehen. Ohne diese Schranke faengt die Zeile
@@ -350,18 +365,60 @@ function liesKassenbon(
       .replace(/[€%*.,;:|_-]/g, ' ')
       .replace(/\b[A-Za-z]\b/g, ' ')
       .trim();
-    if (worte) continue;
+    if (worte) return;
 
-    const zahlen = (rest.match(/-?\d[\d.,]*\d|-?\d/g) ?? [])
+    const betraege = (rest.match(/-?\d[\d.,]*\d|-?\d/g) ?? [])
       .map((stueck) => betragAus(stueck))
       .filter((zahl): zahl is number => zahl !== undefined);
+
+    roh.push({ satz, betraege, zeile, stelle });
+  });
+
+  /*
+   * ZWEITE LAGE - gemessen am 26.11.2026 an EINEM Bon, zweimal fotografiert.
+   * Die Texterkennung zerlegt dieselbe Tabelle einmal zeilenweise und einmal
+   * spaltenweise, und daran scheiterte der zweite Versuch:
+   *
+   *     A 19,00% 61,51          A 19,00%
+   *     B 7,00% 4,30     statt  B7,00%
+   *                             61,51
+   *                             4,30
+   *
+   * Stehen die Saetze allein da, folgen die Betraege direkt dahinter, in
+   * derselben Reihenfolge. Zugelassen ist das nur, wenn KEIN Satz seinen
+   * Betrag mitbringt: Ein halb zerlegtes Gebilde waere geraten, nicht gelesen.
+   */
+  const ohneBetrag = roh.filter((satz) => !satz.betraege.length);
+  if (ohneBetrag.length && ohneBetrag.length === roh.length) {
+    const nachschub: number[] = [];
+    const letzte = ohneBetrag[ohneBetrag.length - 1]?.stelle ?? -1;
+
+    for (let i = letzte + 1; i < zeilen.length && nachschub.length < ohneBetrag.length; i += 1) {
+      const zahl = nurBetrag(zeilen[i] ?? '');
+      if (zahl === undefined) break;
+      nachschub.push(zahl);
+    }
+
+    if (nachschub.length === ohneBetrag.length) {
+      ohneBetrag.forEach((satz, stelle) => satz.betraege.push(nachschub[stelle] ?? 0));
+    }
+  }
+
+  const saetze: Array<{ satz: number; brutto: number; netto: number; steuer: number }> = [];
+  const belegzeilen: string[] = [];
+
+  for (const eintrag of roh) {
+    const zahlen = eintrag.betraege;
     if (!zahlen.length) continue;
 
-    const faktor = 1 + satz / 100;
+    const faktor = 1 + eintrag.satz / 100;
     let brutto = Math.max(...zahlen);
     let netto: number | undefined;
 
-    if (zahlen.length === 2) {
+    if (zahlen.length === 1 && spalteNetto) {
+      netto = zahlen[0];
+      brutto = round((zahlen[0] ?? 0) * faktor);
+    } else if (zahlen.length === 2) {
       const [a = 0, b = 0] = zahlen;
       if (Math.abs(a - b * faktor) <= 0.02) {
         brutto = a;
@@ -386,8 +443,8 @@ function liesKassenbon(
 
     if (brutto <= 0) continue;
     const errechnet = netto ?? round(brutto / faktor);
-    saetze.push({ satz, brutto, netto: errechnet, steuer: round(brutto - errechnet) });
-    belegzeilen.push(zeile);
+    saetze.push({ satz: eintrag.satz, brutto, netto: errechnet, steuer: round(brutto - errechnet) });
+    belegzeilen.push(eintrag.zeile);
   }
 
   let abgeleitet = false;
@@ -417,6 +474,18 @@ function liesKassenbon(
         .map((zeile) => `${zeile.satz.toFixed(2).replace('.', ',')} % auf ${zeile.brutto.toFixed(2).replace('.', ',')}`)
         .join(', ')}.`,
     );
+  } else {
+    /*
+     * Ohne Steuertabelle bleibt die Summenzeile. Auch sie kann zerlegt sein -
+     * "Summe" in der einen Zeile, der Betrag in der naechsten.
+     */
+    const stelle = zeilen.findIndex((zeile) => /^(?:sum(?:m)?e|gesamt|total)\b/i.test(zeile));
+    if (stelle !== -1) {
+      const summe = betragAmZeilenende(zeilen[stelle] ?? '') ?? nurBetrag(zeilen[stelle + 1] ?? '');
+      if (summe !== undefined && summe > 0) {
+        nimm('brutto', summe.toFixed(2), 'muster', zeilen[stelle] ?? '');
+      }
+    }
   }
 
   /* 3. Der Haendler steht bei seiner Adresse, nicht oben. */

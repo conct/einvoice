@@ -4219,22 +4219,49 @@ function liesKassenbon(zeilen, nimm, hinweise) {
       break;
     }
   }
-  const saetze = [];
-  const belegzeilen = [];
-  for (const zeile of zeilen) {
+  const spalteNetto = zeilen.some((zeile) => /steuer\s*%\s*netto/i.test(zeile) && !/brutto/i.test(zeile));
+  const nurBetrag = (zeile) => {
+    if (!/^\d[\d.,]*\s*(?:€|EUR)?$/i.test(zeile)) return void 0;
+    const zahl3 = betragAus(zeile);
+    return zahl3 !== void 0 && zahl3 > 0 ? zahl3 : void 0;
+  };
+  const roh = [];
+  zeilen.forEach((zeile, stelle) => {
     const treffer = zeile.match(BON_STEUERSATZ);
-    if (!treffer) continue;
+    if (!treffer) return;
     const satz = betragAus(treffer[2] ?? "");
     const rest = treffer[3] ?? "";
-    if (satz === void 0 || satz > 30) continue;
+    if (satz === void 0 || satz > 30) return;
     const worte = rest.replace(/-?\d[\d.,]*/g, " ").replace(/\b(?:EUR|CHF|USD|GBP)\b/gi, " ").replace(/[€%*.,;:|_-]/g, " ").replace(/\b[A-Za-z]\b/g, " ").trim();
-    if (worte) continue;
-    const zahlen = (rest.match(/-?\d[\d.,]*\d|-?\d/g) ?? []).map((stueck) => betragAus(stueck)).filter((zahl3) => zahl3 !== void 0);
+    if (worte) return;
+    const betraege = (rest.match(/-?\d[\d.,]*\d|-?\d/g) ?? []).map((stueck) => betragAus(stueck)).filter((zahl3) => zahl3 !== void 0);
+    roh.push({ satz, betraege, zeile, stelle });
+  });
+  const ohneBetrag = roh.filter((satz) => !satz.betraege.length);
+  if (ohneBetrag.length && ohneBetrag.length === roh.length) {
+    const nachschub = [];
+    const letzte = ohneBetrag[ohneBetrag.length - 1]?.stelle ?? -1;
+    for (let i = letzte + 1; i < zeilen.length && nachschub.length < ohneBetrag.length; i += 1) {
+      const zahl3 = nurBetrag(zeilen[i] ?? "");
+      if (zahl3 === void 0) break;
+      nachschub.push(zahl3);
+    }
+    if (nachschub.length === ohneBetrag.length) {
+      ohneBetrag.forEach((satz, stelle) => satz.betraege.push(nachschub[stelle] ?? 0));
+    }
+  }
+  const saetze = [];
+  const belegzeilen = [];
+  for (const eintrag of roh) {
+    const zahlen = eintrag.betraege;
     if (!zahlen.length) continue;
-    const faktor = 1 + satz / 100;
+    const faktor = 1 + eintrag.satz / 100;
     let brutto = Math.max(...zahlen);
     let netto;
-    if (zahlen.length === 2) {
+    if (zahlen.length === 1 && spalteNetto) {
+      netto = zahlen[0];
+      brutto = round((zahlen[0] ?? 0) * faktor);
+    } else if (zahlen.length === 2) {
       const [a = 0, b = 0] = zahlen;
       if (Math.abs(a - b * faktor) <= 0.02) {
         brutto = a;
@@ -4257,8 +4284,8 @@ function liesKassenbon(zeilen, nimm, hinweise) {
     }
     if (brutto <= 0) continue;
     const errechnet = netto ?? round(brutto / faktor);
-    saetze.push({ satz, brutto, netto: errechnet, steuer: round(brutto - errechnet) });
-    belegzeilen.push(zeile);
+    saetze.push({ satz: eintrag.satz, brutto, netto: errechnet, steuer: round(brutto - errechnet) });
+    belegzeilen.push(eintrag.zeile);
   }
   let abgeleitet = false;
   if (saetze.length) {
@@ -4274,6 +4301,14 @@ function liesKassenbon(zeilen, nimm, hinweise) {
     hinweise.push(
       `Als Kassenbon gelesen, Betrag aus der Steuertabelle: ${saetze.map((zeile) => `${zeile.satz.toFixed(2).replace(".", ",")} % auf ${zeile.brutto.toFixed(2).replace(".", ",")}`).join(", ")}.`
     );
+  } else {
+    const stelle = zeilen.findIndex((zeile) => /^(?:sum(?:m)?e|gesamt|total)\b/i.test(zeile));
+    if (stelle !== -1) {
+      const summe = betragAmZeilenende(zeilen[stelle] ?? "") ?? nurBetrag(zeilen[stelle + 1] ?? "");
+      if (summe !== void 0 && summe > 0) {
+        nimm("brutto", summe.toFixed(2), "muster", zeilen[stelle] ?? "");
+      }
+    }
   }
   const adresse = zeilen.slice(0, 12).find((zeile) => STRASSE.test(zeile));
   if (adresse) {
