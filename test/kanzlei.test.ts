@@ -165,6 +165,56 @@ describe('Die Liste', () => {
   });
 
   /*
+   * Seit 5.5.0: Nicht alles, was abgelesen wurde, war ein Foto. Rechnungswerk
+   * liest den Text einer PDF ohne E-Rechnung, CHOOZY behaelt von einer
+   * E-Rechnung nur die bestaetigten Felder. Beides stand bisher als "Foto" in
+   * der Liste.
+   */
+  it('nennt PDF-Text und Felder aus einer E-Rechnung bei ihrem Namen', () => {
+    const erfasst: Erfassung = {
+      nummer: 'AR283',
+      datum: '2026-11-02',
+      absender: 'H2 Solutions GmbH',
+      waehrung: 'EUR',
+      brutto: 409.5,
+    };
+    const pdf: Eingangsrechnung = {
+      id: 'er_pdf',
+      ...ausFoto(erfasst, { dateiname: 'a.pdf', zuversicht: 0, text: '', sicherheit: 'Textebene', vorlage: 'pdf' }, JETZT),
+    };
+    const satz: Eingangsrechnung = {
+      id: 'er_satz',
+      ...ausFoto(
+        { ...erfasst, nummer: 'AR284' },
+        { dateiname: 'b.xml', zuversicht: 0, text: '', sicherheit: 'Datensatz', vorlage: 'datensatz' },
+        JETZT,
+      ),
+    };
+    const ohne: Eingangsrechnung = {
+      id: 'er_foto',
+      ...ausFoto({ ...erfasst, nummer: 'AR285' }, { dateiname: 'c.jpg', zuversicht: 80, text: '', vorlage: 'foto' }, JETZT),
+    };
+    const liste = paketplan(
+      [pdf, satz, ohne].map((beleg) => ({ ...beleg, anlage: beleg.id })),
+      LIEFERANTEN,
+      {},
+      JETZT,
+    ).liste;
+    expect(liste).toContain(';PDF, Textebene;');
+    expect(liste).toContain(';E-Rechnung (Felder), Datensatz;');
+    expect(liste).toContain(';Foto, 80 % erkannt;');
+    // 'foto' ist die Vorgabe und wird nicht eigens gespeichert.
+    expect(ohne.quelle.art === 'foto' && 'vorlage' in ohne.quelle).toBe(false);
+  });
+
+  it('fuehrt die Spalte "Bezahlt am"', async () => {
+    const beleg = { ...ausBild('er_9'), bezahltAm: '2026-11-20' };
+    const plan = paketplan([beleg], LIEFERANTEN, {}, JETZT);
+    expect(plan.liste.split('\r\n')[0]).toContain(';Bezahlt am;');
+    expect(plan.liste).toContain(';2026-11-20;');
+  });
+
+  /*
    * Nicht jede Anwendung hat eine Zuversicht in Prozent: CHOOZY urteilt in
    * Worten ('geprueft', wenn Netto plus Steuer aufgeht und die IBAN-
    * Pruefsumme stimmt). Wer das Feld nicht setzt, bekommt die Prozentzahl

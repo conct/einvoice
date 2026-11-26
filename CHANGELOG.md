@@ -3,7 +3,7 @@
 Jede Fassung ist ein Tag; eingebunden wird über den Tag, nie über `main`:
 
 ```
-npm install git+https://github.com/conct/einvoice.git#v5.4.5
+npm install git+https://github.com/conct/einvoice.git#v5.5.0
 ```
 
 Die Nummern folgen semver. **Bricht** markiert, was bei einem Update ohne
@@ -13,6 +13,20 @@ Ausführlich steht jede Änderung in der Commit-Nachricht des Tags.
 Gepflegt von der Rechnungswerk-Seite (seit 26.11.2026). Wünsche aus anderen
 Anwendungen kommen hier hinein; kleine Korrekturen dürfen sie selbst
 einbringen.
+
+## v5.5.0 – 26.11.2026 · Wunsch aus CHOOZY
+
+- `/kanzlei`: Eine abgelesene Quelle (`art: 'foto'`) sagt mit dem neuen,
+  optionalen `vorlage`, wovon abgelesen wurde: `'foto'` (Vorgabe), `'pdf'`
+  (Textebene einer PDF ohne E-Rechnung) oder `'datensatz'` (Felder aus einer
+  E-Rechnung, deren Dokument nicht aufbewahrt wird). `ausFoto` nimmt dafür
+  `vorlage` und `sicherheit` gleich mit entgegen.
+- Die Spalte „Herkunft“ der Liste nennt es: „PDF, …“ und „E-Rechnung
+  (Felder), …“ statt immer „Foto, …“. Die Beilage erklärt die neuen Werte.
+- Ohne `vorlage` bleibt alles wie bisher. Die Typen-Union `Quelle` ist
+  unverändert, eine Weiche über `art` bricht nicht.
+- Die Spalte „Bezahlt am“ (aus `bezahltAm`) gibt es seit 5.2.0; jetzt mit
+  eigenem Test.
 
 ## v5.4.5 – 26.11.2026
 

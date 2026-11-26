@@ -44,7 +44,14 @@ function ausFoto(erfasst, bild, jetzt = /* @__PURE__ */ new Date()) {
     }
   }
   return {
-    quelle: { art: "foto", erfasst, zuversicht: bild.zuversicht, text: bild.text },
+    quelle: {
+      art: "foto",
+      erfasst,
+      zuversicht: bild.zuversicht,
+      text: bild.text,
+      ...bild.sicherheit ? { sicherheit: bild.sicherheit } : {},
+      ...bild.vorlage && bild.vorlage !== "foto" ? { vorlage: bild.vorlage } : {}
+    },
     hinweise,
     dateiname: bild.dateiname,
     createdAt: zeit,
@@ -184,6 +191,7 @@ var feld = (wert) => {
   return /[;"\n\r]/.test(text) ? `"${text}"` : text;
 };
 var betrag = (wert) => wert === void 0 ? "" : formatAmount(wert).replace(/\./g, "");
+var VORLAGE = { foto: "Foto", pdf: "PDF", datensatz: "E-Rechnung (Felder)" };
 var SPALTEN = [
   "Belegdatum",
   "Rechnungsnummer",
@@ -225,7 +233,7 @@ function liste(stuecke, lieferanten) {
         feld(zeile.faellig),
         feld(eingang.bezahltAm),
         feld(
-          quelle.art === "foto" ? `Foto, ${quelle.sicherheit ?? `${Math.round(quelle.zuversicht)} % erkannt`}` : "E-Rechnung"
+          quelle.art === "foto" ? `${VORLAGE[quelle.vorlage ?? "foto"]}, ${quelle.sicherheit ?? `${Math.round(quelle.zuversicht)} % erkannt`}` : "E-Rechnung"
         ),
         feld(stueck.name),
         feld(eingang.hinweise.join(" | "))
@@ -249,6 +257,11 @@ function liesmich(plan, erzeugtAm, zeitraum = {}, werkzeug = "Rechnungswerk") {
     "",
     "  E-Rechnung  Aus dem strukturierten Datensatz gelesen (XRechnung,",
     "              ZUGFeRD/Factur-X). Massgeblich ist diese Datei selbst.",
+    "  E-Rechnung (Felder)",
+    "              Aus einer E-Rechnung uebernommen, das Dokument selbst liegt",
+    "              nicht bei. Die Zahlen stammen aus dem Datensatz.",
+    "  PDF         Aus dem Text einer PDF ohne E-Rechnung abgelesen und von",
+    "              Hand bestaetigt.",
     "  Foto        Von einem Bild abgelesen und von Hand bestaetigt.",
     "              Daneben steht, wie sicher die Lesung war - als Zuversicht",
     "              der Texterkennung in Prozent, oder in Worten.",

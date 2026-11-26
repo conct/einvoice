@@ -96,6 +96,9 @@ const feld = (wert: string | undefined) => {
 const betrag = (wert: number | undefined) =>
   wert === undefined ? '' : formatAmount(wert).replace(/\./g, '');
 
+/** Wie die Spalte "Herkunft" eine abgelesene Quelle nennt. */
+const VORLAGE = { foto: 'Foto', pdf: 'PDF', datensatz: 'E-Rechnung (Felder)' } as const;
+
 const SPALTEN = [
   'Belegdatum',
   'Rechnungsnummer',
@@ -154,7 +157,7 @@ export function liste(
         feld(eingang.bezahltAm),
         feld(
           quelle.art === 'foto'
-            ? `Foto, ${quelle.sicherheit ?? `${Math.round(quelle.zuversicht)} % erkannt`}`
+            ? `${VORLAGE[quelle.vorlage ?? 'foto']}, ${quelle.sicherheit ?? `${Math.round(quelle.zuversicht)} % erkannt`}`
             : 'E-Rechnung',
         ),
         feld(stueck.name),
@@ -202,6 +205,11 @@ export function liesmich(
     '',
     '  E-Rechnung  Aus dem strukturierten Datensatz gelesen (XRechnung,',
     '              ZUGFeRD/Factur-X). Massgeblich ist diese Datei selbst.',
+    '  E-Rechnung (Felder)',
+    '              Aus einer E-Rechnung uebernommen, das Dokument selbst liegt',
+    '              nicht bei. Die Zahlen stammen aus dem Datensatz.',
+    '  PDF         Aus dem Text einer PDF ohne E-Rechnung abgelesen und von',
+    '              Hand bestaetigt.',
     '  Foto        Von einem Bild abgelesen und von Hand bestaetigt.',
     '              Daneben steht, wie sicher die Lesung war - als Zuversicht',
     '              der Texterkennung in Prozent, oder in Worten.',

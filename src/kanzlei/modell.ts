@@ -63,6 +63,22 @@ export type Quelle =
        * genau die Spalte wie vorher.
        */
       sicherheit?: string;
+      /**
+       * Wovon die bestaetigten Felder abgelesen wurden. Fehlt es: ein Foto.
+       *
+       * - `'foto'`: ein Bild, durch eine Texterkennung.
+       * - `'pdf'`: die Textebene einer PDF, die keine E-Rechnung enthaelt.
+       *   Genauer als ein Foto - der Text ist gesetzt, nicht erkannt -, aber
+       *   ebenso wenig ein Datensatz.
+       * - `'datensatz'`: Felder aus einer E-Rechnung, deren Dokument selbst
+       *   nicht aufbewahrt wird (CHOOZY speichert nur die bestaetigten
+       *   Felder). Die Zahlen stammen aus dem XML; nachrechnen laesst sich
+       *   nichts mehr.
+       *
+       * Die Liste fuer die Kanzlei nennt es in der Spalte "Herkunft". Bis
+       * 5.4.5 stand dort fuer alle drei "Foto". Fassung 5.5.0.
+       */
+      vorlage?: 'foto' | 'pdf' | 'datensatz';
     };
 
 /**
@@ -210,7 +226,15 @@ export function ausEInvoice(
  */
 export function ausFoto(
   erfasst: Erfassung,
-  bild: { dateiname: string; zuversicht: number; text: string },
+  bild: {
+    dateiname: string;
+    zuversicht: number;
+    text: string;
+    /** In Worten statt Prozent, siehe `Quelle.sicherheit`. */
+    sicherheit?: string;
+    /** Wovon abgelesen, siehe `Quelle.vorlage`. Fehlt es: ein Foto. */
+    vorlage?: 'foto' | 'pdf' | 'datensatz';
+  },
   jetzt = new Date(),
 ): Omit<Eingangsrechnung, 'id' | 'anlage' | 'lieferantId' | 'bezahltAm' | 'notiz'> {
   const zeit = jetzt.toISOString();
@@ -232,7 +256,14 @@ export function ausFoto(
   }
 
   return {
-    quelle: { art: 'foto', erfasst, zuversicht: bild.zuversicht, text: bild.text },
+    quelle: {
+      art: 'foto',
+      erfasst,
+      zuversicht: bild.zuversicht,
+      text: bild.text,
+      ...(bild.sicherheit ? { sicherheit: bild.sicherheit } : {}),
+      ...(bild.vorlage && bild.vorlage !== 'foto' ? { vorlage: bild.vorlage } : {}),
+    },
     hinweise,
     dateiname: bild.dateiname,
     createdAt: zeit,
