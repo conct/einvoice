@@ -55,7 +55,8 @@
     "README.md",
     "LICENSE",
     "NOTICE",
-    "LIZENZEN.md"
+    "LIZENZEN.md",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsup",
