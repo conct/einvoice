@@ -113,7 +113,14 @@ export function validateInvoice(invoice: Invoice): ValidationResult {
   if (invoice.dueDate && invoice.dueDate < invoice.issueDate) {
     add('BR-CO-25', 'error', 'dueDate', 'Das Fälligkeitsdatum liegt vor dem Rechnungsdatum.');
   }
-  if (!invoice.dueDate && !invoice.payment?.terms && invoice.paidAmount === 0) {
+  /*
+   * Skonto zaehlt als Zahlungsbedingung: Die Stufen werden in BT-20
+   * geschrieben (Schreibweise der XRechnung), BT-20 ist im Dokument also
+   * vorhanden - auch ohne freien Text. Bis 5.4.2 meldete die Pruefung hier
+   * einen Fehler, den der KoSIT-Pruefer am fertigen Dokument nicht sah.
+   */
+  const zahlungsbedingung = Boolean(invoice.payment?.terms || invoice.payment?.skonto?.length);
+  if (!invoice.dueDate && !zahlungsbedingung && invoice.paidAmount === 0) {
     add(
       'BR-CO-25',
       'error',

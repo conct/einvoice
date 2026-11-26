@@ -247,6 +247,16 @@ const STRASSE =
   /(?:stra(?:ß|ss)e|str\.|\bweg\b|\bplatz\b|\ballee\b|\bring\b|\bgasse\b|\bchaussee\b|\bdamm\b)/i;
 
 /**
+ * Eine Zeile, die NUR eine Anschrift ist: bis zu vier Woerter, das letzte mit
+ * dem Strassenwort, dann die Hausnummer - "Hauptstrasse 2", aber auch
+ * "Rottwerndorfer Str. 45" und "Lohmener Strasse 13". Bis 5.4.2 musste das
+ * Strassenwort im ersten Wort stecken; mehrteilige Strassennamen fielen
+ * durch, und die Strasse selbst wurde zum Absender.
+ */
+const NUR_STRASSE =
+  /^\s*(?:[A-Za-zÄÖÜäöüß.'-]+\s+){0,3}[A-Za-zÄÖÜäöüß.'-]*(?:stra(?:ß|ss)e|str\.|weg|platz|allee|ring|gasse|damm|chaussee)\s*\d+\s*[a-zA-Z]?\s*$/i;
+
+/**
  * Merkmale, die es nur auf einem Bon gibt. Eines davon muss da sein.
  *
  * Alle verlangen mehr als ein Wort: "Bon" allein steht auch mal in einer
@@ -754,20 +764,41 @@ function liesKassenbon(
     zeilen.slice(0, 12).find((zeile) => STRASSE.test(zeile)) ?? zeilen.find((zeile) => STRASSE.test(zeile));
 
   if (adresse) {
-    const teile = adresse.split(/\s[-–|,]\s/);
+    /*
+     * Getrennt wird am Satzzeichen - auch, wenn es am Namen klebt:
+     * "Kauf land- Lohmener Strasse 13" (quer liegender Bon, 26.11.2026).
+     * Ein Bindestrich IM Namen ("Rewe-Markt") hat keinen Abstand und bleibt.
+     */
+    const teile = adresse.split(/\s*[-–|]\s+|\s+[-–|]\s*|\s*,\s+/);
     const kopf = (teile[0] ?? '').trim();
 
     if (teile.length > 1 && kopf.length >= 3 && !STRASSE.test(kopf) && /[A-Za-zÄÖÜäöüß]{3}/.test(kopf)) {
       /* "Kaufland - Lohmener Strasse 13" - davor steht der Name. */
       nimm('absender', heilerName(kopf, adresse), 'muster', adresse);
-    } else if (/^\s*\S*(?:stra(?:ß|ss)e|str\.)/i.test(adresse) || /^\s*(?:weg|platz|allee|ring|gasse|damm)\b/i.test(adresse)) {
+    } else if (NUR_STRASSE.test(adresse)) {
       /*
        * Eine reine Strassenzeile - der Name steht darueber. Am Strassenwort
        * zu trennen waere falsch: Aus "Musterstrasse 1" wuerde "Muster".
+       *
+       * Die Zeile darueber muss nach einem Namen aussehen: kein Doppelpunkt
+       * und kaum Ziffern. Bei MAEC GEIZ steht dort "Belegnummer : 1023...";
+       * dann bleibt die Strassenzeile selbst - sie zeigt wenigstens, wo der
+       * Laden ist, und ein Mensch bestaetigt sie ohnehin.
        */
       const davor = zeilen[zeilen.indexOf(adresse) - 1];
-      if (davor && davor.length >= 3 && davor.length <= 60 && /[A-Za-zÄÖÜäöüß]{3}/.test(davor) && !/^\d/.test(davor)) {
+      const ziffern = (davor?.match(/\d/g) ?? []).length;
+      if (
+        davor &&
+        davor.length >= 3 &&
+        davor.length <= 60 &&
+        /[A-Za-zÄÖÜäöüß]{3}/.test(davor) &&
+        !/^\d/.test(davor) &&
+        !davor.includes(':') &&
+        ziffern <= davor.length / 4
+      ) {
         nimm('absender', heilerName(davor, davor), 'muster', davor);
+      } else {
+        nimm('absender', heilerName(adresse, adresse), 'muster', adresse);
       }
     } else if (adresse.length <= 90) {
       /*

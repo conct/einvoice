@@ -196,6 +196,31 @@ describe('Skonto im Dokument', () => {
     expect(treffer[0]?.path).toBe('payment.terms');
   });
 
+  /*
+   * BR-CO-25 verlangt BT-9 oder BT-20. Skonto wird in BT-20 geschrieben -
+   * eine Rechnung mit Skonto und ohne Faelligkeit hat die Angabe also. Bis
+   * 5.4.2 meldete die Pruefung hier trotzdem einen Fehler.
+   */
+  it('zaehlt fuer BR-CO-25 als Zahlungsbedingung', () => {
+    const roh = sampleInvoice();
+    const nurSkonto = parseInvoice({
+      ...roh,
+      dueDate: undefined,
+      paidAmount: 0,
+      payment: { ...roh.payment, terms: undefined, skonto: [{ tage: 10, prozent: 2 }] },
+    });
+    expect(buildCii(nurSkonto)).toContain('#SKONTO#TAGE=10#PROZENT=2.00#');
+    expect(validateInvoice(nurSkonto).issues.filter((i) => i.rule === 'BR-CO-25')).toHaveLength(0);
+
+    const garNichts = parseInvoice({
+      ...roh,
+      dueDate: undefined,
+      paidAmount: 0,
+      payment: { ...roh.payment, terms: undefined, skonto: undefined },
+    });
+    expect(validateInvoice(garNichts).issues.filter((i) => i.rule === 'BR-CO-25')).toHaveLength(1);
+  });
+
   it('nimmt eine gewoehnliche Textzeile nicht uebel', () => {
     expect(
       validateInvoice(mitSkonto()).issues.filter((i) => i.rule === 'BR-DE-18'),

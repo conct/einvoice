@@ -685,9 +685,13 @@ describe('Wenn der Bon quer liegt und der Text rueckwaerts kommt', () => {
   /*
    * Der Briefkopf steht hier ganz unten. Vorher gewann "Filiale: 3343
    * Kasse: 11" als oberste namensartige Zeile.
+   *
+   * Seit 5.4.3 wird auch am angeklebten Bindestrich getrennt ("Kauf land-").
+   * Zusammengezogen wird nicht: "Kaufland" steht in dieser Aufnahme nirgends
+   * heil.
    */
   it('findet den Haendler auch am Ende des Textes', () => {
-    expect(v.absender).toBe('Kauf land- Lohmener Straße 13');
+    expect(v.absender).toBe('Kauf land');
   });
 
   it('reicht zum Buchen', () => {
@@ -1047,5 +1051,47 @@ describe('Namen, die die Erkennung zerrissen hat', () => {
       Summe 19,81
     `);
     expect(befund.vorschlag.absender).toBe('Dohnal sche Str. 68');
+  });
+});
+
+describe('Der Name ueber einer mehrteiligen Strasse', () => {
+  /*
+   * Gefunden am 26.11.2026 in Rechnungswerk: Der Name stand auf einer eigenen
+   * Zeile ueber "Rottwerndorfer Str. 45", und als Absender kam die Strasse.
+   * Das Strassenwort musste bis 5.4.2 im ersten Wort stecken.
+   */
+  it('nimmt die Zeile ueber der Strasse, auch wenn die Strasse aus mehreren Woertern besteht', () => {
+    for (const strasse of ['Rottwerndorfer Str. 45', 'Lohmener Straße 13', 'Hauptstraße 2']) {
+      const befund = liesBeleg(`
+        Getraenke Schmidt
+        ${strasse}
+        01796 Pirna
+        Kasse: 1 Bon:4711
+        Summe 11,90
+      `);
+      expect(befund.vorschlag.absender, strasse).toBe('Getraenke Schmidt');
+    }
+  });
+
+  /* Steht darueber eine Nummer und kein Name, bleibt die Strasse. */
+  it('nimmt keine Beleg- oder Kassenzeile als Namen', () => {
+    const befund = liesBeleg(`
+      Belegnummer : 1023480000161440604
+      Dohnal sche Str. 68
+      01796 Pirna
+      Summe 19,81
+    `);
+    expect(befund.vorschlag.absender).toBe('Dohnal sche Str. 68');
+  });
+
+  /* Ein Bindestrich ohne Abstand gehoert zum Namen. */
+  it('trennt "Rewe-Markt" nicht auseinander', () => {
+    const befund = liesBeleg(`
+      Rewe-Markt GmbH - Hauptstraße 2
+      01796 Pirna
+      Kasse: 1 Bon:12
+      Summe 4,99
+    `);
+    expect(befund.vorschlag.absender).toBe('Rewe-Markt GmbH');
   });
 });

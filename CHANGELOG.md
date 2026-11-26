@@ -3,7 +3,7 @@
 Jede Fassung ist ein Tag; eingebunden wird über den Tag, nie über `main`:
 
 ```
-npm install git+https://github.com/conct/einvoice.git#v5.4.2
+npm install git+https://github.com/conct/einvoice.git#v5.4.3
 ```
 
 Die Nummern folgen semver. **Bricht** markiert, was bei einem Update ohne
@@ -13,6 +13,21 @@ Ausführlich steht jede Änderung in der Commit-Nachricht des Tags.
 Gepflegt von der Rechnungswerk-Seite (seit 26.11.2026). Wünsche aus anderen
 Anwendungen kommen hier hinein; kleine Korrekturen dürfen sie selbst
 einbringen.
+
+## v5.4.3 – 26.11.2026
+
+- `validateInvoice`: Skonto zählt für **BR-CO-25** als Zahlungsbedingung.
+  Die Stufen stehen ohnehin in BT-20; eine Rechnung mit Skonto und ohne
+  Fälligkeit und ohne freien Text meldete bisher einen Fehler, den der
+  KoSIT-Prüfer am fertigen Dokument nicht sah. (Verhalten: eine Meldung
+  weniger, keine neue.)
+- `liesBeleg`: Steht der Händlername auf einer eigenen Zeile über einer
+  mehrteiligen Straße („Rottwerndorfer Str. 45“, „Lohmener Straße 13“),
+  wird der Name genommen statt der Straße. Sieht die Zeile darüber nicht nach
+  einem Namen aus (Doppelpunkt, viele Ziffern), bleibt die Straßenzeile.
+- `liesBeleg`: Getrennt wird auch an einem Bindestrich, der am Namen klebt
+  („Kauf land- Lohmener Straße 13“ ergibt „Kauf land“). „Rewe-Markt“ bleibt
+  ganz.
 
 ## v5.4.2 – 26.11.2026
 

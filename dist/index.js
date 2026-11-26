@@ -253,7 +253,8 @@ function validateInvoice(invoice) {
   if (invoice.dueDate && invoice.dueDate < invoice.issueDate) {
     add("BR-CO-25", "error", "dueDate", "Das F\xE4lligkeitsdatum liegt vor dem Rechnungsdatum.");
   }
-  if (!invoice.dueDate && !invoice.payment?.terms && invoice.paidAmount === 0) {
+  const zahlungsbedingung = Boolean(invoice.payment?.terms || invoice.payment?.skonto?.length);
+  if (!invoice.dueDate && !zahlungsbedingung && invoice.paidAmount === 0) {
     add(
       "BR-CO-25",
       "error",
@@ -4182,6 +4183,7 @@ var NETTOZEILE = /(?:netto(?:betrag|summe)?|summe\s+netto|zwischensumme|gesamt\s
 var STEUERZEILE = /(?:umsatzsteuer|mehrwertsteuer|\bmwst\.?|\bust\.?|\bvat\b)/i;
 var KEINE_ZAHL = /^\D*$/;
 var STRASSE = /(?:stra(?:ß|ss)e|str\.|\bweg\b|\bplatz\b|\ballee\b|\bring\b|\bgasse\b|\bchaussee\b|\bdamm\b)/i;
+var NUR_STRASSE = /^\s*(?:[A-Za-zÄÖÜäöüß.'-]+\s+){0,3}[A-Za-zÄÖÜäöüß.'-]*(?:stra(?:ß|ss)e|str\.|weg|platz|allee|ring|gasse|damm|chaussee)\s*\d+\s*[a-zA-Z]?\s*$/i;
 var BON_STARK = [
   /\bbon\s*(?:nr\.?)?\s*[:.#]?\s*\d{2,}/i,
   /\bkasse\s*[:.#]?\s*\d/i,
@@ -4411,14 +4413,17 @@ function liesKassenbon(zeilen, nimm, hinweise) {
   };
   const adresse = zeilen.slice(0, 12).find((zeile) => STRASSE.test(zeile)) ?? zeilen.find((zeile) => STRASSE.test(zeile));
   if (adresse) {
-    const teile = adresse.split(/\s[-–|,]\s/);
+    const teile = adresse.split(/\s*[-–|]\s+|\s+[-–|]\s*|\s*,\s+/);
     const kopf = (teile[0] ?? "").trim();
     if (teile.length > 1 && kopf.length >= 3 && !STRASSE.test(kopf) && /[A-Za-zÄÖÜäöüß]{3}/.test(kopf)) {
       nimm("absender", heilerName(kopf, adresse), "muster", adresse);
-    } else if (/^\s*\S*(?:stra(?:ß|ss)e|str\.)/i.test(adresse) || /^\s*(?:weg|platz|allee|ring|gasse|damm)\b/i.test(adresse)) {
+    } else if (NUR_STRASSE.test(adresse)) {
       const davor = zeilen[zeilen.indexOf(adresse) - 1];
-      if (davor && davor.length >= 3 && davor.length <= 60 && /[A-Za-zÄÖÜäöüß]{3}/.test(davor) && !/^\d/.test(davor)) {
+      const ziffern = (davor?.match(/\d/g) ?? []).length;
+      if (davor && davor.length >= 3 && davor.length <= 60 && /[A-Za-zÄÖÜäöüß]{3}/.test(davor) && !/^\d/.test(davor) && !davor.includes(":") && ziffern <= davor.length / 4) {
         nimm("absender", heilerName(davor, davor), "muster", davor);
+      } else {
+        nimm("absender", heilerName(adresse, adresse), "muster", adresse);
       }
     } else if (adresse.length <= 90) {
       nimm("absender", heilerName(adresse, adresse), "muster", adresse);
