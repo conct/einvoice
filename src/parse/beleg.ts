@@ -375,7 +375,88 @@ function liesKassenbon(
   });
 
   /*
-   * ZWEITE LAGE - gemessen am 26.11.2026 an EINEM Bon, zweimal fotografiert.
+   * ZWEITE LAGE, UND DIE WICHTIGSTE: DIE RECHNUNG STATT DER REIHENFOLGE.
+   *
+   * Derselbe Bon, dreimal fotografiert, dreimal anders zerlegt - beim dritten
+   * Mal lag er quer, und die Erkennung gab den Text RUECKWAERTS aus, Satz und
+   * Zeichen sogar getrennt:
+   *
+   *     B7,00%
+   *     A
+   *     19,00%
+   *     Steuer % Brutto
+   *     4,30
+   *     4,02
+   *     ...
+   *     61,51
+   *     51,69
+   *
+   * Gegen so etwas hilft keine Regel ueber Zeilen und Nachbarn mehr. Was
+   * bleibt, ist die Arithmetik: Gesucht wird die EINE Zuordnung von Betraegen
+   * zu Saetzen, die der Bon selbst bestaetigt - jeder Bruttobetrag muss sein
+   * Netto im Text stehen haben (61,51/1,19 = 51,69 und 4,30/1,07 = 4,02), und
+   * ihre Summe muss ebenfalls dort stehen (65,81). Gibt es mehr als eine
+   * solche Zuordnung, wird nichts genommen: Zwei Moeglichkeiten sind geraten.
+   *
+   * Das ist nicht nur robuster, es ist auch ehrlicher. Die Zahlen stammen dann
+   * nicht aus einer Vermutung ueber Spalten, sondern aus drei Angaben, die auf
+   * dem Papier zusammenpassen.
+   */
+  let mehrdeutig = false;
+  const ohneZahl = roh.filter((satz) => !satz.betraege.length);
+  if (
+    ohneZahl.length &&
+    ohneZahl.length === roh.length &&
+    roh.length <= 3 &&
+    roh.every((satz) => satz.satz > 0)
+  ) {
+    /* Jede Zahl des Belegs, mit ihrer Haeufigkeit - zwei Saetze duerfen nur
+     * dann denselben Betrag haben, wenn er auch zweimal dasteht. */
+    const vorrat = new Map<number, number>();
+    for (const zeile of zeilen) {
+      for (const stueck of zeile.match(/-?\d[\d.,]*\d|-?\d/g) ?? []) {
+        const zahl = betragAus(stueck);
+        if (zahl === undefined || zahl <= 0 || zahl >= 100000) continue;
+        vorrat.set(zahl, (vorrat.get(zahl) ?? 0) + 1);
+      }
+    }
+
+    const werte = [...vorrat.keys()];
+    const loesungen: number[][] = [];
+    const benutzt = new Map<number, number>();
+
+    const suche = (stelle: number, gewaehlt: number[]): void => {
+      // Mehr als eine Loesung heisst mehrdeutig - dann lohnt kein Weitersuchen.
+      if (loesungen.length > 1) return;
+
+      if (stelle === roh.length) {
+        const summe = round(gewaehlt.reduce((zwischen, betrag) => zwischen + betrag, 0));
+        if (vorrat.has(summe)) loesungen.push([...gewaehlt]);
+        return;
+      }
+
+      const satz = roh[stelle]?.satz ?? 0;
+      for (const brutto of werte) {
+        if ((benutzt.get(brutto) ?? 0) >= (vorrat.get(brutto) ?? 0)) continue;
+        const netto = round(brutto / (1 + satz / 100));
+        if (netto === brutto || !vorrat.has(netto)) continue;
+
+        benutzt.set(brutto, (benutzt.get(brutto) ?? 0) + 1);
+        suche(stelle + 1, [...gewaehlt, brutto]);
+        benutzt.set(brutto, (benutzt.get(brutto) ?? 0) - 1);
+      }
+    };
+
+    suche(0, []);
+
+    if (loesungen.length === 1) {
+      ohneZahl.forEach((satz, stelle) => satz.betraege.push(loesungen[0]?.[stelle] ?? 0));
+    }
+    mehrdeutig = loesungen.length > 1;
+  }
+
+  /*
+   * DRITTE LAGE - gemessen am 26.11.2026 an EINEM Bon, zweimal fotografiert.
    * Die Texterkennung zerlegt dieselbe Tabelle einmal zeilenweise und einmal
    * spaltenweise, und daran scheiterte der zweite Versuch:
    *
@@ -389,7 +470,12 @@ function liesKassenbon(
    * Betrag mitbringt: Ein halb zerlegtes Gebilde waere geraten, nicht gelesen.
    */
   const ohneBetrag = roh.filter((satz) => !satz.betraege.length);
-  if (ohneBetrag.length && ohneBetrag.length === roh.length) {
+  if (ohneBetrag.length && ohneBetrag.length === roh.length && !mehrdeutig) {
+    /*
+     * Nur noch, wenn die Rechnung oben GAR NICHTS fand. Fand sie mehrere
+     * moegliche Zuordnungen, ist der Text mehrdeutig - dann darf die
+     * Reihenfolge nicht entscheiden, was die Arithmetik offengelassen hat.
+     */
     const nachschub: number[] = [];
     const letzte = ohneBetrag[ohneBetrag.length - 1]?.stelle ?? -1;
 
@@ -488,24 +574,39 @@ function liesKassenbon(
     }
   }
 
-  /* 3. Der Haendler steht bei seiner Adresse, nicht oben. */
-  const adresse = zeilen.slice(0, 12).find((zeile) => STRASSE.test(zeile));
+  /*
+   * 3. Der Haendler steht bei seiner Adresse, nicht oben.
+   *
+   * Zuerst im Kopf gesucht, dann im ganzen Text: Liegt der Bon quer, gibt die
+   * Erkennung ihn rueckwaerts aus, und dann steht der Briefkopf ganz unten.
+   */
+  const adresse =
+    zeilen.slice(0, 12).find((zeile) => STRASSE.test(zeile)) ?? zeilen.find((zeile) => STRASSE.test(zeile));
+
   if (adresse) {
     const teile = adresse.split(/\s[-–|,]\s/);
     const kopf = (teile[0] ?? '').trim();
-    /*
-     * "Kaufland - Lohmerner Strasse 13" ergibt den Namen; "Musterstrasse 1"
-     * darf NICHT zu "Muster" werden, deshalb wird am Satzzeichen getrennt und
-     * nicht am Strassenwort. Steht davor nichts, steht der Name eine Zeile
-     * hoeher.
-     */
+
     if (teile.length > 1 && kopf.length >= 3 && !STRASSE.test(kopf) && /[A-Za-zÄÖÜäöüß]{3}/.test(kopf)) {
+      /* "Kaufland - Lohmener Strasse 13" - davor steht der Name. */
       nimm('absender', kopf, 'muster', adresse);
-    } else {
+    } else if (/^\s*\S*(?:stra(?:ß|ss)e|str\.)/i.test(adresse) || /^\s*(?:weg|platz|allee|ring|gasse|damm)\b/i.test(adresse)) {
+      /*
+       * Eine reine Strassenzeile - der Name steht darueber. Am Strassenwort
+       * zu trennen waere falsch: Aus "Musterstrasse 1" wuerde "Muster".
+       */
       const davor = zeilen[zeilen.indexOf(adresse) - 1];
       if (davor && davor.length >= 3 && davor.length <= 60 && /[A-Za-zÄÖÜäöüß]{3}/.test(davor) && !/^\d/.test(davor)) {
         nimm('absender', davor, 'muster', davor);
       }
+    } else if (adresse.length <= 90) {
+      /*
+       * Name und Strasse in einer Zeile, ohne Trennzeichen: "Kauf land
+       * Lohmener Strasse 13". Dann die ganze Zeile - haesslich, aber richtig.
+       * Die Zeile darueber zu nehmen waere schlimmer: Bei einem quer
+       * liegenden Bon stand dort "Preis EUR".
+       */
+      nimm('absender', adresse, 'muster', adresse);
     }
   }
 

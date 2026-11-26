@@ -79,6 +79,13 @@ export {
   type Sicherheit,
 } from './parse/beleg';
 export {
+  istKassenbonCode,
+  liesKassenbonCode,
+  type Kassenbondaten,
+  type Kassenbonsatz,
+  type Kassenbonzahlung,
+} from './parse/kassenbon';
+export {
   detectKind,
   readEInvoice,
   EInvoiceError,

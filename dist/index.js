@@ -4133,15 +4133,15 @@ function betragAus(text2) {
   const letztesKomma = ohneLeer.lastIndexOf(",");
   const letzterPunkt = ohneLeer.lastIndexOf(".");
   const trenner = Math.max(letztesKomma, letzterPunkt);
-  let zahl3;
+  let zahl4;
   if (trenner === -1) {
-    zahl3 = ohneLeer;
+    zahl4 = ohneLeer;
   } else if (ohneLeer.length - trenner - 1 <= 2 && ohneLeer.length - trenner - 1 > 0) {
-    zahl3 = `${ohneLeer.slice(0, trenner).replace(/[.,]/g, "")}.${ohneLeer.slice(trenner + 1)}`;
+    zahl4 = `${ohneLeer.slice(0, trenner).replace(/[.,]/g, "")}.${ohneLeer.slice(trenner + 1)}`;
   } else {
-    zahl3 = ohneLeer.replace(/[.,]/g, "");
+    zahl4 = ohneLeer.replace(/[.,]/g, "");
   }
-  const wert = Number(zahl3);
+  const wert = Number(zahl4);
   return Number.isFinite(wert) ? round(wert) : void 0;
 }
 function betragAmZeilenende(zeile) {
@@ -4222,8 +4222,8 @@ function liesKassenbon(zeilen, nimm, hinweise) {
   const spalteNetto = zeilen.some((zeile) => /steuer\s*%\s*netto/i.test(zeile) && !/brutto/i.test(zeile));
   const nurBetrag = (zeile) => {
     if (!/^\d[\d.,]*\s*(?:€|EUR)?$/i.test(zeile)) return void 0;
-    const zahl3 = betragAus(zeile);
-    return zahl3 !== void 0 && zahl3 > 0 ? zahl3 : void 0;
+    const zahl4 = betragAus(zeile);
+    return zahl4 !== void 0 && zahl4 > 0 ? zahl4 : void 0;
   };
   const roh = [];
   zeilen.forEach((zeile, stelle) => {
@@ -4234,17 +4234,54 @@ function liesKassenbon(zeilen, nimm, hinweise) {
     if (satz === void 0 || satz > 30) return;
     const worte = rest.replace(/-?\d[\d.,]*/g, " ").replace(/\b(?:EUR|CHF|USD|GBP)\b/gi, " ").replace(/[€%*.,;:|_-]/g, " ").replace(/\b[A-Za-z]\b/g, " ").trim();
     if (worte) return;
-    const betraege = (rest.match(/-?\d[\d.,]*\d|-?\d/g) ?? []).map((stueck) => betragAus(stueck)).filter((zahl3) => zahl3 !== void 0);
+    const betraege = (rest.match(/-?\d[\d.,]*\d|-?\d/g) ?? []).map((stueck) => betragAus(stueck)).filter((zahl4) => zahl4 !== void 0);
     roh.push({ satz, betraege, zeile, stelle });
   });
+  let mehrdeutig = false;
+  const ohneZahl = roh.filter((satz) => !satz.betraege.length);
+  if (ohneZahl.length && ohneZahl.length === roh.length && roh.length <= 3 && roh.every((satz) => satz.satz > 0)) {
+    const vorrat = /* @__PURE__ */ new Map();
+    for (const zeile of zeilen) {
+      for (const stueck of zeile.match(/-?\d[\d.,]*\d|-?\d/g) ?? []) {
+        const zahl4 = betragAus(stueck);
+        if (zahl4 === void 0 || zahl4 <= 0 || zahl4 >= 1e5) continue;
+        vorrat.set(zahl4, (vorrat.get(zahl4) ?? 0) + 1);
+      }
+    }
+    const werte = [...vorrat.keys()];
+    const loesungen = [];
+    const benutzt = /* @__PURE__ */ new Map();
+    const suche = (stelle, gewaehlt) => {
+      if (loesungen.length > 1) return;
+      if (stelle === roh.length) {
+        const summe = round(gewaehlt.reduce((zwischen, betrag) => zwischen + betrag, 0));
+        if (vorrat.has(summe)) loesungen.push([...gewaehlt]);
+        return;
+      }
+      const satz = roh[stelle]?.satz ?? 0;
+      for (const brutto of werte) {
+        if ((benutzt.get(brutto) ?? 0) >= (vorrat.get(brutto) ?? 0)) continue;
+        const netto = round(brutto / (1 + satz / 100));
+        if (netto === brutto || !vorrat.has(netto)) continue;
+        benutzt.set(brutto, (benutzt.get(brutto) ?? 0) + 1);
+        suche(stelle + 1, [...gewaehlt, brutto]);
+        benutzt.set(brutto, (benutzt.get(brutto) ?? 0) - 1);
+      }
+    };
+    suche(0, []);
+    if (loesungen.length === 1) {
+      ohneZahl.forEach((satz, stelle) => satz.betraege.push(loesungen[0]?.[stelle] ?? 0));
+    }
+    mehrdeutig = loesungen.length > 1;
+  }
   const ohneBetrag = roh.filter((satz) => !satz.betraege.length);
-  if (ohneBetrag.length && ohneBetrag.length === roh.length) {
+  if (ohneBetrag.length && ohneBetrag.length === roh.length && !mehrdeutig) {
     const nachschub = [];
     const letzte = ohneBetrag[ohneBetrag.length - 1]?.stelle ?? -1;
     for (let i = letzte + 1; i < zeilen.length && nachschub.length < ohneBetrag.length; i += 1) {
-      const zahl3 = nurBetrag(zeilen[i] ?? "");
-      if (zahl3 === void 0) break;
-      nachschub.push(zahl3);
+      const zahl4 = nurBetrag(zeilen[i] ?? "");
+      if (zahl4 === void 0) break;
+      nachschub.push(zahl4);
     }
     if (nachschub.length === ohneBetrag.length) {
       ohneBetrag.forEach((satz, stelle) => satz.betraege.push(nachschub[stelle] ?? 0));
@@ -4310,17 +4347,19 @@ function liesKassenbon(zeilen, nimm, hinweise) {
       }
     }
   }
-  const adresse = zeilen.slice(0, 12).find((zeile) => STRASSE.test(zeile));
+  const adresse = zeilen.slice(0, 12).find((zeile) => STRASSE.test(zeile)) ?? zeilen.find((zeile) => STRASSE.test(zeile));
   if (adresse) {
     const teile = adresse.split(/\s[-–|,]\s/);
     const kopf = (teile[0] ?? "").trim();
     if (teile.length > 1 && kopf.length >= 3 && !STRASSE.test(kopf) && /[A-Za-zÄÖÜäöüß]{3}/.test(kopf)) {
       nimm("absender", kopf, "muster", adresse);
-    } else {
+    } else if (/^\s*\S*(?:stra(?:ß|ss)e|str\.)/i.test(adresse) || /^\s*(?:weg|platz|allee|ring|gasse|damm)\b/i.test(adresse)) {
       const davor = zeilen[zeilen.indexOf(adresse) - 1];
       if (davor && davor.length >= 3 && davor.length <= 60 && /[A-Za-zÄÖÜäöüß]{3}/.test(davor) && !/^\d/.test(davor)) {
         nimm("absender", davor, "muster", davor);
       }
+    } else if (adresse.length <= 90) {
+      nimm("absender", adresse, "muster", adresse);
     }
   }
   for (const zeile of zeilen) {
@@ -4440,6 +4479,77 @@ function vollstaendig(erfassung) {
   return Boolean(
     erfassung.nummer?.trim() && erfassung.datum && erfassung.absender?.trim() && erfassung.waehrung && typeof erfassung.brutto === "number" && erfassung.brutto > 0
   );
+}
+
+// src/parse/kassenbon.ts
+var SAETZE = [19, 7, 10.7, 5.5, 0];
+function zahl3(text2) {
+  if (!/^-?\d+(?:\.\d+)?$/.test(text2.trim())) return void 0;
+  const wert = Number(text2.trim());
+  return Number.isFinite(wert) ? round(wert) : void 0;
+}
+function tagAus(zeitpunkt) {
+  const wann = new Date(zeitpunkt);
+  if (Number.isNaN(wann.getTime())) return void 0;
+  return [
+    wann.getFullYear(),
+    String(wann.getMonth() + 1).padStart(2, "0"),
+    String(wann.getDate()).padStart(2, "0")
+  ].join("-");
+}
+function istKassenbonCode(text2) {
+  return /^V\d+;[^;]*;Kassenbeleg-V\d/i.test(text2.trim());
+}
+function liesKassenbonCode(text2) {
+  const roh = (text2 ?? "").trim();
+  if (!istKassenbonCode(roh)) return void 0;
+  const felder = roh.split(";");
+  const [, kasse = "", , vorgangsdaten = "", vorgang = "", , startzeit = "", logzeit = ""] = felder;
+  const teile = vorgangsdaten.split("^");
+  if (teile.length < 2 || !/^beleg$/i.test((teile[0] ?? "").trim())) return void 0;
+  const hinweise = [];
+  const betraege = (teile[1] ?? "").split("_").map((stueck) => zahl3(stueck));
+  const saetze = [];
+  betraege.forEach((brutto2, stelle) => {
+    const satz = SAETZE[stelle];
+    if (brutto2 === void 0 || satz === void 0 || brutto2 === 0) return;
+    const netto2 = round(brutto2 / (1 + satz / 100));
+    saetze.push({ satz, brutto: brutto2, netto: netto2, steuer: round(brutto2 - netto2) });
+  });
+  if (betraege.length > SAETZE.length) {
+    hinweise.push("Der Code nennt mehr Steuersaetze, als das Format kennt - die zusaetzlichen bleiben liegen.");
+  }
+  const zahlungen = [];
+  for (const stueck of (teile[2] ?? "").split("_")) {
+    if (!stueck.trim()) continue;
+    const [betrag = "", art = ""] = stueck.split(":");
+    const wert = zahl3(betrag);
+    if (wert !== void 0) zahlungen.push({ betrag: wert, art: art.trim() || "unbekannt" });
+  }
+  const brutto = round(saetze.reduce((summe, satz) => summe + satz.brutto, 0));
+  const netto = round(saetze.reduce((summe, satz) => summe + satz.netto, 0));
+  const steuer = round(saetze.reduce((summe, satz) => summe + satz.steuer, 0));
+  const gezahlt = round(zahlungen.reduce((summe, zahlung) => summe + zahlung.betrag, 0));
+  if (zahlungen.length && Math.abs(gezahlt - brutto) > 0.02) {
+    hinweise.push(
+      `Die Zahlungen ergeben ${gezahlt.toFixed(2)}, die Steuersaetze ${brutto.toFixed(2)}.`
+    );
+  }
+  const zeitpunkt = logzeit.trim() || startzeit.trim();
+  const datum = tagAus(zeitpunkt);
+  if (zeitpunkt && !datum) hinweise.push("Der Zeitstempel des Codes liess sich nicht lesen.");
+  return {
+    kasse: kasse.trim(),
+    vorgang: vorgang.trim(),
+    zeitpunkt,
+    ...datum ? { datum } : {},
+    brutto,
+    netto,
+    steuer,
+    saetze,
+    zahlungen,
+    hinweise
+  };
 }
 
 // src/parse/receive.ts
@@ -4687,6 +4797,7 @@ export {
   isPlausibleVatId,
   istBrauchbareBeschriftung,
   istKassenbon,
+  istKassenbonCode,
   istKleinunternehmerRechnung,
   istPng,
   kennzahlenrahmen,
@@ -4694,6 +4805,7 @@ export {
   leseInhalt,
   liefereBreiten,
   liesBeleg,
+  liesKassenbonCode,
   liesPdfText,
   liesZahlungsbedingungen,
   lineNetAmount,

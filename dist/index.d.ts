@@ -1282,6 +1282,50 @@ declare function liefereBreiten(doc: PDFDocument, seite: number): Map<string, Br
  */
 declare function laufbreite(stuecke: (number[] | number)[], breiten: Breiten | undefined, groesse: number, zeichenabstand?: number, wortabstand?: number, streckung?: number): number;
 
+interface Kassenbonsatz {
+    satz: number;
+    brutto: number;
+    netto: number;
+    steuer: number;
+}
+interface Kassenbonzahlung {
+    betrag: number;
+    /** "Bar", "Unbar" - wie die Kasse es geschrieben hat. */
+    art: string;
+}
+interface Kassenbondaten {
+    /** Seriennummer der Kasse, die den Bon erzeugt hat. */
+    kasse: string;
+    /** Die Vorgangsnummer der Sicherheitseinrichtung - eindeutig je Kasse. */
+    vorgang: string;
+    /** Der Zeitpunkt, den die Kasse protokolliert hat. */
+    zeitpunkt: string;
+    /** Derselbe Zeitpunkt als Kalendertag am Ort - das Belegdatum. */
+    datum?: IsoDate;
+    brutto: number;
+    netto: number;
+    steuer: number;
+    /** Nur die Saetze, auf die wirklich etwas entfaellt. */
+    saetze: Kassenbonsatz[];
+    zahlungen: Kassenbonzahlung[];
+    /** Was auffiel, ohne dass es ein Fehler waere. */
+    hinweise: string[];
+}
+/**
+ * Sieht die Zeichenkette nach einem Kassenbeleg-Code aus?
+ *
+ * Gefragt wird vor dem Zerlegen, damit ein Strichcode auf der Packung oder
+ * ein Link, der zufaellig mitgelesen wurde, gar nicht erst hier landet.
+ */
+declare function istKassenbonCode(text: string): boolean;
+/**
+ * Den Code eines Kassenbons lesen.
+ *
+ * Gibt `undefined` zurueck, wenn es keiner ist - und das ist der Normalfall,
+ * sobald jemand die Kamera auf den Strichcode daneben haelt.
+ */
+declare function liesKassenbonCode(text: string): Kassenbondaten | undefined;
+
 /**
  * Fehler beim Einlesen einer empfangenen Rechnung.
  *
@@ -1545,4 +1589,4 @@ declare function buildInvoiceXml(invoice: Invoice): {
     filename: string;
 };
 
-export { A4, BUNDLED_SPECIFICATIONS, type Beschriftung, type Beschriftungen, type Breiten, type Briefpapier, type CiiOptions, DEFAULT_THEME, EAS, EInvoiceError, type EInvoiceErrorCode, type FacturXConformanceLevel, type Farbe, type Flaeche, type Folgeart, INVOICE_TYPE_CODES, Invoice, InvoiceInput, type InvoiceTotals, type InvoiceTypeCode, IsoDate, type Kennzahlenstellung, type Kreis, Line, MAX_SCHRIFT_BYTES, PAYMENT_MEANS, PROFILE_ID, type PaymentMeansCode, type PdfText, type Pfad, RECHNUNGSZEICHEN, type RenderAssets, type RenderOptions, type RenderResult, STANDARD_BESCHRIFTUNGEN, type Schriftbefund, type Schriftmangel, type SpecificationAge, type SpecificationEntry, SpecificationError, type SpecificationSet, type Strich, type Textlauf, type Textseite, type Textstueck, type Textzeile, type Theme, UNIT, type UblOptions, type UnitCode, VAT_CATEGORY, Vat, type VatBreakdownEntry, type VatCategoryCode, type Vorlagenbefund, type Waehrungsdarstellung, type Wert, XmlWriter, type XmpOptions, ZERO_RATE_CATEGORIES, type Zeichenbefund, Zeichenpruefung, ZeichenvorratFehler, activeSpecifications, alsHex, alsSvg, beschriftungenMit, buildCii, buildInvoiceXml, buildUbl, buildXmp, computeTotals, decimal, escapeXml, familienkern, farbeAusHex, folgedokument, formatAmount, formatQuantity, fromBase64, istBrauchbareBeschriftung, istKleinunternehmerRechnung, istPng, kennzahlenrahmen, laufbreite, leseInhalt, liefereBreiten, liesPdfText, lineNetAmount, nurAbweichungen, ohneUnsichtbare, parseSpecificationSet, pngFarbtyp, pruefeSchrift, pruefeSchriftpaar, renderZugferdPdf, resetSpecifications, round, sanitizeXmlText, schriftenImBriefkopf, schriftmangelText, seiteninhalt, setActiveSpecifications, setzeMitVorlagenschrift, specificationAge, sum, summarizeTotals, themaMitAkzent, toBase64, utf8Decode, utf8Encode, waehrungszeichen, wrapText, xmpDate, zeichneBriefpapier };
+export { A4, BUNDLED_SPECIFICATIONS, type Beschriftung, type Beschriftungen, type Breiten, type Briefpapier, type CiiOptions, DEFAULT_THEME, EAS, EInvoiceError, type EInvoiceErrorCode, type FacturXConformanceLevel, type Farbe, type Flaeche, type Folgeart, INVOICE_TYPE_CODES, Invoice, InvoiceInput, type InvoiceTotals, type InvoiceTypeCode, IsoDate, type Kassenbondaten, type Kassenbonsatz, type Kassenbonzahlung, type Kennzahlenstellung, type Kreis, Line, MAX_SCHRIFT_BYTES, PAYMENT_MEANS, PROFILE_ID, type PaymentMeansCode, type PdfText, type Pfad, RECHNUNGSZEICHEN, type RenderAssets, type RenderOptions, type RenderResult, STANDARD_BESCHRIFTUNGEN, type Schriftbefund, type Schriftmangel, type SpecificationAge, type SpecificationEntry, SpecificationError, type SpecificationSet, type Strich, type Textlauf, type Textseite, type Textstueck, type Textzeile, type Theme, UNIT, type UblOptions, type UnitCode, VAT_CATEGORY, Vat, type VatBreakdownEntry, type VatCategoryCode, type Vorlagenbefund, type Waehrungsdarstellung, type Wert, XmlWriter, type XmpOptions, ZERO_RATE_CATEGORIES, type Zeichenbefund, Zeichenpruefung, ZeichenvorratFehler, activeSpecifications, alsHex, alsSvg, beschriftungenMit, buildCii, buildInvoiceXml, buildUbl, buildXmp, computeTotals, decimal, escapeXml, familienkern, farbeAusHex, folgedokument, formatAmount, formatQuantity, fromBase64, istBrauchbareBeschriftung, istKassenbonCode, istKleinunternehmerRechnung, istPng, kennzahlenrahmen, laufbreite, leseInhalt, liefereBreiten, liesKassenbonCode, liesPdfText, lineNetAmount, nurAbweichungen, ohneUnsichtbare, parseSpecificationSet, pngFarbtyp, pruefeSchrift, pruefeSchriftpaar, renderZugferdPdf, resetSpecifications, round, sanitizeXmlText, schriftenImBriefkopf, schriftmangelText, seiteninhalt, setActiveSpecifications, setzeMitVorlagenschrift, specificationAge, sum, summarizeTotals, themaMitAkzent, toBase64, utf8Decode, utf8Encode, waehrungszeichen, wrapText, xmpDate, zeichneBriefpapier };

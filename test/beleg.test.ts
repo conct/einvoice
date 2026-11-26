@@ -582,3 +582,154 @@ describe('Wo der Nachschub nicht greifen darf', () => {
     expect(befund.vorschlag.steuer).toBe(19);
   });
 });
+
+/*
+ * DERSELBE BON, DRITTE AUFNAHME - diesmal lag er quer auf dem Tisch. Die
+ * Erkennung gibt den Text dadurch RUECKWAERTS aus (der Briefkopf steht ganz
+ * unten), und sie trennt sogar das Kennzeichen vom Satz: "A" steht allein in
+ * einer Zeile, "19,00%" in der naechsten. Gemessen am 26.11.2026.
+ *
+ * Gegen so etwas hilft keine Regel mehr ueber Zeilen und Nachbarn. Dieser
+ * Text ist der Grund, warum die Zuordnung rechnet statt zu zaehlen.
+ */
+const KAUFLAND_QUER = `
+9227663839651732822888781951
+Filiale: 3343 Kasse: 11
+Datum: 16.10.26 Zeit:
+2,00 EUR gespart.
+Durch Kauf
+land Card XTRA WUurden
+18:00:35 Bon:91385
+Kauf land Card XTRA:
+B7,00%
+A
+19,00%
+Steuer % Brutto
+4,30
+4,02
+XXXXX9478
+0,28
+61,51
+51,69
+9,82
+Netto
+Steuer
+Rückgeld
+4,19
+Euro
+EUR
+Sme
+70,00
+65,81
+KLC Streu 60L
+K Card XTRA Rabatt
+Pfandartikel
+2 * 2,15
+2 * 3,10
+4,30 B
+6,20 A
+-2,00
+2 * 10,99
+Paulaner Spezi
+21,98 A
+Ger. Ona Glühwein
+1,99 A
+Pfandart tkel
+4*0,99
+KLC.Mineralwasser
+Rotk. Sekt htr.
+1,50 A
+1,74 A
+3,96 A
+4* 0,99
+Rotk. Sekt Rose
+3,96 A
+Pfandart ikel 2 # 3,10
+6,20 A
+2*7,99
+15,98 A
+Hasseröder Pils
+Preis EUR
+Kauf land- Lohmener Straße 13
+DE203534318
+Tel. 03501/500920
+01/96 Pirna
+`;
+
+describe('Wenn der Bon quer liegt und der Text rueckwaerts kommt', () => {
+  const befund = liesBeleg(KAUFLAND_QUER, '2026-11-26');
+  const v = befund.vorschlag;
+
+  /*
+   * DER KERN: Die Zuordnung steht nicht in der Reihenfolge, sondern in der
+   * Rechnung. 61,51/1,19 = 51,69 und 4,30/1,07 = 4,02 - beide Nettobetraege
+   * stehen im Text, und ihre Summe 65,81 auch. Es gibt genau eine solche
+   * Zuordnung, und deshalb ist sie keine Vermutung.
+   */
+  it('findet den Betrag ueber die Rechnung statt ueber die Zeilen', () => {
+    expect(v.brutto).toBe(65.81);
+    expect(v.netto).toBe(55.71);
+    expect(v.steuer).toBe(10.1);
+  });
+
+  it('liest Nummer, Datum und USt-IdNr. wie bei den anderen Aufnahmen', () => {
+    expect(v.nummer).toBe('91385');
+    expect(v.datum).toBe('2026-10-16');
+    expect(v.ustId).toBe('DE203534318');
+  });
+
+  /*
+   * Der Briefkopf steht hier ganz unten. Vorher gewann "Filiale: 3343
+   * Kasse: 11" als oberste namensartige Zeile.
+   */
+  it('findet den Haendler auch am Ende des Textes', () => {
+    expect(v.absender).toBe('Kauf land- Lohmener Straße 13');
+  });
+
+  it('reicht zum Buchen', () => {
+    expect(vollstaendig(v)).toBe(true);
+  });
+});
+
+describe('Wo die Rechnung nichts behaupten darf', () => {
+  /*
+   * Passt keine Zuordnung - kein Netto im Text, keine Summe -, bleibt der
+   * Betrag leer. Eine Zahl zu waehlen, weil sie die groesste ist, waere
+   * geraten.
+   */
+  it('nimmt nichts, wenn der Text die Rechnung nicht bestaetigt', () => {
+    const befund = liesBeleg(`
+      Markt Mueller
+      Hauptstraße 2
+      Kasse: 1 Bon:21
+      Rückgeld 0,00
+      Steuer % Brutto
+      A 19,00%
+      B 7,00%
+      Kartenzahlung
+    `);
+    expect(befund.vorschlag.brutto).toBeUndefined();
+    expect(befund.hinweise).toContain('Kein Rechnungsbetrag gefunden.');
+  });
+
+  /*
+   * Und wenn zwei Zuordnungen aufgehen, ist keine davon gelesen. Hier passen
+   * sowohl 11,90 (Netto 10,00) als auch 23,80 (Netto 20,00), und beide Summen
+   * stehen im Text.
+   */
+  it('nimmt nichts, wenn zwei Zuordnungen aufgehen', () => {
+    const befund = liesBeleg(`
+      Markt Mueller
+      Hauptstraße 2
+      Kasse: 1 Bon:22
+      Rückgeld 0,00
+      Steuer % Brutto
+      A 19,00%
+      10,00
+      11,90
+      20,00
+      23,80
+    `);
+    expect(befund.vorschlag.brutto).toBeUndefined();
+  });
+});

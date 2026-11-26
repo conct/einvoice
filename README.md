@@ -26,7 +26,7 @@ deshalb läuft derselbe Code in der App und auf dem Server.
 ## Einbinden
 
 ```bash
-npm install github:conct/einvoice#v5.3.1
+npm install github:conct/einvoice#v5.4.0
 ```
 
 Keine Registry im Spiel, und **`dist/` liegt im Repository** — Installieren
@@ -34,7 +34,7 @@ heißt klonen, nicht bauen. Ohne SSH-Schlüssel auf dem Rechner geht es über
 HTTPS:
 
 ```bash
-npm install git+https://github.com/conct/einvoice.git#v5.3.1
+npm install git+https://github.com/conct/einvoice.git#v5.4.0
 ```
 
 Der erste Versuch ging den üblichen Weg: `prepare` baut beim Installieren.
@@ -161,6 +161,26 @@ Netto und Steuer werden dabei aus dem Bruttobetrag je Satz zurückgerechnet.
 Das heißt auch: Die Probe „Netto + Steuer = Brutto" taugt hier **nicht** als
 Bestätigung, sie ginge immer auf. Der Betrag heißt deshalb erst `geprueft`,
 wenn die Summe anderswo im Text noch einmal frei dasteht.
+
+### Der QR-Code auf dem Bon
+
+Auf den meisten deutschen Bons steht der Betrag noch ein zweites Mal,
+maschinenlesbar: im Code der technischen Sicherheitseinrichtung (§ 146a AO).
+`liesKassenbonCode` zerlegt ihn — Umsätze je Steuersatz, Zahlungen,
+Vorgangsnummer, Zeitstempel:
+
+```ts
+import { istKassenbonCode, liesKassenbonCode } from '@erechnung/core';
+
+const bon = liesKassenbonCode(scan);
+bon?.brutto;  // 65.81, nicht gelesen sondern von der Kasse geschrieben
+bon?.saetze;  // [{ satz: 19, brutto: 61.51, netto: 51.69, steuer: 9.82 }, ...]
+```
+
+**Die Signatur wird nicht geprüft** — dazu bräuchte es das Zertifikat der
+Kasse, und das steht nicht auf dem Bon. Der Code beweist hier also nicht, dass
+niemand ihn gefälscht hat; er beweist, dass die Zahlen nicht aus einer
+Texterkennung stammen.
 
 Gedacht ist das für eine Oberfläche, die jedes Feld zum Nachbessern zeigt:
 `vollstaendig()` sagt, ob Nummer, Datum, Absender und Betrag beisammen sind.
@@ -301,7 +321,7 @@ erkennt ihn nicht: Dafür braucht es WebAssembly im Browser oder das
 Betriebssystem auf dem Telefon, und beides gehört einer Anwendung, nicht einer
 Bibliothek ohne Plattformbezug.
 
-Mitgekommen ist nur, was ohne Zubehör läuft: 174 Tests über 13 Dateien, die
+Mitgekommen ist nur, was ohne Zubehör läuft: 192 Tests über 13 Dateien, die
 jeden Weg einmal gehen, und `npm run probe` — eine Rechnung durch XML, PDF,
 Anhang und zurück ins Modell, gegen das **gebaute** Paket.
 
@@ -309,7 +329,7 @@ Anhang und zurück ins Modell, gegen das **gebaute** Paket.
 
 ```bash
 npm install
-npm test          # vitest, 174 Tests
+npm test          # vitest, 192 Tests
 npm run typecheck # zwei Durchgänge, siehe unten
 npm run build     # tsup -> dist/ (ESM + Typdeklarationen)
 npm run zeichen   # welche Waehrungszeichen die Schrift kennt
