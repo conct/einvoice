@@ -1,5 +1,5 @@
 import { a as Invoice, P as Party } from '../invoice-Diu1WYJB.js';
-import { D as DeclaredTotals, d as InvoiceSyntax, h as SourceKind, a as Belegdaten, R as ReceivedInvoice, I as IsoDate, f as Skontostufe } from '../receive-R0DwACTW.js';
+import { D as DeclaredTotals, d as InvoiceSyntax, h as SourceKind, a as Belegdaten, R as ReceivedInvoice, I as IsoDate, f as Skontostufe } from '../receive-DCUL5hix.js';
 import 'zod';
 
 /**

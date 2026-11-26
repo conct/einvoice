@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { betragAus, datumAus, liesBeleg, vollstaendig, type Belegdaten } from '../src/parse/beleg';
+import {
+  betragAus,
+  datumAus,
+  istKassenbon,
+  liesBeleg,
+  vollstaendig,
+  type Belegdaten,
+} from '../src/parse/beleg';
 
 /*
  * Die Texte stammen nicht aus der Luft: So sieht aus, was eine Texterkennung
@@ -198,5 +205,211 @@ describe('Was fehlt, wird gesagt', () => {
     expect(vollstaendig(fast)).toBe(false);
     expect(vollstaendig({ ...fast, absender: 'Jemand', brutto: 10 })).toBe(true);
     expect(vollstaendig({ ...fast, absender: 'Jemand', brutto: 0 })).toBe(false);
+  });
+});
+
+/*
+ * EIN ECHTER KASSENBON, Wort fuer Wort so, wie ML Kit ihn am 26.11.2026 aus
+ * dem Foto gelesen hat: Kaufland Pirna, 16.10.2026, 65,81 EUR. Nicht
+ * nachgebaut und nicht geglaettet - die zerrissenen Spalten, die
+ * Erkennungsfehler ("Sume", "Pfandart ikel", "Kauf land") und die Reihenfolge
+ * sind der eigentliche Pruefstein. Genau an ihr scheiterte das Lesen:
+ * Absender "Hasseroeder Pils", kein Betrag, keine Nummer.
+ */
+const KAUFLAND = `
+Hasseröder Pils
+2 *7,99
+Kaufland - Lohmerner Straße 13
+01/96 Pirna
+Tel. 03501/500920
+DE203534318
+Pfandart ikel 2 * 3,10
+Rotk. Sekt Rose
+4 * 0.99
+Rotk. Sekt htr.
+4 * 0,99
+KLC.Minera lwasser
+Pfandart ikel
+Ger. Oma Glühwein
+Paulaner Spezi
+2* 10.99
+K Card XTRA Rabatt
+Pfandart ikel
+KLC Streu 60L
+Sume
+Euro
+Rückgeld
+2 * 3,10
+2 * 2,15
+Steuer % Brutto
+A 19,00% 61,51
+B7,00% 4,30
+Kauf land Card XTRA:
+EUR
+Netto
+51,69
+Datum:16.10.26 Zeit:
+Filiale: 3343 Kasse: 11
+Preis EUR
+4,02
+15,98 A
+6,20 A
+3,96 A
+3,96 A
+1,74 A
+1,50 A
+1,99 A
+21,98 A
+-2,00
+65,81
+6,20 A
+4,30 B
+70,00
+4,19
+Steuer
+9,82
+0,28
+XXXXX9478
+18:00:35 Bon:91385
+Durch Kauf land Card XTRA Wurden
+2,00 EUR gespart.
+9227653839651732822888781951
+`;
+
+const zeilenVon = (text: string) =>
+  text
+    .split(/\r?\n/)
+    .map((zeile) => zeile.replace(/\s+/g, ' ').trim())
+    .filter((zeile) => zeile.length > 0);
+
+describe('Einen Kassenbon lesen', () => {
+  const befund = liesBeleg(KAUFLAND, '2026-11-26');
+  const v = befund.vorschlag;
+
+  it('erkennt ueberhaupt, dass es ein Bon ist', () => {
+    expect(istKassenbon(zeilenVon(KAUFLAND))).toBe(true);
+    // Eine Rechnung ist keiner - sonst richtete der Durchgang Schaden an.
+    expect(istKassenbon(zeilenVon(HANDWERKER))).toBe(false);
+    expect(istKassenbon(zeilenVon(KLEINUNTERNEHMER))).toBe(false);
+  });
+
+  /* Es gibt keine Rechnungsnummer. Es gibt "18:00:35 Bon:91385". */
+  it('nimmt die Bonnummer als Nummer', () => {
+    expect(v.nummer).toBe('91385');
+  });
+
+  it('liest das Datum aus der Zeile mit der Uhrzeit', () => {
+    expect(v.datum).toBe('2026-10-16');
+  });
+
+  /*
+   * DER KERN: Auf dem Bon steht nirgends "Gesamtbetrag". Der Betrag entsteht
+   * aus der Steuertabelle - 61,51 zu 19 % und 4,30 zu 7 %.
+   */
+  it('rechnet den Betrag aus der Steuertabelle zusammen', () => {
+    expect(v.brutto).toBe(65.81);
+    expect(v.netto).toBe(55.71);
+    expect(v.steuer).toBe(10.1);
+    expect(v.waehrung).toBe('EUR');
+  });
+
+  /*
+   * Netto und Steuer je Satz sind zurueckgerechnet - und stehen auf dem Bon
+   * trotzdem genau so da: 51,69 + 4,02 und 9,82 + 0,28. Die Rechnung stimmt
+   * also gegen das Papier, nicht nur gegen sich selbst.
+   */
+  it('trifft damit die Zahlen, die auf dem Bon stehen', () => {
+    expect(51.69 + 4.02).toBeCloseTo(v.netto ?? 0, 2);
+    expect(9.82 + 0.28).toBeCloseTo(v.steuer ?? 0, 2);
+  });
+
+  it('nennt den Haendler, nicht den ersten Artikel', () => {
+    expect(v.absender).toBe('Kaufland');
+    expect(befund.funde.find((f) => f.feld === 'absender')?.sicherheit).toBe('muster');
+  });
+
+  it('findet die nackte USt-IdNr. und prueft ihre Pruefziffer', () => {
+    expect(v.ustId).toBe('DE203534318');
+    expect(befund.funde.find((f) => f.feld === 'ustId')?.sicherheit).toBe('geprueft');
+  });
+
+  it('reicht damit zum Buchen', () => {
+    expect(vollstaendig(v)).toBe(true);
+  });
+
+  it('sagt in den Hinweisen, woher der Betrag kommt', () => {
+    expect(befund.hinweise.join(' ')).toMatch(/Als Kassenbon gelesen/);
+    expect(befund.hinweise.join(' ')).toMatch(/19,00 % auf 61,51/);
+  });
+});
+
+describe('Wie sicher der Betrag eines Bons ist', () => {
+  /*
+   * Die Summe 65,81 steht auf dem Bon noch einmal frei in der Betragsspalte.
+   * Das ist ein Zeuge von aussen - erst damit ist der Betrag bestaetigt.
+   */
+  it('nennt den Betrag geprueft, wenn die Summe im Text noch einmal dasteht', () => {
+    const befund = liesBeleg(KAUFLAND);
+    expect(befund.funde.find((f) => f.feld === 'brutto')?.sicherheit).toBe('geprueft');
+  });
+
+  /*
+   * UND DIE EIGENTLICHE FALLE: Ohne diesen Zeugen muss 'muster' stehen
+   * bleiben. Netto und Steuer sind aus dem Brutto zurueckgerechnet, also geht
+   * die Probe "Netto + Steuer = Brutto" immer auf - eine Bestaetigung, die
+   * sich selbst bestaetigt. Wer sie zulaesst, nennt jede Schaetzung geprueft.
+   */
+  it('bleibt beim Muster, wenn die Summe nur errechnet ist', () => {
+    const ohneZeugen = KAUFLAND.split(/\r?\n/)
+      .filter((zeile) => zeile.trim() !== '65,81')
+      .join('\n');
+    const befund = liesBeleg(ohneZeugen);
+
+    expect(befund.vorschlag.brutto).toBe(65.81);
+    expect(befund.funde.find((f) => f.feld === 'brutto')?.sicherheit).toBe('muster');
+  });
+});
+
+describe('Woran der Bondurchgang sich nicht vergreift', () => {
+  /*
+   * "Musterstrasse 1" steht allein in der Zeile. Wer am Strassenwort trennte,
+   * machte daraus den Absender "Muster".
+   */
+  it('nimmt bei einer reinen Strassenzeile den Namen von darueber', () => {
+    const befund = liesBeleg(`
+      Getraenke Schmidt
+      Musterstraße 1
+      01796 Pirna
+      Kasse: 3 Bon:4711
+      Steuer % Brutto
+      A 19,00% 11,90
+      Rückgeld 8,10
+    `);
+    expect(befund.vorschlag.absender).toBe('Getraenke Schmidt');
+    expect(befund.vorschlag.brutto).toBe(11.9);
+    expect(befund.vorschlag.nummer).toBe('4711');
+  });
+
+  /*
+   * Die Steuerzeile einer gewoehnlichen Rechnung darf nicht als Bruttospalte
+   * durchgehen, auch nicht in einem Text, der sonst nach Bon aussieht.
+   */
+  it('haelt "zzgl. 19 % MwSt. 95,30" nicht fuer eine Steuertabelle', () => {
+    const befund = liesBeleg(`
+      Getraenke Schmidt
+      Kasse: 3 Bon:4712
+      Rückgeld 0,00
+      Nettobetrag 501,60
+      zzgl. 19 % MwSt. 95,30
+      Gesamtbetrag 596,90
+    `);
+    expect(befund.vorschlag.brutto).toBe(596.9);
+    expect(befund.vorschlag.steuer).toBe(95.3);
+  });
+
+  /* Eine erfundene Nummer mit falscher Pruefziffer bleibt liegen. */
+  it('nimmt eine nackte USt-IdNr. nur mit richtiger Pruefziffer', () => {
+    const mitFehler = KAUFLAND.replace('DE203534318', 'DE203534319');
+    expect(liesBeleg(mitFehler).vorschlag.ustId).toBeUndefined();
   });
 });

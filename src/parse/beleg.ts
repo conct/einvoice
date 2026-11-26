@@ -219,6 +219,240 @@ const STEUERZEILE = /(?:umsatzsteuer|mehrwertsteuer|\bmwst\.?|\bust\.?|\bvat\b)/
  */
 const KEINE_ZAHL = /^\D*$/;
 
+/* -------------------------------------------------------------------------
+ * DER KASSENBON - ein Beleg, der keine Rechnung ist
+ *
+ * Gemessen am 26.11.2026 an einem Bon von Kaufland Pirna (65,81 EUR, Android,
+ * ML Kit): Als Absender stand "Hasseroeder Pils" da, Betrag und Nummer blieben
+ * leer. Nicht wegen schlechter Erkennung - der Text war fast fehlerfrei -,
+ * sondern weil ein Bon anders gebaut ist als eine Rechnung:
+ *
+ *   - Oben steht nicht der Haendler. Die Texterkennung liest spaltenweise,
+ *     und die Artikelspalte faengt vor dem Briefkopf an.
+ *   - Es gibt kein "Gesamtbetrag". Der Betrag steht in der Steuertabelle,
+ *     aufgeteilt nach Saetzen: "A 19,00% 61,51", "B 7,00% 4,30".
+ *   - Es gibt keine Rechnungsnummer, sondern eine Bonnummer, und die steht
+ *     zwischen Uhrzeit und Kasse: "18:00:35 Bon:91385".
+ *
+ * Deshalb liest dieser Durchgang VOR dem allgemeinen - und nur dann, wenn der
+ * Text wirklich nach einem Bon aussieht. Auf einer Rechnung wuerde er mehr
+ * kaputtmachen, als er braucht.
+ * ---------------------------------------------------------------------- */
+
+/**
+ * Strassenwoerter. Auch wortintern gesucht, denn "Musterstrasse" ist ein Wort
+ * und "Lohmerner Strasse" sind zwei.
+ */
+const STRASSE =
+  /(?:stra(?:ß|ss)e|str\.|\bweg\b|\bplatz\b|\ballee\b|\bring\b|\bgasse\b|\bchaussee\b|\bdamm\b)/i;
+
+/**
+ * Merkmale, die es nur auf einem Bon gibt. Eines davon muss da sein.
+ *
+ * Alle verlangen mehr als ein Wort: "Bon" allein steht auch mal in einer
+ * Artikelbezeichnung, "Bon:91385" nicht.
+ */
+const BON_STARK: RegExp[] = [
+  /\bbon\s*(?:nr\.?)?\s*[:.#]?\s*\d{2,}/i,
+  /\bkasse\s*[:.#]?\s*\d/i,
+  /\bfiliale\b/i,
+  /r(?:ü|ue)ckgeld/i,
+  /\bec[-\s]?cash\b|\bgirocard\b|\bkartenzahlung\b/i,
+];
+
+/** Merkmale, die auch auf einer Rechnung vorkommen. Sie zaehlen nur mit. */
+const BON_SCHWACH: RegExp[] = [
+  /steuer\s*%/i,
+  /\bkassenbon\b|\bkassenbeleg\b/i,
+  /\bgegeben\b|\bbar\s+gegeben\b/i,
+  /\btse\b|signaturz(?:ä|ae)hler/i,
+];
+
+/**
+ * Sieht der Text nach einem Kassenbon aus?
+ *
+ * Ein starkes Merkmal reicht nicht - "Filiale" steht auch auf mancher
+ * Rechnung. Verlangt werden eines davon UND zwei insgesamt.
+ */
+export function istKassenbon(zeilen: readonly string[]): boolean {
+  const stark = BON_STARK.filter((muster) => zeilen.some((zeile) => muster.test(zeile))).length;
+  const schwach = BON_SCHWACH.filter((muster) => zeilen.some((zeile) => muster.test(zeile))).length;
+
+  return stark >= 1 && stark + schwach >= 2;
+}
+
+/**
+ * Die Pruefziffer einer deutschen USt-IdNr. (ISO 7064, MOD 11,10).
+ *
+ * Gebraucht wird sie, weil auf einem Bon die Nummer NACKT in einer eigenen
+ * Zeile steht, ohne Beschriftung davor. Ohne Rechnung waere jede Zeile mit
+ * zwei Buchstaben und neun Ziffern eine Umsatzsteuernummer - und
+ * 'isPlausibleVatId' hilft hier nicht, die prueft nur die Form.
+ */
+function deutscheUstIdStimmt(id: string): boolean {
+  const ziffern = id.slice(2);
+  if (!/^\d{9}$/.test(ziffern)) return false;
+
+  let p = 10;
+  for (const stelle of ziffern.slice(0, 8)) {
+    const m = (Number(stelle) + p) % 10 || 10;
+    p = (2 * m) % 11;
+  }
+
+  return (11 - p) % 10 === Number(ziffern[8]);
+}
+
+/** Eine Zeile der Steuertabelle: "A 19,00% 61,51", "B7,00% 4,30". */
+const BON_STEUERSATZ = /^([A-Z])?\s*(\d{1,2}(?:[.,]\d{1,2})?)\s*%(.*)$/;
+
+/**
+ * Den Bon lesen. Gibt zurueck, ob Netto und Steuer ZURUECKGERECHNET wurden.
+ *
+ * Das ist keine Nebensache: 'liesBeleg' hebt den Betrag auf 'geprueft', wenn
+ * Netto + Steuer = Brutto aufgeht. Stammen Netto und Steuer aus dem Brutto,
+ * geht die Probe immer auf - eine Bestaetigung, die sich selbst bestaetigt.
+ * Deshalb sagt dieser Durchgang Bescheid, und die Probe unterbleibt.
+ */
+function liesKassenbon(
+  zeilen: readonly string[],
+  nimm: (feld: Belegfeld, wert: string, sicherheit: Sicherheit, beleg: string) => void,
+  hinweise: string[],
+): boolean {
+  /* 1. Die Bonnummer. */
+  for (const zeile of zeilen) {
+    const treffer = zeile.match(/\bbon\s*(?:nr\.?)?\s*[:.#]?\s*(\d{2,})/i);
+    if (treffer?.[1]) {
+      nimm('nummer', treffer[1], 'muster', zeile);
+      break;
+    }
+  }
+
+  /* 2. Die Steuertabelle - dort steht der Betrag. */
+  const saetze: Array<{ satz: number; brutto: number; netto: number; steuer: number }> = [];
+  const belegzeilen: string[] = [];
+
+  for (const zeile of zeilen) {
+    const treffer = zeile.match(BON_STEUERSATZ);
+    if (!treffer) continue;
+
+    const satz = betragAus(treffer[2] ?? '');
+    const rest = treffer[3] ?? '';
+    if (satz === undefined || satz > 30) continue;
+
+    /*
+     * Im Rest duerfen nur Zahlen stehen. Ohne diese Schranke faengt die Zeile
+     * "19 % MwSt. 95,30" einer gewoehnlichen Rechnung mit, und der Bondurchgang
+     * haelt ihre Steuer fuer eine Bruttospalte.
+     */
+    const worte = rest
+      .replace(/-?\d[\d.,]*/g, ' ')
+      .replace(/\b(?:EUR|CHF|USD|GBP)\b/gi, ' ')
+      .replace(/[€%*.,;:|_-]/g, ' ')
+      .replace(/\b[A-Za-z]\b/g, ' ')
+      .trim();
+    if (worte) continue;
+
+    const zahlen = (rest.match(/-?\d[\d.,]*\d|-?\d/g) ?? [])
+      .map((stueck) => betragAus(stueck))
+      .filter((zahl): zahl is number => zahl !== undefined);
+    if (!zahlen.length) continue;
+
+    const faktor = 1 + satz / 100;
+    let brutto = Math.max(...zahlen);
+    let netto: number | undefined;
+
+    if (zahlen.length === 2) {
+      const [a = 0, b = 0] = zahlen;
+      if (Math.abs(a - b * faktor) <= 0.02) {
+        brutto = a;
+        netto = b;
+      } else if (Math.abs(b - a * faktor) <= 0.02) {
+        brutto = b;
+        netto = a;
+      }
+    } else if (zahlen.length >= 3) {
+      // Die Zahl, die sich aus zwei anderen zusammensetzt, ist das Brutto.
+      for (let i = 0; i < zahlen.length; i += 1) {
+        for (let j = i + 1; j < zahlen.length; j += 1) {
+          const paar = round((zahlen[i] ?? 0) + (zahlen[j] ?? 0));
+          const dritte = zahlen.find((_, k) => k !== i && k !== j && Math.abs((zahlen[k] ?? 0) - paar) <= 0.02);
+          if (dritte !== undefined) {
+            brutto = dritte;
+            netto = Math.max(zahlen[i] ?? 0, zahlen[j] ?? 0);
+          }
+        }
+      }
+    }
+
+    if (brutto <= 0) continue;
+    const errechnet = netto ?? round(brutto / faktor);
+    saetze.push({ satz, brutto, netto: errechnet, steuer: round(brutto - errechnet) });
+    belegzeilen.push(zeile);
+  }
+
+  let abgeleitet = false;
+
+  if (saetze.length) {
+    const brutto = round(saetze.reduce((summe, zeile) => summe + zeile.brutto, 0));
+    const netto = round(saetze.reduce((summe, zeile) => summe + zeile.netto, 0));
+    const steuer = round(saetze.reduce((summe, zeile) => summe + zeile.steuer, 0));
+    const beleg = belegzeilen.join(' | ');
+
+    /*
+     * Ein Zeuge von aussen: Steht die Summe anderswo noch einmal da - frei in
+     * der Betragsspalte oder hinter "Summe" -, ist sie bestaetigt. Sonst
+     * bleibt sie ein Muster, denn addiert hat sie bis dahin nur diese Datei.
+     */
+    const bezeugt =
+      zeilen.some((zeile) => /^[\d.,]+\s*(?:€|EUR)?$/i.test(zeile) && betragAus(zeile) === brutto) ||
+      zeilen.some((zeile) => /sum(?:m)?e|gesamt|total/i.test(zeile) && betragAmZeilenende(zeile) === brutto);
+
+    nimm('brutto', brutto.toFixed(2), bezeugt ? 'geprueft' : 'muster', beleg);
+    nimm('netto', netto.toFixed(2), 'muster', beleg);
+    nimm('steuer', steuer.toFixed(2), 'muster', beleg);
+    abgeleitet = true;
+
+    hinweise.push(
+      `Als Kassenbon gelesen, Betrag aus der Steuertabelle: ${saetze
+        .map((zeile) => `${zeile.satz.toFixed(2).replace('.', ',')} % auf ${zeile.brutto.toFixed(2).replace('.', ',')}`)
+        .join(', ')}.`,
+    );
+  }
+
+  /* 3. Der Haendler steht bei seiner Adresse, nicht oben. */
+  const adresse = zeilen.slice(0, 12).find((zeile) => STRASSE.test(zeile));
+  if (adresse) {
+    const teile = adresse.split(/\s[-–|,]\s/);
+    const kopf = (teile[0] ?? '').trim();
+    /*
+     * "Kaufland - Lohmerner Strasse 13" ergibt den Namen; "Musterstrasse 1"
+     * darf NICHT zu "Muster" werden, deshalb wird am Satzzeichen getrennt und
+     * nicht am Strassenwort. Steht davor nichts, steht der Name eine Zeile
+     * hoeher.
+     */
+    if (teile.length > 1 && kopf.length >= 3 && !STRASSE.test(kopf) && /[A-Za-zÄÖÜäöüß]{3}/.test(kopf)) {
+      nimm('absender', kopf, 'muster', adresse);
+    } else {
+      const davor = zeilen[zeilen.indexOf(adresse) - 1];
+      if (davor && davor.length >= 3 && davor.length <= 60 && /[A-Za-zÄÖÜäöüß]{3}/.test(davor) && !/^\d/.test(davor)) {
+        nimm('absender', davor, 'muster', davor);
+      }
+    }
+  }
+
+  /* 4. Die USt-IdNr. steht nackt in einer eigenen Zeile. */
+  for (const zeile of zeilen) {
+    const treffer = zeile.match(/^([A-Z]{2}\s?\d[\d\s]{6,})$/);
+    const blank = treffer?.[1]?.replace(/\s/g, '');
+    if (blank && isPlausibleVatId(blank) && blank.startsWith('DE') && deutscheUstIdStimmt(blank)) {
+      nimm('ustId', blank, 'geprueft', zeile);
+      break;
+    }
+  }
+
+  return abgeleitet;
+}
+
 /** Liest einen Beleg aus dem erkannten Text. */
 export function liesBeleg(text: string, heute?: IsoDate): Belegbefund {
   const zeilen = text
@@ -232,6 +466,13 @@ export function liesBeleg(text: string, heute?: IsoDate): Belegbefund {
     if (funde.some((fund) => fund.feld === feld)) return;
     funde.push({ feld, wert, sicherheit, beleg });
   };
+
+  /*
+   * Der Bon zuerst: 'nimm' behaelt den ersten Fund, und was der Bondurchgang
+   * liest, schlaegt auf einem Bon alles, was die Rechnungsheuristik darunter
+   * findet. Auf einer Rechnung laeuft er gar nicht erst an.
+   */
+  const bonAbgeleitet = istKassenbon(zeilen) ? liesKassenbon(zeilen, nimm, hinweise) : false;
 
   for (const zeile of zeilen) {
     const nummer = zeile.match(RECHNUNGSNUMMER);
@@ -328,8 +569,11 @@ export function liesBeleg(text: string, heute?: IsoDate): Belegbefund {
    * Die einzige Rechenprobe, die ein Foto zulaesst. Geht sie auf, ist der
    * Betrag kein Muster mehr, sondern bestaetigt - und das ist die Angabe, auf
    * die es ankommt.
+   *
+   * NICHT beim Bon: Dort sind Netto und Steuer aus dem Brutto zurueckgerechnet,
+   * die Probe ginge also immer auf und bestaetigte nur sich selbst.
    */
-  if (brutto && netto && steuer) {
+  if (brutto && netto && steuer && !bonAbgeleitet) {
     const summe = round(Number(netto) + Number(steuer));
     const fund = funde.find((f) => f.feld === 'brutto');
     if (fund && Math.abs(summe - Number(brutto)) <= 0.02) {

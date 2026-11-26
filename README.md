@@ -11,7 +11,8 @@ dasselbe tut: in Node, im Browser und in React Native.
 - **Empfang**: Anhänge aus einem hybriden PDF holen, XML einlesen, Summen
   nachrechnen, statt sie zu glauben
 - **Papierbelege**: aus dem Text einer Texterkennung Nummer, Datum, Frist,
-  Beträge und IBAN lesen — jede Angabe mit ihrer Sicherheit
+  Beträge und IBAN lesen — jede Angabe mit ihrer Sicherheit; Kassenbons
+  eingeschlossen
 - **Skonto** in der Schreibweise der XRechnung, mehrstufig
 - **Fremdwährungen** samt Steuerbetrag in der Meldewährung (BT-6, BT-111)
 - **Briefbogen zeichnen**: Wer einen Bogen beschreibt — Farben, Striche,
@@ -25,7 +26,7 @@ deshalb läuft derselbe Code in der App und auf dem Server.
 ## Einbinden
 
 ```bash
-npm install github:conct/einvoice#v5.2.0
+npm install github:conct/einvoice#v5.3.0
 ```
 
 Keine Registry im Spiel, und **`dist/` liegt im Repository** — Installieren
@@ -33,7 +34,7 @@ heißt klonen, nicht bauen. Ohne SSH-Schlüssel auf dem Rechner geht es über
 HTTPS:
 
 ```bash
-npm install git+https://github.com/conct/einvoice.git#v5.2.0
+npm install git+https://github.com/conct/einvoice.git#v5.3.0
 ```
 
 Der erste Versuch ging den üblichen Weg: `prepare` baut beim Installieren.
@@ -143,6 +144,23 @@ Foto zeigt Pixel. Deshalb trägt jede Angabe ihre Sicherheit:
 | `geprueft` | Ein Verfahren bestätigt es — die IBAN-Prüfsumme, oder Netto + Steuer = Brutto |
 | `muster` | Die Form stimmt, geprüft ist sie nicht |
 | `geraten` | Aus der Umgebung geschlossen — der Absender ist die oberste Zeile, die nach einem Namen aussieht |
+
+### Kassenbons
+
+Ein Bon ist anders gebaut als eine Rechnung, und zwar genau an den Stellen,
+auf die es ankommt: Oben steht der erste Artikel statt des Händlers (eine
+Texterkennung liest spaltenweise), es gibt kein „Gesamtbetrag", sondern eine
+Steuertabelle, und statt der Rechnungsnummer steht dort eine Bonnummer.
+
+`liesBeleg` erkennt das selbst und liest dann anders — am Händler aus der
+Adresszeile, am Betrag aus den Steuersätzen, an der Bonnummer. Erkannt wird
+ein Bon nur an eindeutigen Merkmalen (`Bon:`, `Kasse:`, `Filiale`,
+`Rückgeld`, `EC-Cash`), damit eine Rechnung nie in diesen Durchgang gerät.
+
+Netto und Steuer werden dabei aus dem Bruttobetrag je Satz zurückgerechnet.
+Das heißt auch: Die Probe „Netto + Steuer = Brutto" taugt hier **nicht** als
+Bestätigung, sie ginge immer auf. Der Betrag heißt deshalb erst `geprueft`,
+wenn die Summe anderswo im Text noch einmal frei dasteht.
 
 Gedacht ist das für eine Oberfläche, die jedes Feld zum Nachbessern zeigt:
 `vollstaendig()` sagt, ob Nummer, Datum, Absender und Betrag beisammen sind.
@@ -283,7 +301,7 @@ erkennt ihn nicht: Dafür braucht es WebAssembly im Browser oder das
 Betriebssystem auf dem Telefon, und beides gehört einer Anwendung, nicht einer
 Bibliothek ohne Plattformbezug.
 
-Mitgekommen ist nur, was ohne Zubehör läuft: 152 Tests über 13 Dateien, die
+Mitgekommen ist nur, was ohne Zubehör läuft: 166 Tests über 13 Dateien, die
 jeden Weg einmal gehen, und `npm run probe` — eine Rechnung durch XML, PDF,
 Anhang und zurück ins Modell, gegen das **gebaute** Paket.
 
@@ -291,7 +309,7 @@ Anhang und zurück ins Modell, gegen das **gebaute** Paket.
 
 ```bash
 npm install
-npm test          # vitest, 113 Tests
+npm test          # vitest, 166 Tests
 npm run typecheck # zwei Durchgänge, siehe unten
 npm run build     # tsup -> dist/ (ESM + Typdeklarationen)
 npm run zeichen   # welche Waehrungszeichen die Schrift kennt

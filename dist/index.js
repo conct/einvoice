@@ -4181,6 +4181,123 @@ var BRUTTOZEILE = /(?:gesamtbetrag|rechnungsbetrag|gesamtsumme|endbetrag|zahlbet
 var NETTOZEILE = /(?:netto(?:betrag|summe)?|summe\s+netto|zwischensumme|gesamt\s+netto)/i;
 var STEUERZEILE = /(?:umsatzsteuer|mehrwertsteuer|\bmwst\.?|\bust\.?|\bvat\b)/i;
 var KEINE_ZAHL = /^\D*$/;
+var STRASSE = /(?:stra(?:ß|ss)e|str\.|\bweg\b|\bplatz\b|\ballee\b|\bring\b|\bgasse\b|\bchaussee\b|\bdamm\b)/i;
+var BON_STARK = [
+  /\bbon\s*(?:nr\.?)?\s*[:.#]?\s*\d{2,}/i,
+  /\bkasse\s*[:.#]?\s*\d/i,
+  /\bfiliale\b/i,
+  /r(?:ü|ue)ckgeld/i,
+  /\bec[-\s]?cash\b|\bgirocard\b|\bkartenzahlung\b/i
+];
+var BON_SCHWACH = [
+  /steuer\s*%/i,
+  /\bkassenbon\b|\bkassenbeleg\b/i,
+  /\bgegeben\b|\bbar\s+gegeben\b/i,
+  /\btse\b|signaturz(?:ä|ae)hler/i
+];
+function istKassenbon(zeilen) {
+  const stark = BON_STARK.filter((muster) => zeilen.some((zeile) => muster.test(zeile))).length;
+  const schwach = BON_SCHWACH.filter((muster) => zeilen.some((zeile) => muster.test(zeile))).length;
+  return stark >= 1 && stark + schwach >= 2;
+}
+function deutscheUstIdStimmt(id) {
+  const ziffern = id.slice(2);
+  if (!/^\d{9}$/.test(ziffern)) return false;
+  let p = 10;
+  for (const stelle of ziffern.slice(0, 8)) {
+    const m = (Number(stelle) + p) % 10 || 10;
+    p = 2 * m % 11;
+  }
+  return (11 - p) % 10 === Number(ziffern[8]);
+}
+var BON_STEUERSATZ = /^([A-Z])?\s*(\d{1,2}(?:[.,]\d{1,2})?)\s*%(.*)$/;
+function liesKassenbon(zeilen, nimm, hinweise) {
+  for (const zeile of zeilen) {
+    const treffer = zeile.match(/\bbon\s*(?:nr\.?)?\s*[:.#]?\s*(\d{2,})/i);
+    if (treffer?.[1]) {
+      nimm("nummer", treffer[1], "muster", zeile);
+      break;
+    }
+  }
+  const saetze = [];
+  const belegzeilen = [];
+  for (const zeile of zeilen) {
+    const treffer = zeile.match(BON_STEUERSATZ);
+    if (!treffer) continue;
+    const satz = betragAus(treffer[2] ?? "");
+    const rest = treffer[3] ?? "";
+    if (satz === void 0 || satz > 30) continue;
+    const worte = rest.replace(/-?\d[\d.,]*/g, " ").replace(/\b(?:EUR|CHF|USD|GBP)\b/gi, " ").replace(/[€%*.,;:|_-]/g, " ").replace(/\b[A-Za-z]\b/g, " ").trim();
+    if (worte) continue;
+    const zahlen = (rest.match(/-?\d[\d.,]*\d|-?\d/g) ?? []).map((stueck) => betragAus(stueck)).filter((zahl3) => zahl3 !== void 0);
+    if (!zahlen.length) continue;
+    const faktor = 1 + satz / 100;
+    let brutto = Math.max(...zahlen);
+    let netto;
+    if (zahlen.length === 2) {
+      const [a = 0, b = 0] = zahlen;
+      if (Math.abs(a - b * faktor) <= 0.02) {
+        brutto = a;
+        netto = b;
+      } else if (Math.abs(b - a * faktor) <= 0.02) {
+        brutto = b;
+        netto = a;
+      }
+    } else if (zahlen.length >= 3) {
+      for (let i = 0; i < zahlen.length; i += 1) {
+        for (let j = i + 1; j < zahlen.length; j += 1) {
+          const paar = round((zahlen[i] ?? 0) + (zahlen[j] ?? 0));
+          const dritte = zahlen.find((_, k) => k !== i && k !== j && Math.abs((zahlen[k] ?? 0) - paar) <= 0.02);
+          if (dritte !== void 0) {
+            brutto = dritte;
+            netto = Math.max(zahlen[i] ?? 0, zahlen[j] ?? 0);
+          }
+        }
+      }
+    }
+    if (brutto <= 0) continue;
+    const errechnet = netto ?? round(brutto / faktor);
+    saetze.push({ satz, brutto, netto: errechnet, steuer: round(brutto - errechnet) });
+    belegzeilen.push(zeile);
+  }
+  let abgeleitet = false;
+  if (saetze.length) {
+    const brutto = round(saetze.reduce((summe, zeile) => summe + zeile.brutto, 0));
+    const netto = round(saetze.reduce((summe, zeile) => summe + zeile.netto, 0));
+    const steuer = round(saetze.reduce((summe, zeile) => summe + zeile.steuer, 0));
+    const beleg = belegzeilen.join(" | ");
+    const bezeugt = zeilen.some((zeile) => /^[\d.,]+\s*(?:€|EUR)?$/i.test(zeile) && betragAus(zeile) === brutto) || zeilen.some((zeile) => /sum(?:m)?e|gesamt|total/i.test(zeile) && betragAmZeilenende(zeile) === brutto);
+    nimm("brutto", brutto.toFixed(2), bezeugt ? "geprueft" : "muster", beleg);
+    nimm("netto", netto.toFixed(2), "muster", beleg);
+    nimm("steuer", steuer.toFixed(2), "muster", beleg);
+    abgeleitet = true;
+    hinweise.push(
+      `Als Kassenbon gelesen, Betrag aus der Steuertabelle: ${saetze.map((zeile) => `${zeile.satz.toFixed(2).replace(".", ",")} % auf ${zeile.brutto.toFixed(2).replace(".", ",")}`).join(", ")}.`
+    );
+  }
+  const adresse = zeilen.slice(0, 12).find((zeile) => STRASSE.test(zeile));
+  if (adresse) {
+    const teile = adresse.split(/\s[-–|,]\s/);
+    const kopf = (teile[0] ?? "").trim();
+    if (teile.length > 1 && kopf.length >= 3 && !STRASSE.test(kopf) && /[A-Za-zÄÖÜäöüß]{3}/.test(kopf)) {
+      nimm("absender", kopf, "muster", adresse);
+    } else {
+      const davor = zeilen[zeilen.indexOf(adresse) - 1];
+      if (davor && davor.length >= 3 && davor.length <= 60 && /[A-Za-zÄÖÜäöüß]{3}/.test(davor) && !/^\d/.test(davor)) {
+        nimm("absender", davor, "muster", davor);
+      }
+    }
+  }
+  for (const zeile of zeilen) {
+    const treffer = zeile.match(/^([A-Z]{2}\s?\d[\d\s]{6,})$/);
+    const blank = treffer?.[1]?.replace(/\s/g, "");
+    if (blank && isPlausibleVatId(blank) && blank.startsWith("DE") && deutscheUstIdStimmt(blank)) {
+      nimm("ustId", blank, "geprueft", zeile);
+      break;
+    }
+  }
+  return abgeleitet;
+}
 function liesBeleg(text2, heute) {
   const zeilen = text2.split(/\r?\n/).map((zeile) => zeile.replace(/\s+/g, " ").trim()).filter((zeile) => zeile.length > 0);
   const funde = [];
@@ -4189,6 +4306,7 @@ function liesBeleg(text2, heute) {
     if (funde.some((fund) => fund.feld === feld)) return;
     funde.push({ feld, wert: wert2, sicherheit, beleg });
   };
+  const bonAbgeleitet = istKassenbon(zeilen) ? liesKassenbon(zeilen, nimm, hinweise) : false;
   for (const zeile of zeilen) {
     const nummer = zeile.match(RECHNUNGSNUMMER);
     if (nummer?.[1]) nimm("nummer", nummer[1].replace(/[.,;]$/, ""), "muster", zeile);
@@ -4247,7 +4365,7 @@ function liesBeleg(text2, heute) {
   const brutto = wert("brutto");
   const netto = wert("netto");
   const steuer = wert("steuer");
-  if (brutto && netto && steuer) {
+  if (brutto && netto && steuer && !bonAbgeleitet) {
     const summe = round(Number(netto) + Number(steuer));
     const fund = funde.find((f) => f.feld === "brutto");
     if (fund && Math.abs(summe - Number(brutto)) <= 0.02) {
@@ -4533,6 +4651,7 @@ export {
   isPlausibleLeitwegId,
   isPlausibleVatId,
   istBrauchbareBeschriftung,
+  istKassenbon,
   istKleinunternehmerRechnung,
   istPng,
   kennzahlenrahmen,
