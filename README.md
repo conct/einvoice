@@ -147,11 +147,12 @@ nachgelesen), und der Prüfer der KoSIT nimmt eine XRechnung in Franken ohne
 BT-6/BT-111 an. `validateInvoice` gibt deshalb einen **Hinweis** statt eines
 Fehlers und verweist auf den Steuerberater.
 
-**Kode oder Zeichen auf dem Blatt.** Vorgabe ist der Code; `'symbol'` setzt das
-Zeichen im ganzen Dokument — Positionen, Summen, Skontosatz, Lastschriftsatz:
+**Zeichen oder Kode auf dem Blatt.** Seit 5.0.0 ist das Zeichen die Vorgabe —
+Positionen, Summen, Skontosatz, Lastschriftsatz. Auf einer deutschen Rechnung
+ist „119,00 €“ die übliche Schreibweise. Wer den Kode braucht, sagt es:
 
 ```ts
-await renderZugferdPdf(rechnung, { assets, waehrungsdarstellung: 'symbol' });
+await renderZugferdPdf(rechnung, { assets, waehrungsdarstellung: 'code' });
 ```
 
 Im XML steht immer der Code (BT-5); ein Empfänger, der „€" einliest, weiß

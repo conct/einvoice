@@ -44,21 +44,37 @@ const assets = () => ({
 });
 
 describe('Waehrung auf dem Blatt', () => {
-  it('schreibt ohne Angabe den Kode', async () => {
-    const { pdf } = await renderZugferdPdf(minimalInvoice(), { assets: assets() });
+  it('schreibt ohne Angabe das Zeichen', async () => {
+    const { pdf, befunde } = await renderZugferdPdf(minimalInvoice(), { assets: assets() });
+    const { text } = await liesPdfText(pdf);
+    expect(text).toContain('€');
+    expect(text).not.toContain('EUR');
+    expect(befunde).toBeUndefined();
+  });
+
+  it('schreibt mit waehrungsdarstellung "code" den Kode', async () => {
+    const { pdf } = await renderZugferdPdf(minimalInvoice(), {
+      assets: assets(),
+      waehrungsdarstellung: 'code',
+    });
     const { text } = await liesPdfText(pdf);
     expect(text).toContain('EUR');
     expect(text).not.toContain('€');
   });
 
-  it('schreibt mit waehrungsdarstellung "symbol" das Zeichen', async () => {
-    const { pdf, befunde } = await renderZugferdPdf(minimalInvoice(), {
+  /*
+   * Der Kode bleibt der Kode, auch wo ein Zeichen vorhanden waere - sonst
+   * waere 'code' nur eine Bitte und keine Angabe.
+   */
+  it('bleibt mit "code" auch bei einer Fremdwaehrung mit Zeichen beim Kode', async () => {
+    const inZloty = parseInvoice({ ...minimalInvoice(), currency: 'PLN' });
+    const { pdf, befunde } = await renderZugferdPdf(inZloty, {
       assets: assets(),
-      waehrungsdarstellung: 'symbol',
+      waehrungsdarstellung: 'code',
     });
     const { text } = await liesPdfText(pdf);
-    expect(text).toContain('€');
-    expect(text).not.toContain('EUR');
+    expect(text).toContain('PLN');
+    expect(text).not.toContain('zł');
     expect(befunde).toBeUndefined();
   });
 
@@ -70,10 +86,7 @@ describe('Waehrung auf dem Blatt', () => {
   it('bleibt beim Kode, wo es kein Zeichen gibt, und sagt es', async () => {
     const roh = minimalInvoice();
     const inFranken = parseInvoice({ ...roh, currency: 'CHF' });
-    const { pdf, befunde } = await renderZugferdPdf(inFranken, {
-      assets: assets(),
-      waehrungsdarstellung: 'symbol',
-    });
+    const { pdf, befunde } = await renderZugferdPdf(inFranken, { assets: assets() });
     const { text } = await liesPdfText(pdf);
     expect(text).toContain('CHF');
     expect(befunde?.join(' ')).toMatch(/CHF.*kein eindeutiges Waehrungszeichen/);
@@ -89,10 +102,7 @@ describe('Waehrung auf dem Blatt', () => {
   it('weicht auf den Kode aus, wenn die Schrift das Zeichen nicht kennt', async () => {
     const roh = minimalInvoice();
     const inBaht = parseInvoice({ ...roh, currency: 'THB' });
-    const { pdf, befunde } = await renderZugferdPdf(inBaht, {
-      assets: assets(),
-      waehrungsdarstellung: 'symbol',
-    });
+    const { pdf, befunde } = await renderZugferdPdf(inBaht, { assets: assets() });
     const { text } = await liesPdfText(pdf);
     expect(text).toContain('THB');
     expect(befunde?.join(' ')).toMatch(/kennt "฿" nicht/);
@@ -101,10 +111,7 @@ describe('Waehrung auf dem Blatt', () => {
   /* Was die Schrift kennt, erscheint auch - hier das Zeichen der Hrywnja. */
   it('setzt auch ein selteneres Zeichen, wenn die Schrift es kennt', async () => {
     const inHrywnja = parseInvoice({ ...minimalInvoice(), currency: 'UAH' });
-    const { pdf, befunde } = await renderZugferdPdf(inHrywnja, {
-      assets: assets(),
-      waehrungsdarstellung: 'symbol',
-    });
+    const { pdf, befunde } = await renderZugferdPdf(inHrywnja, { assets: assets() });
     const { text } = await liesPdfText(pdf);
     expect(text).toContain('₴');
     expect(befunde).toBeUndefined();

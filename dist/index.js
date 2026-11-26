@@ -2959,7 +2959,7 @@ async function renderZugferdPdf(invoice, options) {
   const befunde = [];
   const waehrungsanzeige = (() => {
     if (bogen?.waehrungswort && invoice.currency === "EUR") return bogen.waehrungswort;
-    if (options.waehrungsdarstellung !== "symbol") return void 0;
+    if (options.waehrungsdarstellung === "code") return void 0;
     const zeichen = waehrungszeichen(invoice.currency);
     if (!zeichen) {
       befunde.push(

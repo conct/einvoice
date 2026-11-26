@@ -1083,9 +1083,15 @@ interface RenderOptions {
      * Betrifft nur das Blatt. Im XML steht immer der Kode; ein Empfaenger, der
      * "€" einliest, weiss nicht, ob EUR gemeint war.
      *
-     * Die Vorgabe bleibt `'code'`, damit bereits erzeugte Rechnungen unveraendert
-     * aussehen. Mit `'symbol'` erscheint das Zeichen im ganzen Dokument -
-     * Positionszeilen, Summenblock, Skontosatz, Lastschriftsatz.
+     * Die Vorgabe ist seit 5.0.0 `'symbol'`: Das Zeichen steht im ganzen Dokument
+     * - Positionszeilen, Summenblock, Skontosatz, Lastschriftsatz. Auf einer
+     * deutschen Rechnung ist "119,00 €" die uebliche Schreibweise, und eine
+     * Vorgabe, die jeder Aufrufer erst setzen muss, laeuft zwischen zwei
+     * Aufrufern auseinander: In rechnungswerk rendern die App und der
+     * Renderdienst getrennt, muessen aber dasselbe Dokument erzeugen.
+     *
+     * Mit `'code'` bleibt der ISO-Kode stehen. Das ist der Weg fuer alles, was
+     * ueber die Grenze geht oder maschinell weiterverarbeitet wird.
      *
      * Drei Dinge entscheiden mit:
      *
