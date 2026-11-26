@@ -1,6 +1,7 @@
 import {
   parseInvoice
-} from "../chunk-EEQN7LZ3.js";
+} from "../chunk-UZ63KELW.js";
+import "../chunk-OBHDUWZ4.js";
 
 // src/fixtures/sample.ts
 function sampleInvoice(profile = "zugferd-en16931") {

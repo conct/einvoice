@@ -25,7 +25,7 @@ deshalb läuft derselbe Code in der App und auf dem Server.
 ## Einbinden
 
 ```bash
-npm install github:conct/einvoice#v5.1.0
+npm install github:conct/einvoice#v5.2.0
 ```
 
 Keine Registry im Spiel, und **`dist/` liegt im Repository** — Installieren
@@ -33,7 +33,7 @@ heißt klonen, nicht bauen. Ohne SSH-Schlüssel auf dem Rechner geht es über
 HTTPS:
 
 ```bash
-npm install git+https://github.com/conct/einvoice.git#v5.1.0
+npm install git+https://github.com/conct/einvoice.git#v5.2.0
 ```
 
 Der erste Versuch ging den üblichen Weg: `prepare` baut beim Installieren.
@@ -157,6 +157,46 @@ sonst liest „Kein Ausweis der Umsatzsteuer gemäß § 19 UStG" eine Steuer von
 19,00 heraus. Die IBAN steht in Vierergruppen und ist wortweise nicht zu
 finden. Und ein Datum wie der 31. Februar fällt durch.
 
+## Das Paket für die Kanzlei
+
+Ein eigener Einstieg, eine Stufe über dem Kern: Er kennt keine Formate und
+keine Normen, sondern einen Vorgang in einem Betrieb — eine Eingangsrechnung,
+die man behält, deren Zahlungsstand man kennt, und am Ende die Lieferung an
+den Steuerberater.
+
+```ts
+import { ausFoto, paketplan } from '@erechnung/core/kanzlei';
+
+const plan = paketplan(rechnungen, lieferanten, { von: '2026-01-01', bis: '2026-12-31' });
+plan.stuecke;      // je Beleg: der Name, unter dem das Original ins Archiv gehört
+plan.liste;        // rechnungen.csv, Semikolon, deutsche Zahlen
+plan.liesmich;     // die Beilage, die erklärt, was im Paket liegt
+plan.ohneOriginal; // Vorgänge, zu denen kein Bild abgelegt ist — benannt, nicht verschwiegen
+plan.archivname;
+```
+
+**Gepackt wird hier nicht.** `paketplan` ist rein und sagt nur, welche Datei
+wie heißt und was in der Liste steht — das ZIP schnürt die Anwendung, denn
+nur sie weiß, ob die Originale in einer Ablage, einer Datenbank oder auf
+einem Server liegen. So lässt sich der ganze Inhalt prüfen, ohne eine Datei
+anzufassen. **Kontiert wird auch nichts:** Die Liste sagt, was auf dem Beleg
+steht, und die Kanzlei bucht.
+
+Die wichtigste Spalte ist `Herkunft`. Sie sagt, ob die Zahlen aus einem
+Datensatz ausgelesen oder von einem Bild gelesen wurden, und wie sicher — als
+Prozentzahl der Texterkennung, oder in Worten, wo eine Anwendung in Worten
+urteilt (`quelle.sicherheit`). Wer danach bucht, muss diesen Unterschied
+sehen, ohne zu fragen.
+
+Dazu `zahlungsstand`, `ueberfaelligTage`, `offeneSummen` je Währung und
+`skontochance` — letzteres nur bei einer E-Rechnung: Auf einem Foto steht
+Skonto irgendwo im Fließtext, und daraus eine Frist zu errechnen hieße raten,
+und zwar bei Geld.
+
+Gewachsen ist das in Rechnungswerk und dort gegen echte Belege gelaufen. Hier
+liegt es, seit es ein zweites Haus braucht — zwei Kopien derselben Liste
+laufen auseinander, sobald eine davon eine Spalte dazubekommt.
+
 ## Währung
 
 `currency` nimmt jeden Code nach ISO 4217; gerechnet und geschrieben wird
@@ -240,7 +280,7 @@ erkennt ihn nicht: Dafür braucht es WebAssembly im Browser oder das
 Betriebssystem auf dem Telefon, und beides gehört einer Anwendung, nicht einer
 Bibliothek ohne Plattformbezug.
 
-Mitgekommen ist nur, was ohne Zubehör läuft: 133 Tests über 12 Dateien, die
+Mitgekommen ist nur, was ohne Zubehör läuft: 149 Tests über 13 Dateien, die
 jeden Weg einmal gehen, und `npm run probe` — eine Rechnung durch XML, PDF,
 Anhang und zurück ins Modell, gegen das **gebaute** Paket.
 
