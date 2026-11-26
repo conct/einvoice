@@ -4188,6 +4188,178 @@ function ciiDate(value) {
   return void 0;
 }
 
+// src/parse/beleg.ts
+var WAEHRUNGEN = [
+  [/€|\bEUR\b|\bEuro\b/i, "EUR"],
+  [/\bCHF\b|\bSFr\.?/i, "CHF"],
+  [/\bGBP\b|£/, "GBP"],
+  [/\bUSD\b/, "USD"]
+];
+function betragAus(text2) {
+  const treffer = text2.match(/-?\d[\d.,]*\d|-?\d/g);
+  if (!treffer) return void 0;
+  const roh = treffer[treffer.length - 1];
+  if (!roh) return void 0;
+  const ohneLeer = roh.replace(/\s/g, "");
+  const letztesKomma = ohneLeer.lastIndexOf(",");
+  const letzterPunkt = ohneLeer.lastIndexOf(".");
+  const trenner = Math.max(letztesKomma, letzterPunkt);
+  let zahl3;
+  if (trenner === -1) {
+    zahl3 = ohneLeer;
+  } else if (ohneLeer.length - trenner - 1 <= 2 && ohneLeer.length - trenner - 1 > 0) {
+    zahl3 = `${ohneLeer.slice(0, trenner).replace(/[.,]/g, "")}.${ohneLeer.slice(trenner + 1)}`;
+  } else {
+    zahl3 = ohneLeer.replace(/[.,]/g, "");
+  }
+  const wert = Number(zahl3);
+  return Number.isFinite(wert) ? round(wert) : void 0;
+}
+function betragAmZeilenende(zeile) {
+  const treffer = zeile.match(/(-?\d[\d.,]*\d|-?\d)\s*(?:€|EUR|CHF|GBP|USD)?\s*[.*]?$/i);
+  return treffer?.[1] ? betragAus(treffer[1]) : void 0;
+}
+function datumAus(text2) {
+  const deutsch = text2.match(/(\d{1,2})\.\s?(\d{1,2})\.\s?(\d{2,4})/);
+  if (deutsch) {
+    const [, tag = "", monat = "", jahr = ""] = deutsch;
+    const volljahr = jahr.length === 2 ? `20${jahr}` : jahr;
+    return pruefeDatum(Number(volljahr), Number(monat), Number(tag));
+  }
+  const iso = text2.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) {
+    const [, jahr = "", monat = "", tag = ""] = iso;
+    return pruefeDatum(Number(jahr), Number(monat), Number(tag));
+  }
+  return void 0;
+}
+function pruefeDatum(jahr, monat, tag) {
+  if (monat < 1 || monat > 12 || tag < 1 || tag > 31) return void 0;
+  const datum = new Date(Date.UTC(jahr, monat - 1, tag));
+  if (datum.getUTCMonth() !== monat - 1 || datum.getUTCDate() !== tag) return void 0;
+  return datum.toISOString().slice(0, 10);
+}
+function plusTage(datum, tage) {
+  const d = /* @__PURE__ */ new Date(`${datum}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + tage);
+  return d.toISOString().slice(0, 10);
+}
+var RECHNUNGSNUMMER = /(?:rechnung(?:s)?[\s-]*(?:nummer|nr\.?|no\.?)|beleg[\s-]*(?:nummer|nr\.?)|invoice\s*(?:number|no\.?))\s*[:.#]?\s*([A-Za-z0-9][A-Za-z0-9/\-.]{2,})/i;
+var DATUMSZEILE = /(?:rechnungsdatum|belegdatum|datum|ausstellungsdatum|vom)\b/i;
+var FAELLIGZEILE = /(?:f(?:ä|ae)llig|zahlbar\s+bis|zahlungsziel|due\s+date)/i;
+var ZIELZEILE = /zahlbar\s+(?:innerhalb\s+von\s+)?(\d{1,3})\s*tagen?/i;
+var BRUTTOZEILE = /(?:gesamtbetrag|rechnungsbetrag|gesamtsumme|endbetrag|zahlbetrag|brutto(?:betrag|summe)?|zu\s+zahlen|total)/i;
+var NETTOZEILE = /(?:netto(?:betrag|summe)?|summe\s+netto|zwischensumme|gesamt\s+netto)/i;
+var STEUERZEILE = /(?:umsatzsteuer|mehrwertsteuer|\bmwst\.?|\bust\.?|\bvat\b)/i;
+var KEINE_ZAHL = /^\D*$/;
+function liesBeleg(text2, heute) {
+  const zeilen = text2.split(/\r?\n/).map((zeile) => zeile.replace(/\s+/g, " ").trim()).filter((zeile) => zeile.length > 0);
+  const funde = [];
+  const hinweise = [];
+  const nimm = (feld, wert2, sicherheit, beleg) => {
+    if (funde.some((fund) => fund.feld === feld)) return;
+    funde.push({ feld, wert: wert2, sicherheit, beleg });
+  };
+  for (const zeile of zeilen) {
+    const nummer = zeile.match(RECHNUNGSNUMMER);
+    if (nummer?.[1]) nimm("nummer", nummer[1].replace(/[.,;]$/, ""), "muster", zeile);
+    if (FAELLIGZEILE.test(zeile)) {
+      const datum2 = datumAus(zeile);
+      if (datum2) nimm("faellig", datum2, "muster", zeile);
+    }
+    if (DATUMSZEILE.test(zeile) && !FAELLIGZEILE.test(zeile)) {
+      const datum2 = datumAus(zeile);
+      if (datum2) nimm("datum", datum2, "muster", zeile);
+    }
+    if (BRUTTOZEILE.test(zeile) && !KEINE_ZAHL.test(zeile)) {
+      const betrag = betragAmZeilenende(zeile);
+      if (betrag !== void 0) nimm("brutto", betrag.toFixed(2), "muster", zeile);
+    }
+    if (NETTOZEILE.test(zeile) && !KEINE_ZAHL.test(zeile)) {
+      const betrag = betragAmZeilenende(zeile);
+      if (betrag !== void 0) nimm("netto", betrag.toFixed(2), "muster", zeile);
+    }
+    if (STEUERZEILE.test(zeile) && !KEINE_ZAHL.test(zeile) && !/ust[\s-]*id/i.test(zeile)) {
+      const betrag = betragAmZeilenende(zeile);
+      if (betrag !== void 0) nimm("steuer", betrag.toFixed(2), "muster", zeile);
+    }
+    const iban = zeile.match(/\b[A-Z]{2}\d{2}(?:\s?[A-Z0-9]{2,4}){2,8}\b/i);
+    if (iban?.[0]) {
+      const blank = iban[0].replace(/\s/g, "").toUpperCase();
+      if (isPlausibleIban(blank)) nimm("iban", blank, "geprueft", zeile);
+    }
+    const ustId = zeile.match(/\b([A-Z]{2}\s?\d[\d\s]{6,})\b/);
+    if (ustId?.[1] && /ust|vat|umsatzsteuer/i.test(zeile)) {
+      const blank = ustId[1].replace(/\s/g, "");
+      if (isPlausibleVatId(blank)) nimm("ustId", blank, "muster", zeile);
+    }
+    const steuernummer = zeile.match(/steuer(?:nummer|\s?-?nr\.?)\s*[:.]?\s*([\d/\s]{8,})/i);
+    if (steuernummer?.[1]) nimm("steuernummer", steuernummer[1].trim(), "muster", zeile);
+  }
+  for (const [muster, code] of WAEHRUNGEN) {
+    if (muster.test(text2)) {
+      nimm("waehrung", code, "muster", zeilen.find((zeile) => muster.test(zeile)) ?? "");
+      break;
+    }
+  }
+  const name = zeilen.slice(0, 8).find(
+    (zeile) => zeile.length >= 3 && zeile.length <= 60 && /[A-Za-zÄÖÜäöüß]{3}/.test(zeile) && !/rechnung|invoice|datum|seite|kunde|beleg/i.test(zeile) && !/^\d/.test(zeile)
+  );
+  if (name) nimm("absender", name, "geraten", name);
+  const wert = (feld) => funde.find((fund) => fund.feld === feld)?.wert;
+  const datum = wert("datum");
+  if (!wert("faellig") && datum) {
+    const zeile = zeilen.find((z) => ZIELZEILE.test(z));
+    const tage = zeile?.match(ZIELZEILE)?.[1];
+    if (zeile && tage) {
+      nimm("faellig", plusTage(datum, Number(tage)), "geraten", zeile);
+    }
+  }
+  const brutto = wert("brutto");
+  const netto = wert("netto");
+  const steuer = wert("steuer");
+  if (brutto && netto && steuer) {
+    const summe = round(Number(netto) + Number(steuer));
+    const fund = funde.find((f) => f.feld === "brutto");
+    if (fund && Math.abs(summe - Number(brutto)) <= 0.02) {
+      fund.sicherheit = "geprueft";
+    } else if (fund) {
+      hinweise.push(
+        `Netto und Steuer ergeben ${summe.toFixed(2)}, als Rechnungsbetrag wurde ${Number(brutto).toFixed(2)} gelesen.`
+      );
+    }
+  }
+  if (!brutto) hinweise.push("Kein Rechnungsbetrag gefunden.");
+  if (!wert("nummer")) hinweise.push("Keine Rechnungsnummer gefunden.");
+  if (!datum) hinweise.push("Kein Rechnungsdatum gefunden.");
+  const faellig = wert("faellig");
+  if (faellig && datum && faellig < datum) {
+    hinweise.push("Das gelesene Zahlungsziel liegt vor dem Rechnungsdatum.");
+  }
+  if (heute && datum && datum > heute) {
+    hinweise.push("Das gelesene Rechnungsdatum liegt in der Zukunft.");
+  }
+  const vorschlag = {
+    ...wert("nummer") ? { nummer: wert("nummer") } : {},
+    ...datum ? { datum } : {},
+    ...faellig ? { faellig } : {},
+    ...wert("absender") ? { absender: wert("absender") } : {},
+    waehrung: wert("waehrung") ?? "EUR",
+    ...brutto ? { brutto: Number(brutto) } : {},
+    ...netto ? { netto: Number(netto) } : {},
+    ...steuer ? { steuer: Number(steuer) } : {},
+    ...wert("iban") ? { iban: wert("iban") } : {},
+    ...wert("ustId") ? { ustId: wert("ustId") } : {},
+    ...wert("steuernummer") ? { steuernummer: wert("steuernummer") } : {}
+  };
+  return { funde, hinweise, vorschlag };
+}
+function vollstaendig(erfassung) {
+  return Boolean(
+    erfassung.nummer?.trim() && erfassung.datum && erfassung.absender?.trim() && erfassung.waehrung && typeof erfassung.brutto === "number" && erfassung.brutto > 0
+  );
+}
+
 // src/parse/receive.ts
 async function readEInvoice(bytes, filename) {
   const kind = detectKind(bytes);
@@ -4407,11 +4579,14 @@ export {
   alsHex,
   alsSvg,
   beschriftungenMit,
+  betragAmZeilenende,
+  betragAus,
   buildCii,
   buildInvoiceXml,
   buildUbl,
   buildXmp,
   computeTotals,
+  datumAus,
   decimal,
   detectKind,
   escapeXml,
@@ -4435,6 +4610,7 @@ export {
   laufbreite,
   leseInhalt,
   liefereBreiten,
+  liesBeleg,
   liesPdfText,
   liesZahlungsbedingungen,
   lineNetAmount,
@@ -4469,6 +4645,7 @@ export {
   utf8Decode,
   utf8Encode,
   validateInvoice,
+  vollstaendig,
   waehrungszeichen,
   wrapText,
   xmpDate,

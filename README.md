@@ -10,6 +10,8 @@ dasselbe tut: in Node, im Browser und in React Native.
 - **PDF/A-3** mit eingebetteter Rechnung, Briefkopf, Tabelle und Summenblock
 - **Empfang**: Anhänge aus einem hybriden PDF holen, XML einlesen, Summen
   nachrechnen, statt sie zu glauben
+- **Papierbelege**: aus dem Text einer Texterkennung Nummer, Datum, Frist,
+  Beträge und IBAN lesen — jede Angabe mit ihrer Sicherheit
 - **Skonto** in der Schreibweise der XRechnung, mehrstufig
 - **Fremdwährungen** samt Steuerbetrag in der Meldewährung (BT-6, BT-111)
 - **Briefbogen zeichnen**: Wer einen Bogen beschreibt — Farben, Striche,
@@ -23,7 +25,7 @@ deshalb läuft derselbe Code in der App und auf dem Server.
 ## Einbinden
 
 ```bash
-npm install github:conct/einvoice#v4.2.0
+npm install github:conct/einvoice#v5.1.0
 ```
 
 Keine Registry im Spiel, und **`dist/` liegt im Repository** — Installieren
@@ -31,7 +33,7 @@ heißt klonen, nicht bauen. Ohne SSH-Schlüssel auf dem Rechner geht es über
 HTTPS:
 
 ```bash
-npm install git+https://github.com/conct/einvoice.git#v4.2.0
+npm install git+https://github.com/conct/einvoice.git#v5.1.0
 ```
 
 Der erste Versuch ging den üblichen Weg: `prepare` baut beim Installieren.
@@ -118,6 +120,43 @@ denn die Summen müssen ohne Bedingung stimmen. Nutzt der Empfänger den Abzug,
 mindert das die Bemessungsgrundlage nachträglich (§ 17 UStG) — ein Vorgang in
 der Buchhaltung, kein Feld in diesem Dokument.
 
+## Papierbelege
+
+Nicht jede Rechnung kommt als Datensatz. `liesBeleg` nimmt den Text, den eine
+Texterkennung aus einem Foto gemacht hat, und sucht darin die Angaben, die
+einen Eingangsbeleg ausmachen:
+
+```ts
+import { liesBeleg, vollstaendig } from '@erechnung/core';
+
+const befund = liesBeleg(erkannterText);
+befund.vorschlag; // { nummer, datum, faellig, absender, waehrung, brutto, ... }
+befund.funde;     // je Angabe: Wert, Sicherheit, die Zeile, in der sie stand
+befund.hinweise;  // was fehlt oder nicht zusammenpasst
+```
+
+**Nichts davon ist ein Befund.** Eine E-Rechnung sagt, was sie enthält; ein
+Foto zeigt Pixel. Deshalb trägt jede Angabe ihre Sicherheit:
+
+| | |
+|---|---|
+| `geprueft` | Ein Verfahren bestätigt es — die IBAN-Prüfsumme, oder Netto + Steuer = Brutto |
+| `muster` | Die Form stimmt, geprüft ist sie nicht |
+| `geraten` | Aus der Umgebung geschlossen — der Absender ist die oberste Zeile, die nach einem Namen aussieht |
+
+Gedacht ist das für eine Oberfläche, die jedes Feld zum Nachbessern zeigt:
+`vollstaendig()` sagt, ob Nummer, Datum, Absender und Betrag beisammen sind.
+Positionen, Steuersätze je Zeile und Skonto werden **nicht** gelesen — sie
+stehen auf dem Blatt in tausend Gestalten, und was eine Maschine daraus macht,
+wäre geraten.
+
+Vier Dinge, die beim ersten Durchlauf gegen echte Belegbilder schiefgingen und
+seitdem festgenagelt sind: Zahlen dürfen keine Leerzeichen enthalten, sonst
+wird aus „58,00 377,00" die Zahl 5.800.377. Beträge zählen nur am Zeilenende,
+sonst liest „Kein Ausweis der Umsatzsteuer gemäß § 19 UStG" eine Steuer von
+19,00 heraus. Die IBAN steht in Vierergruppen und ist wortweise nicht zu
+finden. Und ein Datum wie der 31. Februar fällt durch.
+
 ## Währung
 
 `currency` nimmt jeden Code nach ISO 4217; gerechnet und geschrieben wird
@@ -196,7 +235,12 @@ Vergleichsläufe gegen fremde Rechnungen bleiben in
 Prüfregelsätze und etliche Megabyte Testbestand dran. Wer an der Ausgabe
 dieses Pakets etwas ändert, prüft dort nach.
 
-Mitgekommen ist nur, was ohne Zubehör läuft: 113 Tests über 11 Dateien, die
+**Die Texterkennung selbst.** `liesBeleg` nimmt fertigen Text entgegen, es
+erkennt ihn nicht: Dafür braucht es WebAssembly im Browser oder das
+Betriebssystem auf dem Telefon, und beides gehört einer Anwendung, nicht einer
+Bibliothek ohne Plattformbezug.
+
+Mitgekommen ist nur, was ohne Zubehör läuft: 133 Tests über 12 Dateien, die
 jeden Weg einmal gehen, und `npm run probe` — eine Rechnung durch XML, PDF,
 Anhang und zurück ins Modell, gegen das **gebaute** Paket.
 

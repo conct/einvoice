@@ -1492,6 +1492,128 @@ interface ParsedInvoice {
 declare function parseInvoiceXml(xml: string): ParsedInvoice;
 
 /**
+ * Eine abfotografierte Papierrechnung lesen.
+ *
+ * ## Warum das in dieser Bibliothek steht
+ *
+ * Nebenan liegt `readEInvoice`: aus einem empfangenen Dokument wird ein
+ * Datensatz. Hier ist es dieselbe Aufgabe fuer den Beleg, der keiner ist -
+ * Papier, abfotografiert, durch eine Texterkennung gegangen. Die Erkennung
+ * selbst gehoert nicht hierher; sie braucht Browser oder Betriebssystem. Was
+ * hierher gehoert, ist der Schritt danach, und der ist reine Rechnerei.
+ *
+ * ## Was das hier ist - und was nicht
+ *
+ * Die Texterkennung liefert einen Haufen Zeilen. Diese Datei sucht darin die
+ * paar Angaben, die eine Eingangsrechnung ausmachen: Nummer, Datum, Frist,
+ * Betrag, Absender. Mehr nicht. Positionen, Steuersaetze je Zeile,
+ * Zahlungsbedingungen - all das steht auf dem Blatt in tausend Gestalten, und
+ * was eine Maschine daraus macht, waere geraten.
+ *
+ * **Nichts hiervon ist ein Befund.** Eine E-Rechnung sagt, was sie enthaelt;
+ * ein Foto zeigt nur Pixel. Deshalb traegt jeder Fund seine Sicherheit und
+ * die Zeile, in der er stand, und deshalb geht kein Vorgang in die Ablage,
+ * den nicht ein Mensch bestaetigt hat.
+ *
+ * Dieselbe Trennung wie in `findeStammdaten` der Uebernahme: Was eine
+ * Pruefsumme besteht - die IBAN - ist geprueft. Was einer Form folgt, ist ein
+ * Muster. Der Firmenname ist die oberste Zeile, die nach einem Namen aussieht,
+ * und damit geraten.
+ *
+ * ## Warum trotzdem gelesen wird
+ *
+ * Weil die Alternative Abtippen heisst. Ein falsch erkanntes Datum korrigiert
+ * man in zwei Sekunden; eine ganze Rechnung einzugeben dauert zwei Minuten,
+ * und deshalb unterbleibt es - und dann liegt der Beleg nirgends.
+ */
+type Sicherheit = 
+/** Ein Verfahren bestaetigt es - etwa die IBAN-Pruefsumme. */
+'geprueft'
+/** Die Form stimmt, geprueft ist sie nicht. */
+ | 'muster'
+/** Aus der Umgebung geschlossen. */
+ | 'geraten';
+type Belegfeld = 'nummer' | 'datum' | 'faellig' | 'absender' | 'waehrung' | 'brutto' | 'netto' | 'steuer' | 'iban' | 'ustId' | 'steuernummer';
+interface Belegfund {
+    feld: Belegfeld;
+    wert: string;
+    sicherheit: Sicherheit;
+    /** Die Zeile, in der es stand - damit der Nutzer nachsehen kann. */
+    beleg: string;
+}
+/**
+ * Was von einem Papierbeleg uebrig bleibt.
+ *
+ * Wenige Felder, und alle flach: Eine abfotografierte Rechnung hat keine
+ * Positionen, keine Steueraufschluesselung und keine Zahlungsbedingungen, die
+ * sich verlaesslich lesen liessen. Mehr zu behaupten, als auf dem Bild
+ * erkennbar war, waere der Fehler, der sich hinterher durch jede Auswertung
+ * zieht.
+ */
+interface Belegdaten {
+    nummer: string;
+    datum: IsoDate;
+    faellig?: IsoDate;
+    /** Name des Absenders, wie er auf dem Blatt stand. */
+    absender: string;
+    waehrung: string;
+    /** Der Betrag, der zu zahlen ist. Das Einzige, was wirklich gebraucht wird. */
+    brutto: number;
+    netto?: number;
+    steuer?: number;
+    iban?: string;
+    ustId?: string;
+    steuernummer?: string;
+}
+interface Belegbefund {
+    funde: Belegfund[];
+    /** Was auffiel, ohne dass es ein Fehler waere. */
+    hinweise: string[];
+    /**
+     * Der Vorschlag fuer die Oberflaeche. Unvollstaendig, wo nichts gefunden
+     * wurde - die fehlenden Felder traegt der Nutzer nach.
+     */
+    vorschlag: Partial<Belegdaten>;
+}
+/**
+ * Eine Zahl aus einem Textstueck.
+ *
+ * Deutsche und englische Schreibweise: "1.234,56" und "1,234.56" und
+ * "1234.56". Entschieden wird am letzten Trennzeichen - was danach kommt und
+ * hoechstens zwei Stellen hat, sind Cent.
+ */
+declare function betragAus(text: string): number | undefined;
+/**
+ * Der Betrag am Ende einer Zeile.
+ *
+ * Auf einem Beleg steht der Betrag in der rechten Spalte, also am
+ * Zeilenende - hoechstens gefolgt von der Waehrung. Diese Einschraenkung ist
+ * nicht Kosmetik, sondern der Unterschied zwischen lesen und raten: "Kein
+ * Ausweis der Umsatzsteuer gemaess Paragraf 19 UStG." enthaelt eine Zahl und
+ * das Wort Umsatzsteuer, und ohne sie stuende bei jedem Kleinunternehmer
+ * 19,00 Euro Steuer im Vorgang.
+ */
+declare function betragAmZeilenende(zeile: string): number | undefined;
+/**
+ * Ein Datum aus einem Textstueck, als ISO-Datum.
+ *
+ * Deutsche Schreibweise zuerst, weil die Belege deutsch sind: 7.9.2026,
+ * 07.09.26. Zweistellige Jahre werden ins laufende Jahrhundert gelegt - eine
+ * Rechnung von 1926 wird niemand einlesen.
+ */
+declare function datumAus(text: string): IsoDate | undefined;
+/** Liest einen Beleg aus dem erkannten Text. */
+declare function liesBeleg(text: string, heute?: IsoDate): Belegbefund;
+/**
+ * Reicht das zum Behalten?
+ *
+ * Nummer, Datum, Absender und Betrag. Weniger ergibt keinen Vorgang, den man
+ * spaeter wiederfindet - und einen Beleg ohne Betrag in eine Liste offener
+ * Rechnungen zu stellen, waere schlimmer als gar keine Liste.
+ */
+declare function vollstaendig(erfassung: Partial<Belegdaten>): erfassung is Belegdaten;
+
+/**
  * Fehler beim Einlesen einer empfangenen Rechnung.
  *
  * Eigene Datei, damit sowohl das Einlesemodul als auch die Syntaxauswertung
@@ -1781,4 +1903,4 @@ declare function buildInvoiceXml(invoice: Invoice): {
     filename: string;
 };
 
-export { A4, BUNDLED_SPECIFICATIONS, type Beschriftung, type Beschriftungen, type Breiten, type Briefpapier, type CiiOptions, DEFAULT_THEME, type DeclaredTotals, EAS, EInvoiceError, type EInvoiceErrorCode, type ExtractedAttachment, type FacturXConformanceLevel, type Farbe, type Flaeche, type Folgeart, INVOICE_TYPE_CODES, Invoice, InvoiceInput, type InvoiceSyntax, type InvoiceTotals, type InvoiceTypeCode, type IsoDate, type Kennzahlenstellung, type Kreis, Line, MAX_SCHRIFT_BYTES, PAYMENT_MEANS, PROFILE_ID, type ParsedInvoice, type PaymentMeansCode, type PdfText, type Pfad, RECHNUNGSZEICHEN, type ReceivedInvoice, type RenderAssets, type RenderOptions, type RenderResult, STANDARD_BESCHRIFTUNGEN, type Schriftbefund, type Schriftmangel, type Severity, type Skontostufe, SkontostufeSchema, type SourceKind, type SpecificationAge, type SpecificationEntry, SpecificationError, type SpecificationSet, type Strich, type Textlauf, type Textseite, type Textstueck, type Textzeile, type Theme, UNIT, type UblOptions, type UnitCode, VAT_CATEGORY, type ValidationIssue, type ValidationResult, Vat, type VatBreakdownEntry, type VatCategoryCode, type Vorlagenbefund, type Waehrungsdarstellung, type Wert, XmlWriter, type XmpOptions, ZERO_RATE_CATEGORIES, type Zeichenbefund, Zeichenpruefung, ZeichenvorratFehler, activeSpecifications, addDays, alsHex, alsSvg, beschriftungenMit, buildCii, buildInvoiceXml, buildUbl, buildXmp, computeTotals, decimal, detectKind, escapeXml, extractAttachments, extractInvoiceXml, familienkern, farbeAusHex, folgedokument, formatAmount, formatDate, formatQuantity, fromBase64, isIsoDate, isPlausibleIban, isPlausibleLeitwegId, isPlausibleVatId, istBrauchbareBeschriftung, istKleinunternehmerRechnung, istPng, kennzahlenrahmen, laufbreite, leseInhalt, liefereBreiten, liesPdfText, liesZahlungsbedingungen, lineNetAmount, nurAbweichungen, ohneUnsichtbare, parseInvoiceXml, parseSpecificationSet, pngFarbtyp, pruefeSchrift, pruefeSchriftpaar, readEInvoice, renderZugferdPdf, resetSpecifications, round, sanitizeXmlText, schriftenImBriefkopf, schriftmangelText, seiteninhalt, setActiveSpecifications, setzeMitVorlagenschrift, skontobetrag, skontofrist, skontosatz, skontozeile, specificationAge, sum, summarizeTotals, themaMitAkzent, toBase64, toCiiDate, utf8Decode, utf8Encode, validateInvoice, waehrungszeichen, wrapText, xmpDate, zahlungsbedingungen, zeichneBriefpapier };
+export { A4, BUNDLED_SPECIFICATIONS, type Belegbefund, type Belegdaten, type Belegfeld, type Belegfund, type Beschriftung, type Beschriftungen, type Breiten, type Briefpapier, type CiiOptions, DEFAULT_THEME, type DeclaredTotals, EAS, EInvoiceError, type EInvoiceErrorCode, type ExtractedAttachment, type FacturXConformanceLevel, type Farbe, type Flaeche, type Folgeart, INVOICE_TYPE_CODES, Invoice, InvoiceInput, type InvoiceSyntax, type InvoiceTotals, type InvoiceTypeCode, type IsoDate, type Kennzahlenstellung, type Kreis, Line, MAX_SCHRIFT_BYTES, PAYMENT_MEANS, PROFILE_ID, type ParsedInvoice, type PaymentMeansCode, type PdfText, type Pfad, RECHNUNGSZEICHEN, type ReceivedInvoice, type RenderAssets, type RenderOptions, type RenderResult, STANDARD_BESCHRIFTUNGEN, type Schriftbefund, type Schriftmangel, type Severity, type Sicherheit, type Skontostufe, SkontostufeSchema, type SourceKind, type SpecificationAge, type SpecificationEntry, SpecificationError, type SpecificationSet, type Strich, type Textlauf, type Textseite, type Textstueck, type Textzeile, type Theme, UNIT, type UblOptions, type UnitCode, VAT_CATEGORY, type ValidationIssue, type ValidationResult, Vat, type VatBreakdownEntry, type VatCategoryCode, type Vorlagenbefund, type Waehrungsdarstellung, type Wert, XmlWriter, type XmpOptions, ZERO_RATE_CATEGORIES, type Zeichenbefund, Zeichenpruefung, ZeichenvorratFehler, activeSpecifications, addDays, alsHex, alsSvg, beschriftungenMit, betragAmZeilenende, betragAus, buildCii, buildInvoiceXml, buildUbl, buildXmp, computeTotals, datumAus, decimal, detectKind, escapeXml, extractAttachments, extractInvoiceXml, familienkern, farbeAusHex, folgedokument, formatAmount, formatDate, formatQuantity, fromBase64, isIsoDate, isPlausibleIban, isPlausibleLeitwegId, isPlausibleVatId, istBrauchbareBeschriftung, istKleinunternehmerRechnung, istPng, kennzahlenrahmen, laufbreite, leseInhalt, liefereBreiten, liesBeleg, liesPdfText, liesZahlungsbedingungen, lineNetAmount, nurAbweichungen, ohneUnsichtbare, parseInvoiceXml, parseSpecificationSet, pngFarbtyp, pruefeSchrift, pruefeSchriftpaar, readEInvoice, renderZugferdPdf, resetSpecifications, round, sanitizeXmlText, schriftenImBriefkopf, schriftmangelText, seiteninhalt, setActiveSpecifications, setzeMitVorlagenschrift, skontobetrag, skontofrist, skontosatz, skontozeile, specificationAge, sum, summarizeTotals, themaMitAkzent, toBase64, toCiiDate, utf8Decode, utf8Encode, validateInvoice, vollstaendig, waehrungszeichen, wrapText, xmpDate, zahlungsbedingungen, zeichneBriefpapier };

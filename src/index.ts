@@ -66,6 +66,18 @@ export {
   type ParsedInvoice,
 } from './parse/xml';
 export {
+  betragAmZeilenende,
+  betragAus,
+  datumAus,
+  liesBeleg,
+  vollstaendig,
+  type Belegbefund,
+  type Belegdaten,
+  type Belegfeld,
+  type Belegfund,
+  type Sicherheit,
+} from './parse/beleg';
+export {
   detectKind,
   readEInvoice,
   EInvoiceError,
