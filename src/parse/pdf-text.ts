@@ -76,7 +76,16 @@ export interface PdfText {
  * kommt Unsinn heraus, und das ist besser als nichts vorzutaeuschen: Der
  * Nutzer sieht sofort, dass die Datei nicht lesbar ist.
  */
-function leseToUnicode(text: string): Map<number, string> {
+/** Hexziffern in Zeichen - vier je Codeeinheit, Ersatzpaare fuegen sich selbst. */
+const hexZeichen = (hex: string): string => {
+  let zeichen = '';
+  for (let i = 0; i + 4 <= hex.length; i += 4) {
+    zeichen += String.fromCharCode(parseInt(hex.slice(i, i + 4), 16));
+  }
+  return zeichen;
+};
+
+export function leseToUnicode(text: string): Map<number, string> {
   const karte = new Map<number, string>();
 
   for (const block of text.matchAll(/beginbfchar([\s\S]*?)endbfchar/g)) {
@@ -103,6 +112,21 @@ function leseToUnicode(text: string): Map<number, string> {
       for (let i = von; i <= bis && i - von < 0x2000; i += 1) {
         karte.set(i, String.fromCodePoint(ziel + (i - von)));
       }
+    }
+
+    /*
+     * DIE ZWEITE SCHREIBWEISE: ein Bereich mit einer Liste von Zielen,
+     * "<0003> <0005> [<0020> <20AC> <0041>]" - je Code ein eigenes Ziel. Bis
+     * 5.4.4 wurde sie uebersprungen; jeder so beschriebene Glyph kam als
+     * Ersatzzeichen heraus. Gefunden ueber ein Eurozeichen, das in einer
+     * PDF-Rechnung aus einem Postfach als U+FFFD ankam (26.11.2026, CHOOZY).
+     */
+    for (const eintrag of (block[1] ?? '').matchAll(
+      /<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*\[([^\]]*)\]/g,
+    )) {
+      const von = parseInt(eintrag[1] ?? '0', 16);
+      const ziele = [...(eintrag[3] ?? '').matchAll(/<([0-9A-Fa-f]+)>/g)].map((t) => t[1] ?? '');
+      ziele.forEach((hex, i) => karte.set(von + i, hexZeichen(hex)));
     }
   }
 
@@ -206,8 +230,26 @@ function entschluessle(roh: number[], schrift: Schrift | undefined): string {
     return text;
   }
 
-  return roh.map((byte) => schrift.karte?.get(byte) ?? String.fromCharCode(byte)).join('');
+  return roh.map((byte) => schrift.karte?.get(byte) ?? winAnsi(byte)).join('');
 }
+
+/**
+ * Ein Byte nach WinAnsi - der Kodierung, die einfache Schriften ohne eigene
+ * Tabelle meist meinen.
+ *
+ * Bis 5.4.4 stand hier Latin-1, und das unterscheidet sich genau im Bereich
+ * 0x80 bis 0x9F: Dort liegen in WinAnsi "€", die Anfuehrungszeichen und der
+ * Gedankenstrich, in Latin-1 nur Steuerzeichen. Ein Betrag "409,50 €" endete
+ * damit auf einem unsichtbaren Zeichen.
+ */
+const WIN_ANSI_80: Record<number, string> = {
+  0x80: '€', 0x82: '‚', 0x83: 'ƒ', 0x84: '„', 0x85: '…', 0x86: '†', 0x87: '‡', 0x88: 'ˆ',
+  0x89: '‰', 0x8a: 'Š', 0x8b: '‹', 0x8c: 'Œ', 0x8e: 'Ž', 0x91: '‘', 0x92: '’', 0x93: '“',
+  0x94: '”', 0x95: '•', 0x96: '–', 0x97: '—', 0x98: '˜', 0x99: '™', 0x9a: 'š', 0x9b: '›',
+  0x9c: 'œ', 0x9e: 'ž', 0x9f: 'Ÿ',
+};
+
+export const winAnsi = (byte: number): string => WIN_ANSI_80[byte] ?? String.fromCharCode(byte);
 
 // --- Inhaltsstrom lesen -----------------------------------------------------
 
