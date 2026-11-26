@@ -2,7 +2,7 @@ import type { IsoDate } from '../util/date';
 import { formatAmount } from '../util/money';
 
 import { uebersicht, type Eingangsrechnung, type Lieferant } from './modell';
-import { zahlungsstand } from './status';
+import { heute, zahlungsstand } from './status';
 
 /**
  * Das Paket fuer die Kanzlei.
@@ -169,11 +169,19 @@ export function liste(
 /** Ein ISO-Datum deutsch: "2026-11-26" wird "26.11.2026". */
 const deutsch = (datum: string) => `${datum.slice(8, 10)}.${datum.slice(5, 7)}.${datum.slice(0, 4)}`;
 
-/** Die Beilage, die erklaert, was in dem Paket liegt. */
+/**
+ * Die Beilage, die erklaert, was in dem Paket liegt.
+ *
+ * 'werkzeug' ist der Name, der in der Beilage steht. Er hat eine Vorgabe,
+ * weil diese Zusammenstellung in Rechnungswerk entstanden ist - aber sie
+ * liegt jetzt in der Bibliothek, und ein zweites Haus darf der Kanzlei nicht
+ * den Namen eines fremden Programms nennen.
+ */
 export function liesmich(
   plan: Omit<Paketplan, 'liesmich'>,
   erzeugtAm: string,
   zeitraum: Zeitraum = {},
+  werkzeug = 'Rechnungswerk',
 ): string {
   const spanne =
     zeitraum.von || zeitraum.bis
@@ -185,7 +193,7 @@ export function liesmich(
   const zeilen = [
     'Eingangsrechnungen',
     '',
-    `Erzeugt am ${erzeugtAm} mit Rechnungswerk.`,
+    `Erzeugt am ${erzeugtAm} mit ${werkzeug}.`,
     spanne,
     `${plan.stuecke.length} Beleg(e), dazu die Liste rechnungen.csv.`,
     '',
@@ -194,8 +202,9 @@ export function liesmich(
     '',
     '  E-Rechnung  Aus dem strukturierten Datensatz gelesen (XRechnung,',
     '              ZUGFeRD/Factur-X). Massgeblich ist diese Datei selbst.',
-    '  Foto        Von einem Bild abgelesen und von Hand bestaetigt. Die',
-    '              Prozentangabe ist die Zuversicht der Texterkennung.',
+    '  Foto        Von einem Bild abgelesen und von Hand bestaetigt.',
+    '              Daneben steht, wie sicher die Lesung war - als Zuversicht',
+    '              der Texterkennung in Prozent, oder in Worten.',
     '',
     'Betraege stehen so, wie sie auf dem Beleg ausgewiesen sind - nicht',
     'nachgerechnet und nicht berichtigt. Wo beim Einlesen etwas auffiel,',
@@ -230,6 +239,7 @@ export function paketplan(
   zeitraum: Zeitraum = {},
   jetzt = new Date(),
   hatOriginal: (eingang: Eingangsrechnung) => boolean = (eingang) => Boolean(eingang.anlage),
+  werkzeug?: string,
 ): Paketplan {
   const gewaehlt = imZeitraum(rechnungen, zeitraum);
   const stuecke: Paketstueck[] = [];
@@ -260,7 +270,7 @@ export function paketplan(
     stuecke.push({ name, eingang });
   }
 
-  const bis = zeitraum.bis ?? (jetzt.toISOString().slice(0, 10) as IsoDate);
+  const bis = zeitraum.bis ?? heute(jetzt);
   const ohneText: Omit<Paketplan, 'liesmich'> = {
     stuecke,
     ohneOriginal,
@@ -269,8 +279,7 @@ export function paketplan(
   };
   // Erzeugt am heute, nicht am Ende des Zeitraums - ein Paket fuer 2025,
   // das "erzeugt am 31.12.2025" behauptet, waere schlicht falsch datiert.
-  const heute = jetzt.toISOString().slice(0, 10);
-  return { ...ohneText, liesmich: liesmich(ohneText, deutsch(heute), zeitraum) };
+  return { ...ohneText, liesmich: liesmich(ohneText, deutsch(heute(jetzt)), zeitraum, werkzeug) };
 }
 
 /** Wie viele Belege, wie viel Geld - fuer den Knopf, bevor jemand packt. */

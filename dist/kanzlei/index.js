@@ -113,7 +113,11 @@ function absenderzugAusParty(party) {
 
 // src/kanzlei/status.ts
 function heute(jetzt = /* @__PURE__ */ new Date()) {
-  return jetzt.toISOString().slice(0, 10);
+  return [
+    jetzt.getFullYear(),
+    String(jetzt.getMonth() + 1).padStart(2, "0"),
+    String(jetzt.getDate()).padStart(2, "0")
+  ].join("-");
 }
 function tageBis(ziel, ab) {
   const a = Date.parse(`${ab}T00:00:00Z`);
@@ -231,12 +235,12 @@ function liste(stuecke, lieferanten) {
   return zeilen.join("\r\n") + "\r\n";
 }
 var deutsch = (datum) => `${datum.slice(8, 10)}.${datum.slice(5, 7)}.${datum.slice(0, 4)}`;
-function liesmich(plan, erzeugtAm, zeitraum = {}) {
+function liesmich(plan, erzeugtAm, zeitraum = {}, werkzeug = "Rechnungswerk") {
   const spanne = zeitraum.von || zeitraum.bis ? `Zeitraum ${zeitraum.von ? deutsch(zeitraum.von) : "Anfang"} bis ${zeitraum.bis ? deutsch(zeitraum.bis) : "heute"}.` : "Alle abgelegten Belege, ohne Einschraenkung des Zeitraums.";
   const zeilen = [
     "Eingangsrechnungen",
     "",
-    `Erzeugt am ${erzeugtAm} mit Rechnungswerk.`,
+    `Erzeugt am ${erzeugtAm} mit ${werkzeug}.`,
     spanne,
     `${plan.stuecke.length} Beleg(e), dazu die Liste rechnungen.csv.`,
     "",
@@ -245,8 +249,9 @@ function liesmich(plan, erzeugtAm, zeitraum = {}) {
     "",
     "  E-Rechnung  Aus dem strukturierten Datensatz gelesen (XRechnung,",
     "              ZUGFeRD/Factur-X). Massgeblich ist diese Datei selbst.",
-    "  Foto        Von einem Bild abgelesen und von Hand bestaetigt. Die",
-    "              Prozentangabe ist die Zuversicht der Texterkennung.",
+    "  Foto        Von einem Bild abgelesen und von Hand bestaetigt.",
+    "              Daneben steht, wie sicher die Lesung war - als Zuversicht",
+    "              der Texterkennung in Prozent, oder in Worten.",
     "",
     "Betraege stehen so, wie sie auf dem Beleg ausgewiesen sind - nicht",
     "nachgerechnet und nicht berichtigt. Wo beim Einlesen etwas auffiel,",
@@ -266,7 +271,7 @@ function liesmich(plan, erzeugtAm, zeitraum = {}) {
   }
   return zeilen.join("\n") + "\n";
 }
-function paketplan(rechnungen, lieferanten, zeitraum = {}, jetzt = /* @__PURE__ */ new Date(), hatOriginal = (eingang) => Boolean(eingang.anlage)) {
+function paketplan(rechnungen, lieferanten, zeitraum = {}, jetzt = /* @__PURE__ */ new Date(), hatOriginal = (eingang) => Boolean(eingang.anlage), werkzeug) {
   const gewaehlt = imZeitraum(rechnungen, zeitraum);
   const stuecke = [];
   const ohneOriginal = [];
@@ -291,15 +296,14 @@ function paketplan(rechnungen, lieferanten, zeitraum = {}, jetzt = /* @__PURE__ 
     vergeben.add(name.toLowerCase());
     stuecke.push({ name, eingang });
   }
-  const bis = zeitraum.bis ?? jetzt.toISOString().slice(0, 10);
+  const bis = zeitraum.bis ?? heute(jetzt);
   const ohneText = {
     stuecke,
     ohneOriginal,
     liste: liste(stuecke, lieferanten),
     archivname: `${dateiname(`eingangsrechnungen_${zeitraum.von ?? "anfang"}_bis_${bis}`)}.zip`
   };
-  const heute2 = jetzt.toISOString().slice(0, 10);
-  return { ...ohneText, liesmich: liesmich(ohneText, deutsch(heute2), zeitraum) };
+  return { ...ohneText, liesmich: liesmich(ohneText, deutsch(heute(jetzt)), zeitraum, werkzeug) };
 }
 function paketumfang(rechnungen, zeitraum = {}, stichtag) {
   const gewaehlt = imZeitraum(rechnungen, zeitraum);

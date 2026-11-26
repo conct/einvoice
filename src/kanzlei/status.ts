@@ -19,9 +19,21 @@ import { uebersicht } from './modell';
  */
 export type Zahlungsstand = 'offen' | 'ueberfaellig' | 'bezahlt';
 
-/** Heute als ISO-Datum, ohne Uhrzeit. */
+/**
+ * Heute als ISO-Datum, ohne Uhrzeit - nach der ORTSZEIT.
+ *
+ * 'toISOString' stand hier zuerst, und das war falsch: Es rechnet nach UTC.
+ * In Mitteleuropa ist der 26. November um 00:30 dort noch der 25., und ein
+ * Paket, das am 1. Januar kurz nach Mitternacht entsteht, waere auf den 31.
+ * Dezember datiert - also auf ein anderes Geschaeftsjahr. Was auf einem
+ * Beleg steht, ist ein Kalendertag am Ort, keine Zeitzone.
+ */
 export function heute(jetzt = new Date()): IsoDate {
-  return jetzt.toISOString().slice(0, 10) as IsoDate;
+  return [
+    jetzt.getFullYear(),
+    String(jetzt.getMonth() + 1).padStart(2, '0'),
+    String(jetzt.getDate()).padStart(2, '0'),
+  ].join('-') as IsoDate;
 }
 
 /**

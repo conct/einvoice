@@ -182,6 +182,9 @@ einem Server liegen. So lässt sich der ganze Inhalt prüfen, ohne eine Datei
 anzufassen. **Kontiert wird auch nichts:** Die Liste sagt, was auf dem Beleg
 steht, und die Kanzlei bucht.
 
+Den Namen in der Beilage — „Erzeugt am … mit …“ — gibt `werkzeug` vor; ohne
+Angabe steht dort Rechnungswerk, wo die Zusammenstellung entstanden ist.
+
 Die wichtigste Spalte ist `Herkunft`. Sie sagt, ob die Zahlen aus einem
 Datensatz ausgelesen oder von einem Bild gelesen wurden, und wie sicher — als
 Prozentzahl der Texterkennung, oder in Worten, wo eine Anwendung in Worten
@@ -280,7 +283,7 @@ erkennt ihn nicht: Dafür braucht es WebAssembly im Browser oder das
 Betriebssystem auf dem Telefon, und beides gehört einer Anwendung, nicht einer
 Bibliothek ohne Plattformbezug.
 
-Mitgekommen ist nur, was ohne Zubehör läuft: 149 Tests über 13 Dateien, die
+Mitgekommen ist nur, was ohne Zubehör läuft: 152 Tests über 13 Dateien, die
 jeden Weg einmal gehen, und `npm run probe` — eine Rechnung durch XML, PDF,
 Anhang und zurück ins Modell, gegen das **gebaute** Paket.
 

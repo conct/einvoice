@@ -220,4 +220,32 @@ describe('Die Beilage', () => {
     const plan = paketplan([await ausXml('er_1')], LIEFERANTEN, {}, JETZT);
     expect(plan.liesmich).toContain('ohne Einschraenkung des Zeitraums');
   });
+
+  /*
+   * 'toISOString' stand hier zuerst und rechnet nach UTC: In Mitteleuropa war
+   * das Paket zwischen Mitternacht und ein Uhr auf den Vortag datiert - am
+   * 1. Januar also auf ein anderes Geschaeftsjahr.
+   */
+  it('datiert nach der Ortszeit, nicht nach UTC', async () => {
+    const kurzNachMitternacht = new Date(2026, 10, 26, 0, 30);
+    const plan = paketplan([await ausXml('er_1')], LIEFERANTEN, {}, kurzNachMitternacht);
+    expect(plan.liesmich).toContain('Erzeugt am 26.11.2026');
+    expect(plan.archivname).toBe('eingangsrechnungen_anfang_bis_2026-11-26.zip');
+  });
+
+  /*
+   * Die Zusammenstellung ist in Rechnungswerk entstanden, liegt aber jetzt in
+   * der Bibliothek: Ein zweites Haus darf der Kanzlei nicht den Namen eines
+   * fremden Programms nennen.
+   */
+  it('nennt das Werkzeug, das sie erzeugt hat', async () => {
+    const plan = paketplan([await ausXml('er_1')], LIEFERANTEN, {}, JETZT, undefined, 'CHOOZY');
+    expect(plan.liesmich).toContain('mit CHOOZY.');
+    expect(plan.liesmich).not.toContain('Rechnungswerk');
+  });
+
+  it('bleibt ohne Angabe bei Rechnungswerk', async () => {
+    const plan = paketplan([await ausXml('er_1')], LIEFERANTEN, {}, JETZT);
+    expect(plan.liesmich).toContain('mit Rechnungswerk.');
+  });
 });

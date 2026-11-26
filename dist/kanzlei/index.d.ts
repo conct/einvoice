@@ -257,15 +257,22 @@ declare function dateiname(text: string): string;
  * fuer jeden, der danach bucht, der wichtigste Unterschied.
  */
 declare function liste(stuecke: readonly Paketstueck[], lieferanten: readonly Lieferant[]): string;
-/** Die Beilage, die erklaert, was in dem Paket liegt. */
-declare function liesmich(plan: Omit<Paketplan, 'liesmich'>, erzeugtAm: string, zeitraum?: Zeitraum): string;
+/**
+ * Die Beilage, die erklaert, was in dem Paket liegt.
+ *
+ * 'werkzeug' ist der Name, der in der Beilage steht. Er hat eine Vorgabe,
+ * weil diese Zusammenstellung in Rechnungswerk entstanden ist - aber sie
+ * liegt jetzt in der Bibliothek, und ein zweites Haus darf der Kanzlei nicht
+ * den Namen eines fremden Programms nennen.
+ */
+declare function liesmich(plan: Omit<Paketplan, 'liesmich'>, erzeugtAm: string, zeitraum?: Zeitraum, werkzeug?: string): string;
 /**
  * Plant das Paket: welche Datei wie heisst, was in der Liste steht.
  *
  * Rein - gepackt wird woanders, denn dafuer braucht es die Originale aus der
  * Ablage. So laesst sich der ganze Inhalt pruefen, ohne eine Datei anzufassen.
  */
-declare function paketplan(rechnungen: readonly Eingangsrechnung[], lieferanten: readonly Lieferant[], zeitraum?: Zeitraum, jetzt?: Date, hatOriginal?: (eingang: Eingangsrechnung) => boolean): Paketplan;
+declare function paketplan(rechnungen: readonly Eingangsrechnung[], lieferanten: readonly Lieferant[], zeitraum?: Zeitraum, jetzt?: Date, hatOriginal?: (eingang: Eingangsrechnung) => boolean, werkzeug?: string): Paketplan;
 /** Wie viele Belege, wie viel Geld - fuer den Knopf, bevor jemand packt. */
 declare function paketumfang(rechnungen: readonly Eingangsrechnung[], zeitraum?: Zeitraum, stichtag?: string): {
     anzahl: number;
@@ -285,7 +292,15 @@ declare function paketumfang(rechnungen: readonly Eingangsrechnung[], zeitraum?:
  * stattdessen, dass die Rechnung kein Zahlungsziel nennt.
  */
 type Zahlungsstand = 'offen' | 'ueberfaellig' | 'bezahlt';
-/** Heute als ISO-Datum, ohne Uhrzeit. */
+/**
+ * Heute als ISO-Datum, ohne Uhrzeit - nach der ORTSZEIT.
+ *
+ * 'toISOString' stand hier zuerst, und das war falsch: Es rechnet nach UTC.
+ * In Mitteleuropa ist der 26. November um 00:30 dort noch der 25., und ein
+ * Paket, das am 1. Januar kurz nach Mitternacht entsteht, waere auf den 31.
+ * Dezember datiert - also auf ein anderes Geschaeftsjahr. Was auf einem
+ * Beleg steht, ist ein Kalendertag am Ort, keine Zeitzone.
+ */
 declare function heute(jetzt?: Date): IsoDate;
 /**
  * Tage von einem Datum zum anderen. Negativ, wenn das Ziel vorbei ist.
