@@ -838,6 +838,160 @@ function liesKassenbon(
   return abgeleitet;
 }
 
+/** Ein Betrag in deutscher Schreibweise mit Komma: "19,45". */
+const komma = (zahl: number) => zahl.toFixed(2).replace('.', ',');
+
+/* -------------------------------------------------------------------------
+ * DIE STEUERUEBERSICHT EINES BONS, UND DER ABZUG DAHINTER
+ *
+ * Gemessen am 24.11.2026 an einem Bon von Diska (bestellt von CHOOZY am
+ * 27.11.2026). Unten auf dem Bon steht eine Uebersicht ueber den UMSATZ vor
+ * Leergut und Rabatt:
+ *
+ *     NETTO ... 18,18        MwSt ... 1,27        (zusammen 19,45)
+ *     -1,26 -0,24 -1,50      (der Abzug: netto, steuer, brutto)
+ *
+ * Bezahlt wurden 17,95. Wer die Uebersicht nimmt, bucht 19,45 - einen Betrag,
+ * den es nie gab. Bisher blieben Netto und Steuer deshalb STILL leer, und der
+ * Betreiber sah zwei Luecken ohne Grund.
+ *
+ * Jetzt gilt:
+ * - Passt die Uebersicht zur Summe, wird sie genommen.
+ * - Passt sie nicht, wird EINE Abzugszeile gesucht: drei negative Betraege,
+ *   von denen sich der dritte aus den beiden anderen zusammensetzt. Geht
+ *   (Netto - Abzug) + (Steuer - Abzug) auf den Cent in der bekannten Summe
+ *   auf, werden die Differenzen gebucht - eine Stufe unsicherer als die
+ *   Uebersicht, denn gedruckt stehen sie nirgends.
+ * - Sonst bleibt beides leer, und ein Hinweis nennt die Zahlen. Aus einer
+ *   stillen Luecke wird eine Aussage, die man nachpruefen kann.
+ *
+ * Die Summe selbst entsteht hier nie. Sie muss schon dastehen, sonst prueft
+ * die Rechnung nur sich selbst.
+ * ------------------------------------------------------------------------- */
+
+const UEBERSICHT_NETTO = /^(?:netto(?:betrag|summe)?|summe\s+netto)\s*:?$/i;
+const UEBERSICHT_STEUER = /^(?:mwst\.?|ust\.?|umsatzsteuer|mehrwertsteuer|steuer)\s*:?$/i;
+const NUR_CENTBETRAG = /^\d{1,5},\d{2}\s*(?:€|EUR)?$/i;
+const ABZUGSZEILE = /^-(\d{1,4},\d{2})\s+-(\d{1,4},\d{2})\s+-(\d{1,4},\d{2})$/;
+
+/** Hoechster deutscher Satz - mehr Steuer als 19 % auf das Netto gibt es nicht. */
+const HOECHSTSATZ = 0.19;
+
+/**
+ * Der Betrag zu einer Beschriftung, die allein in ihrer Zeile steht. Die
+ * Texterkennung zerreisst "NETTO 18,18" in zwei Zeilen, manchmal mit einem
+ * Splitter dazwischen ("NETTO", "4", "18,18"). Hoechstens drei Zeilen weit,
+ * und uebersprungen wird nur eine nackte ein- oder zweistellige Zahl.
+ */
+function betragUnter(zeilen: readonly string[], stelle: number): number | undefined {
+  for (let i = stelle + 1; i <= stelle + 3 && i < zeilen.length; i += 1) {
+    const zeile = zeilen[i] ?? '';
+    if (/^\d{1,2}$/.test(zeile)) continue;
+    return NUR_CENTBETRAG.test(zeile) ? betragAus(zeile) : undefined;
+  }
+  return undefined;
+}
+
+/** Der eine Wert einer zerrissenen Beschriftung - oder nichts, wenn es mehrere gibt. */
+function zerrissen(zeilen: readonly string[], beschriftung: RegExp): { wert: number; zeile: string } | undefined {
+  const werte = new Map<number, string>();
+  zeilen.forEach((zeile, stelle) => {
+    if (!beschriftung.test(zeile)) return;
+    const wert = betragUnter(zeilen, stelle);
+    if (wert !== undefined && wert > 0) werte.set(wert, `${zeile} ${komma(wert)}`);
+  });
+  const [einziger] = [...werte];
+  if (werte.size !== 1 || !einziger) return undefined;
+  return { wert: einziger[0], zeile: einziger[1] };
+}
+
+/**
+ * Die Steuerübersicht eines Bons gegen die Summe halten. Gibt zurueck, ob
+ * Netto und Steuer aus der Summe VERRECHNET wurden - dann darf die Rechenprobe
+ * in 'liesBeleg' sie nicht noch einmal bestaetigen.
+ */
+function bonUebersicht(
+  zeilen: readonly string[],
+  funde: Belegfund[],
+  nimm: (feld: Belegfeld, wert: string, sicherheit: Sicherheit, beleg: string) => void,
+  hinweise: string[],
+): boolean {
+  const fund = (feld: Belegfeld) => funde.find((eintrag) => eintrag.feld === feld);
+  const bruttoFund = fund('brutto');
+  if (!bruttoFund) return false;
+  const brutto = Number(bruttoFund.wert);
+
+  /* Die Uebersicht: in einer Zeile gelesen, oder zerrissen. */
+  const nettoFund = fund('netto');
+  const steuerFund = fund('steuer');
+  let x: { wert: number; zeile: string } | undefined;
+  let y: { wert: number; zeile: string } | undefined;
+
+  if (nettoFund && steuerFund) {
+    x = { wert: Number(nettoFund.wert), zeile: nettoFund.beleg };
+    y = { wert: Number(steuerFund.wert), zeile: steuerFund.beleg };
+  } else if (!nettoFund && !steuerFund) {
+    x = zerrissen(zeilen, UEBERSICHT_NETTO);
+    y = zerrissen(zeilen, UEBERSICHT_STEUER);
+  }
+  if (!x || !y) return false;
+
+  const umsatz = round(x.wert + y.wert);
+
+  /* Sie passt: Dann gilt sie, wie gelesen. */
+  if (Math.abs(umsatz - brutto) <= 0.01) {
+    nimm('netto', x.wert.toFixed(2), 'muster', x.zeile);
+    nimm('steuer', y.wert.toFixed(2), 'muster', y.zeile);
+    return false;
+  }
+
+  /* Sie passt nicht: Was in einer Zeile gelesen wurde, kommt wieder heraus. */
+  for (const feld of ['netto', 'steuer'] as const) {
+    const stelle = funde.findIndex((eintrag) => eintrag.feld === feld);
+    if (stelle !== -1) funde.splice(stelle, 1);
+  }
+
+  /* Die Abzugszeile - genau eine muss aufgehen. */
+  const loesungen: Array<{ netto: number; steuer: number; zeile: string }> = [];
+  for (const zeile of zeilen) {
+    const treffer = zeile.match(ABZUGSZEILE);
+    if (!treffer) continue;
+    const [p = 0, q = 0, c = 0] = treffer.slice(1).map((stueck) => betragAus(stueck) ?? 0);
+    if (Math.abs(round(p + q) - c) > 0.01) continue;
+
+    /* Welche der beiden die Steuer ist, sagt der Hoechstsatz. */
+    for (const [a, b] of [[p, q], [q, p]] as const) {
+      const netto = round(x.wert - a);
+      const steuer = round(y.wert - b);
+      if (b > a * HOECHSTSATZ + 0.01 || netto <= 0 || steuer < 0) continue;
+      if (steuer > netto * HOECHSTSATZ + 0.01) continue;
+      if (Math.abs(round(netto + steuer) - brutto) > 0.01) continue;
+      loesungen.push({ netto, steuer, zeile });
+    }
+  }
+
+  if (loesungen.length === 1) {
+    const [loesung] = loesungen;
+    if (!loesung) return false;
+    const beleg = `${x.zeile} | ${y.zeile} | ${loesung.zeile}`;
+    nimm('netto', loesung.netto.toFixed(2), 'geraten', beleg);
+    nimm('steuer', loesung.steuer.toFixed(2), 'geraten', beleg);
+    hinweise.push(
+      `Netto und Steuer sind verrechnet: Die Steuerübersicht (${komma(x.wert)} + ${komma(y.wert)} = ${komma(umsatz)})`
+      + ` abzüglich ${loesung.zeile} ergibt die bezahlte Summe ${komma(brutto)}.`,
+    );
+    return true;
+  }
+
+  hinweise.push(
+    `Steuerübersicht passt nicht zur Summe: ${komma(x.wert)} + ${komma(y.wert)} = ${komma(umsatz)}, bezahlt ${komma(brutto)}.`
+    + (loesungen.length > 1
+      ? ' Mehrere Abzugszeilen kämen in Frage, deshalb bleiben Netto und Steuer leer.'
+      : ' Netto und Steuer bleiben leer.'),
+  );
+  return false;
+}
+
 /** Liest einen Beleg aus dem erkannten Text. */
 export function liesBeleg(text: string, heute?: IsoDate): Belegbefund {
   const zeilen = text
@@ -989,6 +1143,8 @@ export function liesBeleg(text: string, heute?: IsoDate): Belegbefund {
     }
   }
 
+  const verrechnet = istBon && !bonAbgeleitet ? bonUebersicht(zeilen, funde, nimm, hinweise) : false;
+
   const brutto = wert('brutto');
   const netto = wert('netto');
   const steuer = wert('steuer');
@@ -1001,7 +1157,7 @@ export function liesBeleg(text: string, heute?: IsoDate): Belegbefund {
    * NICHT beim Bon: Dort sind Netto und Steuer aus dem Brutto zurueckgerechnet,
    * die Probe ginge also immer auf und bestaetigte nur sich selbst.
    */
-  if (brutto && netto && steuer && !bonAbgeleitet) {
+  if (brutto && netto && steuer && !bonAbgeleitet && !verrechnet) {
     const summe = round(Number(netto) + Number(steuer));
     const fund = funde.find((f) => f.feld === 'brutto');
     if (fund && Math.abs(summe - Number(brutto)) <= 0.02) {

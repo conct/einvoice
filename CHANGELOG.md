@@ -3,7 +3,7 @@
 Jede Fassung ist ein Tag; eingebunden wird über den Tag, nie über `main`:
 
 ```
-npm install git+https://github.com/conct/einvoice.git#v5.5.0
+npm install git+https://github.com/conct/einvoice.git#v5.6.0
 ```
 
 Die Nummern folgen semver. **Bricht** markiert, was bei einem Update ohne
@@ -13,6 +13,25 @@ Ausführlich steht jede Änderung in der Commit-Nachricht des Tags.
 Gepflegt von der Rechnungswerk-Seite (seit 26.11.2026). Wünsche aus anderen
 Anwendungen kommen hier hinein; kleine Korrekturen dürfen sie selbst
 einbringen.
+
+## v5.6.0 – 27.11.2026 · Wunsch aus CHOOZY
+
+- `liesBeleg` hält auf einem Kassenbon die Steuerübersicht gegen die Summe.
+  Auch zerrissene Zeilen zählen („NETTO“, dann „18,18“). Gemessen an einem
+  Bon von Diska: Die Übersicht nennt den Umsatz vor Leergut und Rabatt
+  (18,18 + 1,27 = 19,45), bezahlt wurden 17,95.
+- Passt die Übersicht zur Summe, werden Netto und Steuer genommen (`muster`).
+- Passt sie nicht, wird genau **eine** Abzugszeile gesucht: drei negative
+  Beträge, der dritte die Summe der beiden anderen („-1,26 -0,24 -1,50“).
+  Trifft (Netto − Abzug) + (Steuer − Abzug) die Summe auf den Cent, werden
+  die Differenzen gebucht, als `geraten`: gedruckt stehen sie nirgends. Die
+  Summe wird dadurch nicht `geprueft`.
+- Geht nichts auf, bleiben beide Felder leer, und ein Hinweis nennt die
+  Zahlen: „Steuerübersicht passt nicht zur Summe: 18,18 + 1,27 = 19,45,
+  bezahlt 17,95.“
+- **Bricht:** Hatte ein Bon Netto und Steuer in derselben Zeile und passten
+  sie nicht zur Summe, kamen sie bisher mit einem Hinweis zurück. Jetzt
+  bleiben sie leer, mit dem neuen Hinweis. Rechnungen sind nicht betroffen.
 
 ## v5.5.0 – 26.11.2026 · Wunsch aus CHOOZY
 

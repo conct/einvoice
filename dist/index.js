@@ -4483,6 +4483,89 @@ function liesKassenbon(zeilen, nimm, hinweise) {
   }
   return abgeleitet;
 }
+var komma = (zahl4) => zahl4.toFixed(2).replace(".", ",");
+var UEBERSICHT_NETTO = /^(?:netto(?:betrag|summe)?|summe\s+netto)\s*:?$/i;
+var UEBERSICHT_STEUER = /^(?:mwst\.?|ust\.?|umsatzsteuer|mehrwertsteuer|steuer)\s*:?$/i;
+var NUR_CENTBETRAG = /^\d{1,5},\d{2}\s*(?:€|EUR)?$/i;
+var ABZUGSZEILE = /^-(\d{1,4},\d{2})\s+-(\d{1,4},\d{2})\s+-(\d{1,4},\d{2})$/;
+var HOECHSTSATZ = 0.19;
+function betragUnter(zeilen, stelle) {
+  for (let i = stelle + 1; i <= stelle + 3 && i < zeilen.length; i += 1) {
+    const zeile = zeilen[i] ?? "";
+    if (/^\d{1,2}$/.test(zeile)) continue;
+    return NUR_CENTBETRAG.test(zeile) ? betragAus(zeile) : void 0;
+  }
+  return void 0;
+}
+function zerrissen(zeilen, beschriftung) {
+  const werte = /* @__PURE__ */ new Map();
+  zeilen.forEach((zeile, stelle) => {
+    if (!beschriftung.test(zeile)) return;
+    const wert = betragUnter(zeilen, stelle);
+    if (wert !== void 0 && wert > 0) werte.set(wert, `${zeile} ${komma(wert)}`);
+  });
+  const [einziger] = [...werte];
+  if (werte.size !== 1 || !einziger) return void 0;
+  return { wert: einziger[0], zeile: einziger[1] };
+}
+function bonUebersicht(zeilen, funde, nimm, hinweise) {
+  const fund = (feld) => funde.find((eintrag) => eintrag.feld === feld);
+  const bruttoFund = fund("brutto");
+  if (!bruttoFund) return false;
+  const brutto = Number(bruttoFund.wert);
+  const nettoFund = fund("netto");
+  const steuerFund = fund("steuer");
+  let x;
+  let y;
+  if (nettoFund && steuerFund) {
+    x = { wert: Number(nettoFund.wert), zeile: nettoFund.beleg };
+    y = { wert: Number(steuerFund.wert), zeile: steuerFund.beleg };
+  } else if (!nettoFund && !steuerFund) {
+    x = zerrissen(zeilen, UEBERSICHT_NETTO);
+    y = zerrissen(zeilen, UEBERSICHT_STEUER);
+  }
+  if (!x || !y) return false;
+  const umsatz = round(x.wert + y.wert);
+  if (Math.abs(umsatz - brutto) <= 0.01) {
+    nimm("netto", x.wert.toFixed(2), "muster", x.zeile);
+    nimm("steuer", y.wert.toFixed(2), "muster", y.zeile);
+    return false;
+  }
+  for (const feld of ["netto", "steuer"]) {
+    const stelle = funde.findIndex((eintrag) => eintrag.feld === feld);
+    if (stelle !== -1) funde.splice(stelle, 1);
+  }
+  const loesungen = [];
+  for (const zeile of zeilen) {
+    const treffer = zeile.match(ABZUGSZEILE);
+    if (!treffer) continue;
+    const [p = 0, q = 0, c = 0] = treffer.slice(1).map((stueck) => betragAus(stueck) ?? 0);
+    if (Math.abs(round(p + q) - c) > 0.01) continue;
+    for (const [a, b] of [[p, q], [q, p]]) {
+      const netto = round(x.wert - a);
+      const steuer = round(y.wert - b);
+      if (b > a * HOECHSTSATZ + 0.01 || netto <= 0 || steuer < 0) continue;
+      if (steuer > netto * HOECHSTSATZ + 0.01) continue;
+      if (Math.abs(round(netto + steuer) - brutto) > 0.01) continue;
+      loesungen.push({ netto, steuer, zeile });
+    }
+  }
+  if (loesungen.length === 1) {
+    const [loesung] = loesungen;
+    if (!loesung) return false;
+    const beleg = `${x.zeile} | ${y.zeile} | ${loesung.zeile}`;
+    nimm("netto", loesung.netto.toFixed(2), "geraten", beleg);
+    nimm("steuer", loesung.steuer.toFixed(2), "geraten", beleg);
+    hinweise.push(
+      `Netto und Steuer sind verrechnet: Die Steuer\xFCbersicht (${komma(x.wert)} + ${komma(y.wert)} = ${komma(umsatz)}) abz\xFCglich ${loesung.zeile} ergibt die bezahlte Summe ${komma(brutto)}.`
+    );
+    return true;
+  }
+  hinweise.push(
+    `Steuer\xFCbersicht passt nicht zur Summe: ${komma(x.wert)} + ${komma(y.wert)} = ${komma(umsatz)}, bezahlt ${komma(brutto)}.` + (loesungen.length > 1 ? " Mehrere Abzugszeilen k\xE4men in Frage, deshalb bleiben Netto und Steuer leer." : " Netto und Steuer bleiben leer.")
+  );
+  return false;
+}
 function liesBeleg(text2, heute) {
   const zeilen = text2.split(/\r?\n/).map((zeile) => zeile.replace(/\s+/g, " ").trim()).filter((zeile) => zeile.length > 0);
   const funde = [];
@@ -4566,10 +4649,11 @@ function liesBeleg(text2, heute) {
       nimm("faellig", plusTage(datum, Number(tage)), "geraten", zeile);
     }
   }
+  const verrechnet = istBon && !bonAbgeleitet ? bonUebersicht(zeilen, funde, nimm, hinweise) : false;
   const brutto = wert("brutto");
   const netto = wert("netto");
   const steuer = wert("steuer");
-  if (brutto && netto && steuer && !bonAbgeleitet) {
+  if (brutto && netto && steuer && !bonAbgeleitet && !verrechnet) {
     const summe = round(Number(netto) + Number(steuer));
     const fund = funde.find((f) => f.feld === "brutto");
     if (fund && Math.abs(summe - Number(brutto)) <= 0.02) {

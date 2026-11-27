@@ -26,7 +26,7 @@ deshalb läuft derselbe Code in der App und auf dem Server.
 ## Einbinden
 
 ```bash
-npm install github:conct/einvoice#v5.5.0
+npm install github:conct/einvoice#v5.6.0
 ```
 
 Keine Registry im Spiel, und **`dist/` liegt im Repository** — Installieren
@@ -34,7 +34,7 @@ heißt klonen, nicht bauen. Ohne SSH-Schlüssel auf dem Rechner geht es über
 HTTPS:
 
 ```bash
-npm install git+https://github.com/conct/einvoice.git#v5.5.0
+npm install git+https://github.com/conct/einvoice.git#v5.6.0
 ```
 
 Der erste Versuch ging den üblichen Weg: `prepare` baut beim Installieren.
